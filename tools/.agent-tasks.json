@@ -2,10 +2,10 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "027",
+      "currentTask": "029",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-22T21:32:23.594Z"
+      "lastUpdated": "2026-05-22T21:53:11.200Z"
     },
     {
       "status": "inactive",
@@ -257,8 +257,8 @@
       "description": "Enhancement #3: AssetPropertyChanged event for diff detection",
       "createdAt": "2026-05-22T15:46:54.6295390-04:00",
       "priority": "medium",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-1",
+      "status": "in_progress"
     },
     {
       "id": "030",
@@ -375,5 +375,5 @@
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-22T21:32:19.406Z"
+  "lastPullAt": "2026-05-22T21:53:01.718Z"
 }
