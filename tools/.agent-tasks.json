@@ -2,10 +2,10 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": null,
+      "currentTask": "035",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-22T16:09:17.1633409-04:00"
+      "lastUpdated": "2026-05-22T21:08:30.912Z"
     },
     {
       "status": "inactive",
@@ -305,8 +305,8 @@
       "description": "Bug #2: Bulk task deduplication missing - POST /assets/bulk/enqueue creates duplicates for same asset+worker",
       "createdAt": "2026-05-22T16:21:31.2354009-04:00",
       "priority": "high",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-1",
+      "status": "in_progress"
     },
     {
       "id": "036",
@@ -374,5 +374,5 @@
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-22T21:02:33.680Z"
+  "lastPullAt": "2026-05-22T21:08:18.972Z"
 }
