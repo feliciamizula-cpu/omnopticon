@@ -221,8 +221,8 @@
                       "description":  "Bug #14: Heartbeat always reports 0 running tasks",
                       "createdAt":  "2026-05-22T15:32:35.8942564-04:00",
                       "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-3",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "026",
