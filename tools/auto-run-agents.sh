@@ -653,7 +653,7 @@ log "Dev agents: ${AGENTS[*]}"
 log "Review agents: ${REVIEW_AGENTS[*]}"
 log "Max concurrent: $MAX_CONCURRENT"
 
-git_pull
+git_pull || true
 reconcile_task_board
 log "========================================"
 
@@ -676,7 +676,7 @@ while true; do
 
     if [ "$seconds_since_pull" -gt 300 ]; then
         log "5+ minutes since last pull, fetching latest..."
-        git_pull
+        git_pull || true
     fi
 
     for agent in "${AGENTS[@]}"; do
