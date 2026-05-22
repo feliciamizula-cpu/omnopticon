@@ -6,8 +6,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.EventBus\Argus.BuildingBlocks.EventBus.csproj" />
   </ItemGroup>
 
 </Project>

@@ -18,10 +18,7 @@ public sealed class ArgusWorkerBackgroundService(
     IOptions<ArgusWorkerOptions> options,
     ILogger<ArgusWorkerBackgroundService> logger) : BackgroundService
 {
-    private readonly ArgusWorkerOptions _options = options.Value;
-#pragma warning disable CS0649
-    private int _runningTaskCount;
-#pragma warning restore CS0649
+private readonly ArgusWorkerOptions _options = options.Value;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -83,7 +80,6 @@ public sealed class ArgusWorkerBackgroundService(
         await StartTaskAsync(task.TaskId, cancellationToken);
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Interlocked.Exchange(ref _runningTaskCount, 1);
         var heartbeatTask = StartHeartbeatTimerAsync(heartbeatCts.Token);
 
         var context = new WorkerExecutionContext(
@@ -124,8 +120,7 @@ public sealed class ArgusWorkerBackgroundService(
         {
             heartbeatCts.Cancel();
             await heartbeatTask;
-            Interlocked.Exchange(ref _runningTaskCount, 0);
-            await HeartbeatAsync(_runningTaskCount, cancellationToken);
+            await HeartbeatAsync(0, cancellationToken);
         }
     }
 
@@ -136,7 +131,7 @@ public sealed class ArgusWorkerBackgroundService(
             try
             {
                 await Task.Delay(_options.HeartbeatInterval, cancellationToken);
-                await HeartbeatAsync(_runningTaskCount, cancellationToken);
+                await HeartbeatAsync(0, cancellationToken);
             }
             catch (OperationCanceledException)
             {

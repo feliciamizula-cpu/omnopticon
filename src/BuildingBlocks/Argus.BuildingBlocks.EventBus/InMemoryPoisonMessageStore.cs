@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Argus.Contracts.Events;
 
@@ -30,7 +31,7 @@ public sealed class InMemoryPoisonMessageStore : IPoisonMessageStore
     public bool RemoveMessage(Guid eventId) =>
         _messages.TryRemove(eventId, out _);
 
-    public void RecordPoison(IntegrationEventEnvelope envelope, Exception exception)
+    public void RecordPoison(IntegrationEventEnvelope<JsonElement> envelope, Exception exception)
     {
         var record = new PoisonMessageRecord(
             envelope.EventId,

@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Argus.Contracts.Events;
+
 namespace Argus.BuildingBlocks.EventBus;
 
 public interface IEventTypeRegistry

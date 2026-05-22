@@ -92,6 +92,51 @@ app.MapPost("/workers/register", (WorkerRegistrationRequest request, RealtimeSto
 app.MapPost("/workers/heartbeat", (WorkerHeartbeatRequest request, RealtimeStore store) =>
     store.Heartbeat(request));
 
+var deadLetterConnection = app.Services.GetService<IConnection>();
+var deadLetterChannel = app.Services.GetService<IChannel>();
+
+if (deadLetterConnection is not null && deadLetterChannel is not null)
+{
+    app.MapGet("/admin/dead-letters", (int? take, IPoisonMessageStore store) =>
+    {
+        return Results.Ok(store.GetMessages(take ?? 100));
+    });
+
+    app.MapGet("/admin/dead-letters/{eventId}", (Guid eventId, IPoisonMessageStore store) =>
+    {
+        var record = store.GetMessage(eventId);
+        return record is null ? Results.NotFound() : Results.Ok(record);
+    });
+
+    app.MapPost("/admin/dead-letters/{eventId}/replay", async (Guid eventId, IPoisonMessageStore store, IChannel channel) =>
+    {
+        var record = store.GetMessage(eventId);
+        if (record is null) return Results.NotFound();
+
+        var properties = new BasicProperties
+        {
+            ContentType = "application/json",
+            DeliveryMode = DeliveryModes.Persistent,
+            MessageId = record.EventId.ToString(),
+            CorrelationId = record.CorrelationId?.ToString() ?? "",
+            Type = record.EventType
+        };
+
+        var body = Encoding.UTF8.GetBytes(record.PayloadJson);
+        var routingKey = record.EventType;
+        await channel.BasicPublishAsync("argus.integration.events", routingKey, false, properties, body);
+
+        store.MarkReplayed(eventId);
+        return Results.Ok(new { eventId, replayed = true });
+    });
+
+    app.MapDelete("/admin/dead-letters/{eventId}", (Guid eventId, IPoisonMessageStore store) =>
+    {
+        var removed = store.RemoveMessage(eventId);
+        return removed ? Results.Ok(new { removed = true }) : Results.NotFound();
+    });
+}
+
 app.Run();
 
 internal sealed class RealtimeStore

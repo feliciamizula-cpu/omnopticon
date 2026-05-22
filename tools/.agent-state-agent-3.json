@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "025",
-  "currentTaskDescription": "Bug #14: Heartbeat always reports 0 running tasks",
+  "currentTaskId": "029",
+  "currentTaskDescription": "Enhancement #3: AssetPropertyChanged event for diff detection",
   "context": null,
   "status": "working",
-  "pid": 72258,
-  "startedAt": "2026-05-22T23:05:16.355Z",
-  "lastRunAt": "2026-05-22T23:07:00.869Z",
-  "lastHeartbeatAt": "2026-05-22T23:08:31.117Z",
+  "pid": 94462,
+  "startedAt": "2026-05-22T23:09:19.231Z",
+  "lastRunAt": "2026-05-22T23:09:19.231Z",
+  "lastHeartbeatAt": "2026-05-22T23:10:49.588Z",
   "lastError": null,
-  "updatedAt": "2026-05-22T23:08:31.117Z"
+  "updatedAt": "2026-05-22T23:10:49.588Z"
 }

@@ -582,8 +582,8 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
         var assetTypeCondition = capabilityFilter is not null
             ? @"
                 AND (
-                    ""InputAssetType"" IS NULL
-                    OR ""InputAssetType"" IN (" + capabilityFilter + @")
+                    ""RequiredAssetType"" IS NULL
+                    OR ""RequiredAssetType"" IN (" + capabilityFilter + @")
                 )"
             : "";
 

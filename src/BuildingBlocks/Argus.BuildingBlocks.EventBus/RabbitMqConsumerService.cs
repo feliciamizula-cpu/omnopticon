@@ -12,10 +12,11 @@ using System.Text.Json;
 
 namespace Argus.BuildingBlocks.EventBus;
 
-public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
+public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAsyncDisposable
     where TDbContext : DbContext
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IPoisonMessageStore _poisonStore;
     private readonly IOptions<ArgusEventBusOptions> _options;
     private readonly ILogger _logger;
     private readonly string _consumerName;
@@ -27,10 +28,12 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
+        IPoisonMessageStore poisonStore,
         IOptions<ArgusEventBusOptions> options,
         ILogger<RabbitMqConsumerService<TDbContext>> logger)
     {
         _scopeFactory = scopeFactory;
+        _poisonStore = poisonStore;
         _options = options;
         _logger = logger;
         _consumerName = $"{options.Value.SourceService}_{typeof(TDbContext).Name}";
@@ -58,19 +61,19 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 
             await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
-            foreach (var eventType in eventTypes)
-            {
-                var dlqName = $"dlq.{_consumerName}_{eventType}";
-                await _channel.QueueDeclareAsync(dlqName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
-                await _channel.QueueBindAsync(dlqName, DeadLetterExchange, $"dead.{eventType}", cancellationToken: stoppingToken);
-            }
-
             var eventTypes = new[] {
                 "AssetDiscovered", "AssetUpdated", "AssetRelationshipDiscovered",
                 "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
                 "ProgramCreated", "ScopeCreated", "RateLimitTokenGranted", "RateLimitDelayed",
                 "WorkerHeartbeat", "ProgramScopeChanged"
             };
+
+            foreach (var eventType in eventTypes)
+            {
+                var dlqName = $"dlq.{_consumerName}_{eventType}";
+                await _channel.QueueDeclareAsync(dlqName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+                await _channel.QueueBindAsync(dlqName, DeadLetterExchange, $"dead.{eventType}", cancellationToken: stoppingToken);
+            }
 
             foreach (var eventType in eventTypes)
             {
@@ -107,6 +110,17 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                     if (retryCount >= _maxRetries)
                     {
                         _logger.LogWarning("Message {DeliveryTag} exceeded max retries, moving to DLQ", ea.DeliveryTag);
+                        try
+                        {
+                            var body = ea.Body.ToArray();
+                            var json = Encoding.UTF8.GetString(body);
+                            var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json);
+                            if (envelope is not null)
+                            {
+                                _poisonStore.RecordPoison(envelope, ex);
+                            }
+                        }
+                        catch { }
                         await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, stoppingToken);
                     }
                     else
@@ -269,7 +283,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
     {
         if (_channel is not null) await _channel.CloseAsync();
         if (_connection is not null) await _connection.CloseAsync();
-        await base.DisposeAsync();
     }
 }
 
