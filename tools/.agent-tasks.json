@@ -239,6 +239,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "028",
+                      "description":  "Enhancement #2: Event schema versioning",
+                      "createdAt":  "2026-05-22T15:46:43.6207729-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
