@@ -247,6 +247,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "029",
+                      "description":  "Enhancement #3: AssetPropertyChanged event for diff detection",
+                      "createdAt":  "2026-05-22T15:46:54.6295390-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
