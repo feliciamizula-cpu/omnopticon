@@ -1,92 +1,147 @@
 # Argus Recon Platform
 
-Argus is a distributed reconnaissance platform for scoped bug-bounty asset discovery. It is being rebuilt from the eShop/Aspire foundation into a service-and-worker system that can ingest programs, enforce scope, normalize discovered assets, queue durable work, stream operational events, and show a dense real-time command UI.
+A distributed bug-bounty reconnaissance platform built on Microsoft .NET Aspire. Argus discovers, processes, classifies, and visualizes assets across authorized bug-bounty targets at scale.
 
-## Current Shape
+## Architecture
 
-The current implementation includes:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Argus.AppHost                           │
+│                    (Aspire Orchestrator)                        │
+└─────────────────────────────────────────────────────────────────┘
+         │              │              │              │
+         ▼              ▼              ▼              ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│  Argus.Web   │ │ Argus.Api   │ │   Workers   │ │  Services   │
+│   (UI)       │ │  Gateway    │ │  (10 types) │ │  (6 types)  │
+└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+                                           │              │
+                                    ┌──────┴──────────────┴──────┐
+                                    │     Infrastructure        │
+                                    │  PostgreSQL / Redis /     │
+                                    │  RabbitMQ                 │
+                                    └───────────────────────────┘
+```
 
-- Aspire orchestration through `src/Argus.AppHost`.
-- Shared service defaults for telemetry, health checks, resilience, and service discovery.
-- Core services for programs/scopes, assets, tasks, rate limits, scan orchestration, and realtime events.
-- Shared contracts for assets, tasks, programs, workers, and integration events.
-- Worker host infrastructure with registration, heartbeat, task leasing, progress reporting, rate-limit checks, scope validation, and produced asset publishing.
-- MVP worker projects for Amass, Subfinder, DNS resolution, HTTP probing, HTML DOM spidering, JavaScript endpoint extraction, wordlist discovery, headless spidering, fingerprinting, and asset scoring.
-- A compact web command center with assets, tasks, workers, events, rate limits, scan plans, and programs.
-- A container deployment path in `deploy/`.
+## Core Concepts
 
-The workers are currently adapter shells for proving the end-to-end architecture. Their internals are ready to be replaced with real tool integrations as each adapter matures.
+**Assets** are the fundamental entity. Every discovered host, domain, URL, endpoint, or finding is an asset with metadata, relationships, timestamps, and scoring.
+
+**Workers** are long-running services that subscribe to asset events and perform reconnaissance tasks (subdomain enumeration, HTTP probing, spidering, fingerprinting, etc.).
+
+**Tasks** provide durable, resumable work tracking. Workers lease tasks, report progress, and complete or fail — ensuring no work is lost on interruption.
+
+**Rate Limiting** is distributed and tiered (per-program, per-scope, per-host) to respect bug-bounty rules while maximizing throughput.
+
+## Services
+
+| Service | Purpose |
+|---------|---------|
+| `ProgramScopeService` | Manage bug-bounty programs and their in-scope/excluded domains |
+| `AssetService` | Store, query, and relate discovered assets |
+| `TaskService` | Durable task orchestration with leasing and checkpoints |
+| `RateLimitService` | Distributed multi-tier rate limiting |
+| `RealtimeService` | Server-sent events for live UI updates |
+| `ScanOrchestratorService` | Workflow orchestration for discovery pipelines |
+
+## Workers
+
+| Worker | Input | Output |
+|--------|-------|--------|
+| Amass | Domain | Subdomain, DnsRecord |
+| Subfinder | Domain | Subdomain |
+| DnsResolver | Domain, Subdomain | Ip, DnsRecord |
+| HttpProbe | Subdomain, Ip | Url, HttpResponse |
+| HtmlDomSpider | Url, HtmlPage | Url, ApiEndpoint, JavaScriptFile |
+| JsExtractor | JavaScriptFile | ApiEndpoint, Url, FindingCandidate |
+| WordlistDiscovery | Url | Url |
+| HeadlessSpider | Url | Url, ApiEndpoint, JavaScriptFile |
+| Fingerprint | Url, HttpResponse, HtmlPage | Technology |
+| AssetScoring | * | FindingCandidate |
+
+## Event-Driven Workflow
+
+```
+AssetDiscovered (Domain)
+    │
+    ├──► AmassWorker ──────► SubdomainAssetDiscovered
+    ├──► SubfinderWorker ──► SubdomainAssetDiscovered
+    │
+SubdomainAssetDiscovered ──► DnsResolverWorker ──► IpAssetDiscovered
+    │                           │
+    │                           ▼
+    │                      HttpProbeWorker ──► UrlAssetDiscovered
+    │                                              │
+    │                                              ▼
+    │                      HtmlDomSpider ──► (more Url, ApiEndpoint, JS)
+    │                           │
+    │                           ▼
+    │                      JsExtractor ──► ApiEndpoint, FindingCandidate
+    │                           │
+    │                           ▼
+    │                      FingerprintWorker ──► Technology
+    │                           │
+    │                           ▼
+    │                      AssetScoringWorker ──► FindingCandidate
+```
+
+## Asset Types
+
+Domain, Subdomain, Ip, Cidr, Url, HttpResponse, HtmlPage, JavaScriptFile, ApiEndpoint, Technology, FindingCandidate, Port, DnsRecord, Program, Scope, CssFile, JsonDocument
+
+## Technology Stack
+
+- **.NET 10** with Aspire for orchestration
+- **PostgreSQL** (via EF Core) for normalized asset metadata
+- **Redis** for leases, rate limits, and caching
+- **RabbitMQ** for event bus messaging
 
 ## Local Development
 
-Prerequisites:
-
-- .NET 10 SDK.
-- Docker Engine or Docker Desktop for Aspire-managed infrastructure.
-
-Run the Aspire AppHost:
-
 ```bash
+# Prerequisites: .NET 10 SDK, Docker Desktop
 dotnet run --project src/Argus.AppHost/Argus.AppHost.csproj
 ```
 
-The console output will include the Aspire dashboard URL. Use that dashboard for local service URLs, logs, traces, metrics, and health status.
+The Aspire dashboard provides service URLs, logs, traces, metrics, and health status.
 
 ## Container Deployment
-
-For a fresh environment outside Aspire:
 
 ```bash
 cp deploy/argus.env.example deploy/argus.env
 docker compose --env-file deploy/argus.env -f deploy/compose.yaml up --build -d
 ```
 
-Default exposed endpoints:
+| Endpoint | URL |
+|----------|-----|
+| Web UI | http://localhost:8080 |
+| API Gateway | http://localhost:8081 |
+| Realtime SSE | http://localhost:8082 |
 
-- Argus Web: `http://localhost:8080`
-- API Gateway: `http://localhost:8081`
-- Realtime Service: `http://localhost:8082`
-
-See [deploy/README.md](deploy/README.md) for configuration, health checks, update commands, and teardown commands.
-
-## Demo Data
-
-After the services are running, seed a compact demo program, scopes, assets, relationships, tasks, workers, rate-limit buckets, and live events through the API gateway:
+## Seed Demo Data
 
 ```bash
 tools/seed-demo-data.sh
 ```
 
-The script targets `http://localhost:8081` by default. Override it when using Aspire-assigned ports:
+## Project Structure
 
-```bash
-ARGUS_API_BASE=http://localhost:12345 tools/seed-demo-data.sh
 ```
-
-## MVP Phase Status
-
-- Phase 1, eShop foundation: mostly complete. Argus AppHost, ServiceDefaults, Web, ApiGateway, Contracts, and BuildingBlocks are in place; remaining work is cleanup of old eShop residue and polish.
-- Phase 2, core domain services: mostly complete for the MVP slice. Durable/in-memory implementations exist for program scope, assets, tasks, rate limits, scan orchestration, and realtime state.
-- Phase 3, event bus and outbox: partially complete. Event contracts, publisher interfaces, inbox/outbox records, RabbitMQ publishing, and realtime forwarding exist; full transactional outbox dispatch and durable consumer inbox processing remain.
-- Phase 4, worker host: mostly complete for the MVP slice. Shared worker behavior and worker projects exist; real Amass/subfinder/headless/tool execution is still pending.
-- Phase 5, UI: partially complete. The dense command UI and live refresh are present; deeper grid ergonomics such as column chooser, saved views, keyboard workflows, and asset detail panels remain.
-
-## First End-To-End Target
-
-The first milestone remains:
-
-```text
-Create program
-  -> Add in-scope domain
-  -> Emit DomainAssetDiscovered
-  -> Run subfinder/amass tasks
-  -> Save subdomains
-  -> Emit SubdomainAssetDiscovered
-  -> HTTP probe subdomains under rate limit
-  -> Save URL and HTTP response assets
-  -> Extract links from HTML
-  -> Save new URL assets
-  -> Show events/assets/tasks live in UI
+src/
+├── Argus.AppHost/          Aspire orchestrator
+├── Argus.ApiGateway/       API gateway
+├── Argus.Web/              Web UI command center
+├── Argus.ServiceDefaults/  Shared telemetry, health, resilience
+├── Contracts/              DTOs and event contracts
+├── BuildingBlocks/
+│   ├── Argus.BuildingBlocks.EventBus/   Event publishing
+│   └── Argus.BuildingBlocks.Workers/   Worker host infra
+├── Services/
+│   ├── Argus.AssetService/
+│   ├── Argus.TaskService/
+│   ├── Argus.RateLimitService/
+│   ├── Argus.ProgramScopeService/
+│   ├── Argus.RealtimeService/
+│   └── Argus.ScanOrchestratorService/
+└── Workers/                (10 worker projects)
 ```
-
-That path is structurally wired. The main remaining work is replacing simulated worker outputs with real tool execution and completing the transactional event/outbox reliability layer.
