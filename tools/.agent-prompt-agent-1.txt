@@ -12,4 +12,4 @@ CRITICAL INSTRUCTIONS:
 5. On success, commit: git -C /workspaces/omnopticon add -A && git -C /workspaces/omnopticon commit -m "agent-1: Enhancement #3: AssetPropertyChanged event for diff detection" && git -C /workspaces/omnopticon push origin main
 6. Mark done: cd /workspaces/omnopticon/tools && ./agent-coord.sh done -t 029 -a agent-1
 
-If you complete the task successfully, also update your state file: echo '{"agentId":"agent-1","currentTaskId":null,"currentTaskDescription":null,"status":"idle","lastRunAt":"'2026-05-22T22:05:59.467Z'"}' > /workspaces/omnopticon/tools/.agent-state-agent-1.json
+If you complete the task successfully, also update your state file: echo '{"agentId":"agent-1","currentTaskId":null,"currentTaskDescription":null,"status":"idle","lastRunAt":"'2026-05-22T22:07:02.239Z'"}' > /workspaces/omnopticon/tools/.agent-state-agent-1.json
