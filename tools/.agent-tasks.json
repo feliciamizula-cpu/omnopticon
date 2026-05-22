@@ -127,6 +127,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "015",
+                      "description":  "Bug #17: CI restores wrong solution file",
+                      "createdAt":  "2026-05-22T15:29:31.1385815-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
