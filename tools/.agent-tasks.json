@@ -271,6 +271,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "032",
+                      "description":  "Enhancement #6: Per-program rate limit policies wired into RateLimitService",
+                      "createdAt":  "2026-05-22T15:47:59.7835677-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
