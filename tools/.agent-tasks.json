@@ -2,10 +2,10 @@
     "agents":  [
                    {
                        "status":  "active",
-                       "currentTask":  null,
+                       "currentTask":  "007",
                        "name":  "Agent 1",
                        "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T15:38:42.7425350-04:00"
+                       "lastUpdated":  "2026-05-22T15:39:00.6511739-04:00"
                    },
                    {
                        "status":  "inactive",
@@ -74,8 +74,8 @@
                       "description":  "Bug #9: RabbitMQ creates new channel per message - should use singleton channel",
                       "createdAt":  "2026-05-22T15:23:14.3793807-04:00",
                       "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-1",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "008",
