@@ -151,6 +151,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "018",
+                      "description":  "Design #20: RealtimeService fully in-memory - needs durability",
+                      "createdAt":  "2026-05-22T15:30:16.5041452-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
