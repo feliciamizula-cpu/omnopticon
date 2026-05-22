@@ -15,6 +15,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddDbContext<TaskDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
     builder.Services.AddArgusEfCoreOutbox<TaskDbContext>();
+    builder.Services.AddArgusInboxConsumer<TaskDbContext>();
     builder.Services.AddHealthChecks()
         .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<ITaskStore, EfTaskStore>();

@@ -16,6 +16,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddDbContext<ProgramScopeDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
     builder.Services.AddArgusEfCoreOutbox<ProgramScopeDbContext>();
+    builder.Services.AddArgusInboxConsumer<ProgramScopeDbContext>();
     builder.Services.AddScoped<IProgramScopeStore, EfProgramScopeStore>();
 }
 else
