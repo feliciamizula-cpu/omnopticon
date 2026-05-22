@@ -2,17 +2,38 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "030",
+      "currentTask": "029",
       "name": "Agent 1",
       "id": "agent-1",
       "lastUpdated": "2026-05-22T21:54:03.150Z"
     },
     {
-      "status": "inactive",
+      "status": "active",
       "currentTask": "016",
       "name": "Agent 2",
       "id": "agent-2",
       "lastUpdated": "2026-05-22T15:50:01.8474364-04:00"
+    },
+    {
+      "status": "active",
+      "currentTask": "025",
+      "name": "Agent 3",
+      "id": "agent-3",
+      "lastUpdated": "2026-05-22T21:40:33.056Z"
+    },
+    {
+      "status": "active",
+      "currentTask": "013",
+      "name": "Agent 4",
+      "id": "agent-4",
+      "lastUpdated": "2026-05-22T21:40:33.056Z"
+    },
+    {
+      "status": "active",
+      "currentTask": null,
+      "name": "Agent 5",
+      "id": "agent-5",
+      "lastUpdated": "2026-05-22T21:40:33.056Z"
     }
   ],
   "tasks": [
