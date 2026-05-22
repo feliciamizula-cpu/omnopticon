@@ -17,7 +17,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<ArgusEventBusOptions> _options;
-    private readonly IEventTypeRegistry _eventTypeRegistry;
     private readonly ILogger _logger;
     private readonly string _consumerName;
     private IConnection? _connection;
@@ -26,12 +25,10 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
         IOptions<ArgusEventBusOptions> options,
-        IEventTypeRegistry eventTypeRegistry,
         ILogger<RabbitMqConsumerService<TDbContext>> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
-        _eventTypeRegistry = eventTypeRegistry;
         _logger = logger;
         _consumerName = $"{options.Value.SourceService}_{typeof(TDbContext).Name}";
     }
@@ -63,15 +60,10 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 "WorkerHeartbeat", "ProgramScopeChanged"
             };
 
-            var queueName = $"{_consumerName}_all";
-            await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
             foreach (var eventType in eventTypes)
             {
-<<<<<<< HEAD
-=======
                 var queueName = $"{_consumerName}_{eventType}";
                 await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
                 await _channel.QueueBindAsync(queueName, _options.Value.ExchangeName, eventType, cancellationToken: stoppingToken);
             }
 
@@ -98,17 +90,12 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 }
             };
 
-<<<<<<< HEAD
-            await _channel.BasicConsumeAsync(queue: queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
-            _logger.LogInformation("RabbitMQ consumer {ConsumerName} started", _consumerName);
-=======
             foreach (var eventType in eventTypes)
             {
                 var queueName = $"{_consumerName}_{eventType}";
                 await _channel.BasicConsumeAsync(queue: queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
             }
             _logger.LogInformation("RabbitMQ consumer {ConsumerName} started, listening on {QueueCount} queues", _consumerName, eventTypes.Length);
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -135,11 +122,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             return;
         }
 
-<<<<<<< HEAD
-        var payloadType = _eventTypeRegistry.GetPayloadType(envelope.EventType);
-        var handlerType = typeof(IIntegrationEventConsumer<>).MakeGenericType(payloadType);
-        var handler = scope.ServiceProvider.GetService(handlerType);
-=======
         var resolvedTypes = ResolveHandlerType(envelope.EventType);
         if (resolvedTypes is null)
         {
@@ -148,7 +130,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
         }
         var handlerType = resolvedTypes.Value.handlerType;
         var payloadType = resolvedTypes.Value.payloadType;
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
 
         var handler = scope.ServiceProvider.GetService(handlerType);
         if (handler is null)
@@ -157,12 +138,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             return;
         }
 
-<<<<<<< HEAD
-        var method = typeof(IIntegrationEventConsumer<object>).GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync));
-        var invokeMethod = handlerType.GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync));
-
-        if (invokeMethod != null)
-=======
         var payloadJson = envelope.Payload.GetRawText();
         var deserializedPayload = JsonSerializer.Deserialize(payloadJson, payloadType, JsonOptions);
         if (deserializedPayload is null)
@@ -180,27 +155,8 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 
         var task = (Task?)invokeMethod.Invoke(handler, new[] { envelope, deserializedPayload, cancellationToken });
         if (task is not null)
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
         {
-            var deserializedPayload = JsonSerializer.Deserialize(envelope.Payload.GetRawText(), payloadType);
-            if (deserializedPayload == null)
-            {
-                _logger.LogError("Failed to deserialize payload for event {EventType}", envelope.EventType);
-                return;
-            }
-
-            var concreteEnvelope = IntegrationEventEnvelope<object>.Create(
-                deserializedPayload,
-                envelope.EventType,
-                envelope.SourceService,
-                envelope.CorrelationId,
-                envelope.CausationId);
-
-            var task = (Task?)invokeMethod.Invoke(handler, new object[] { concreteEnvelope, cancellationToken });
-            if (task is not null)
-            {
-                await task;
-            }
+            await task;
         }
 
         dbContext.Set<InboxMessageRecord>().Add(new InboxMessageRecord
@@ -218,9 +174,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
         _logger.LogInformation("Processed event {EventId} of type {EventType}", envelope.EventId, envelope.EventType);
     }
 
-<<<<<<< HEAD
-    public override async ValueTask DisposeAsync()
-=======
     private static readonly Dictionary<string, (Type handlerType, Type payloadType)> EventTypeToTypes = new()
     {
         ["ProgramCreated"] = (typeof(IIntegrationEventConsumer<ProgramCreated>), typeof(ProgramCreated)),
@@ -267,8 +220,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public override void Dispose()
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
+    public override async ValueTask DisposeAsync()
     {
         if (_channel is not null) await _channel.CloseAsync();
         if (_connection is not null) await _connection.CloseAsync();

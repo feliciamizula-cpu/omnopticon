@@ -725,11 +725,13 @@ internal sealed class TaskDbContext(DbContextOptions<TaskDbContext> options) : D
         task.HasIndex(record => new { record.WorkerCapability, record.State, record.Attempt });
         task.HasIndex(record => record.LeaseExpiresAt);
         task.HasIndex(record => record.DedupeHash);
+        task.HasIndex(record => record.InputAssetType);
         task.Property(record => record.State).HasConversion<string>().HasMaxLength(64);
         task.Property(record => record.TaskType).HasMaxLength(128);
         task.Property(record => record.WorkerCapability).HasMaxLength(128);
         task.Property(record => record.LeaseOwner).HasMaxLength(256);
         task.Property(record => record.ErrorCode).HasMaxLength(128);
+        task.Property(record => record.InputAssetType).HasMaxLength(64);
         task.Property(record => record.InputPayloadJson).HasColumnType("jsonb");
         task.Property(record => record.CheckpointJson).HasColumnType("jsonb");
         task.Property(record => record.OutputSummaryJson).HasColumnType("jsonb");
