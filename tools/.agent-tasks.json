@@ -314,6 +314,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "037",
+                      "description":  "Bug #7: ArgusMetrics meter registered but no instruments - no operational metrics exist",
+                      "createdAt":  "2026-05-22T16:22:14.2085245-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
