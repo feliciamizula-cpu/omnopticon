@@ -39,6 +39,14 @@
                       "priority":  "high",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "004",
+                      "description":  "Bug #6: Outbox transactional guarantee - EnqueueAsync calls SaveChangesAsync separately from entity save",
+                      "createdAt":  "2026-05-22T15:21:32.5702439-04:00",
+                      "priority":  "high",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
