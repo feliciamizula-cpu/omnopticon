@@ -2,10 +2,10 @@
     "agents":  [
                    {
                        "status":  "active",
-                       "currentTask":  null,
+                       "currentTask":  "003",
                        "name":  "Agent 1",
                        "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T15:36:25.6705527-04:00"
+                       "lastUpdated":  "2026-05-22T15:36:37.4555402-04:00"
                    },
                    {
                        "status":  "inactive",
@@ -39,8 +39,8 @@
                       "description":  "Bug #5: Event handler dispatch - Payload.GetType() is JsonElement, never finds IIntegrationEventConsumer registrations",
                       "createdAt":  "2026-05-22T15:21:23.2398012-04:00",
                       "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-1",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "004",
