@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+deploy/argus.env
 
 # User-specific files
 *.rsuser

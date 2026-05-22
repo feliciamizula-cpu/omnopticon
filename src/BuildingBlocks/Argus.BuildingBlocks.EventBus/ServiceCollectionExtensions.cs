@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -5,6 +6,38 @@ namespace Argus.BuildingBlocks.EventBus;
 
 public static class ServiceCollectionExtensions
 {
+    public static IHostApplicationBuilder AddArgusIntegrationEvents(
+        this IHostApplicationBuilder builder,
+        Action<ArgusEventBusOptions>? configure = null,
+        string rabbitMqConnectionName = "eventbus")
+    {
+        builder.Services.AddHttpClient();
+        builder.Services.AddOptions<ArgusEventBusOptions>()
+            .Configure(options =>
+            {
+                options.SourceService = builder.Configuration["ARGUS_SOURCE_SERVICE"] ?? options.SourceService;
+
+                if (Uri.TryCreate(builder.Configuration["ARGUS_REALTIME_SERVICE"], UriKind.Absolute, out var realtimeService))
+                {
+                    options.RealtimeServiceBaseAddress = realtimeService;
+                }
+
+                configure?.Invoke(options);
+            });
+
+        builder.Services.AddSingleton<RealtimeIntegrationEventPublisher>();
+
+        if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(rabbitMqConnectionName)))
+        {
+            builder.AddRabbitMQClient(rabbitMqConnectionName);
+            builder.Services.AddSingleton<RabbitMqIntegrationEventPublisher>();
+        }
+
+        builder.Services.AddSingleton<IIntegrationEventPublisher, CompositeIntegrationEventPublisher>();
+
+        return builder;
+    }
+
     public static IHostApplicationBuilder AddRealtimeIntegrationEvents(
         this IHostApplicationBuilder builder,
         Action<ArgusEventBusOptions>? configure = null)

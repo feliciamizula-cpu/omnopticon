@@ -6,6 +6,7 @@ builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
+var endpoints = ArgusServiceEndpoints.From(app.Configuration);
 
 app.MapDefaultEndpoints();
 
@@ -23,16 +24,16 @@ app.MapGet("/", () => Results.Ok(new
     }
 }));
 
-MapService(app, "/programs", "https+http://program-scope-service");
-MapService(app, "/scopes", "https+http://program-scope-service");
-MapService(app, "/scope-validation", "https+http://program-scope-service");
-MapService(app, "/assets", "https+http://asset-service");
-MapService(app, "/tasks", "https+http://task-service");
-MapService(app, "/rate-limits", "https+http://rate-limit-service");
-MapService(app, "/scan-plans", "https+http://scan-orchestrator-service");
-MapService(app, "/workflow-types", "https+http://scan-orchestrator-service");
-MapService(app, "/events", "https+http://realtime-service");
-MapService(app, "/workers", "https+http://realtime-service");
+MapService(app, "/programs", endpoints.ProgramScope);
+MapService(app, "/scopes", endpoints.ProgramScope);
+MapService(app, "/scope-validation", endpoints.ProgramScope);
+MapService(app, "/assets", endpoints.Asset);
+MapService(app, "/tasks", endpoints.Task);
+MapService(app, "/rate-limits", endpoints.RateLimit);
+MapService(app, "/scan-plans", endpoints.ScanOrchestrator);
+MapService(app, "/workflow-types", endpoints.ScanOrchestrator);
+MapService(app, "/events", endpoints.Realtime);
+MapService(app, "/workers", endpoints.Realtime);
 
 app.Run();
 
@@ -40,4 +41,22 @@ static void MapService(WebApplication app, string pathPrefix, string destination
 {
     app.MapForwarder(pathPrefix, destinationPrefix);
     app.MapForwarder($"{pathPrefix}/{{**catch-all}}", destinationPrefix);
+}
+
+internal sealed record ArgusServiceEndpoints(
+    string ProgramScope,
+    string Asset,
+    string Task,
+    string RateLimit,
+    string ScanOrchestrator,
+    string Realtime)
+{
+    public static ArgusServiceEndpoints From(IConfiguration configuration) =>
+        new(
+            configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
+            configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
+            configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
+            configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
+            configuration["ARGUS_SCAN_ORCHESTRATOR_SERVICE"] ?? "https+http://scan-orchestrator-service",
+            configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service");
 }

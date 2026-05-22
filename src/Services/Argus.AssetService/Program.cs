@@ -11,7 +11,7 @@ using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddRealtimeIntegrationEvents(options => options.SourceService = "Argus.AssetService");
+builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AssetService");
 builder.Services.AddProblemDetails();
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))

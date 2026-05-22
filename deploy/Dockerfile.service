@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+
+ARG DOTNET_VERSION=10.0
+
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
+WORKDIR /src
+
+COPY . .
+
+ARG PROJECT_PATH
+RUN dotnet restore "$PROJECT_PATH"
+RUN dotnet publish "$PROJECT_PATH" -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
+WORKDIR /app
+
+ARG ASSEMBLY_NAME
+ENV ARGUS_ASSEMBLY_NAME=${ASSEMBLY_NAME}
+ENV ASPNETCORE_URLS=http://+:8080
+ENV DOTNET_EnableDiagnostics=0
+
+EXPOSE 8080
+
+COPY --from=build /app/publish .
+
+ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]

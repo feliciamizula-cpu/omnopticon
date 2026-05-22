@@ -15,16 +15,18 @@ app.MapDefaultEndpoints();
 app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
 
-    var assetsTask = gateway.GetJsonAsync("https+http://asset-service", "/assets?pageSize=200", cancellationToken);
-    var tasksTask = gateway.GetJsonAsync("https+http://task-service", "/tasks", cancellationToken);
-    var programsTask = gateway.GetJsonAsync("https+http://program-scope-service", "/programs", cancellationToken);
-    var eventsTask = gateway.GetJsonAsync("https+http://realtime-service", "/events?take=80", cancellationToken);
-    var workersTask = gateway.GetJsonAsync("https+http://realtime-service", "/workers", cancellationToken);
-    var rateLimitsTask = gateway.GetJsonAsync("https+http://rate-limit-service", "/rate-limits", cancellationToken);
-    var scanPlansTask = gateway.GetJsonAsync("https+http://scan-orchestrator-service", "/scan-plans", cancellationToken);
+    var assetsTask = gateway.GetJsonAsync(endpoints.Asset, "/assets?pageSize=200", cancellationToken);
+    var tasksTask = gateway.GetJsonAsync(endpoints.Task, "/tasks", cancellationToken);
+    var programsTask = gateway.GetJsonAsync(endpoints.ProgramScope, "/programs", cancellationToken);
+    var scopesTask = gateway.GetJsonAsync(endpoints.ProgramScope, "/scopes", cancellationToken);
+    var eventsTask = gateway.GetJsonAsync(endpoints.Realtime, "/events?take=80", cancellationToken);
+    var workersTask = gateway.GetJsonAsync(endpoints.Realtime, "/workers", cancellationToken);
+    var rateLimitsTask = gateway.GetJsonAsync(endpoints.RateLimit, "/rate-limits", cancellationToken);
+    var scanPlansTask = gateway.GetJsonAsync(endpoints.ScanOrchestrator, "/scan-plans", cancellationToken);
 
-    await Task.WhenAll(assetsTask, tasksTask, programsTask, eventsTask, workersTask, rateLimitsTask, scanPlansTask);
+    await Task.WhenAll(assetsTask, tasksTask, programsTask, scopesTask, eventsTask, workersTask, rateLimitsTask, scanPlansTask);
 
     return Results.Json(new
     {
@@ -32,11 +34,44 @@ app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, Cancellatio
         assets = assetsTask.Result,
         tasks = tasksTask.Result,
         programs = programsTask.Result,
+        scopes = scopesTask.Result,
         events = eventsTask.Result,
         workers = workersTask.Result,
         rateLimits = rateLimitsTask.Result,
         scanPlans = scanPlansTask.Result
     });
+});
+
+app.MapPost("/ui/programs", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.ProgramScope, "/programs", payload, cancellationToken);
+});
+
+app.MapPost("/ui/programs/{programId:guid}/scopes", async (
+    Guid programId,
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    payload["programId"] = programId;
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.ProgramScope, $"/programs/{programId}/scopes", payload, cancellationToken);
+});
+
+app.MapPost("/ui/scan-plans/domain-discovery", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.ScanOrchestrator, "/scan-plans/domain-discovery", payload, cancellationToken);
 });
 
 app.MapGet("/ui/events/stream", async (
@@ -45,6 +80,7 @@ app.MapGet("/ui/events/stream", async (
     CancellationToken cancellationToken) =>
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     context.Response.Headers.CacheControl = "no-cache";
     context.Response.Headers.Connection = "keep-alive";
     context.Response.ContentType = "text/event-stream";
@@ -53,7 +89,7 @@ app.MapGet("/ui/events/stream", async (
 
     while (!cancellationToken.IsCancellationRequested)
     {
-        var events = await gateway.GetJsonAsync("https+http://realtime-service", "/events?take=1", cancellationToken);
+        var events = await gateway.GetJsonAsync(endpoints.Realtime, "/events?take=1", cancellationToken);
         var eventId = events is JsonArray { Count: > 0 } eventArray
             ? eventArray[0]?["eventId"]?.GetValue<string>()
             : null;
@@ -146,6 +182,16 @@ app.MapGet("/", () => Results.Content("""
       font: inherit;
     }
     input, select { min-width: 140px; }
+    form.inline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      background: #12161a;
+    }
+    form.inline input, form.inline select { min-width: 170px; }
     nav button {
       width: 100%;
       display: block;
@@ -237,6 +283,7 @@ app.MapGet("/", () => Results.Content("""
       <button data-view="events">Live Events</button>
       <button data-view="rateLimits">Rate Limits</button>
       <button data-view="scanPlans">Scan Plans</button>
+      <button data-view="scopes">Scope Explorer</button>
       <button data-view="programs">Programs</button>
     </nav>
     <section>
@@ -278,6 +325,7 @@ app.MapGet("/", () => Results.Content("""
     document.querySelector("#refreshButton").addEventListener("click", load);
     search.addEventListener("input", () => { state.filter = search.value.toLowerCase(); render(); });
     assetType.addEventListener("change", () => { state.assetType = assetType.value; render(); });
+    content.addEventListener("submit", submitCommand);
 
     async function load() {
       const marker = document.querySelector("#refreshState");
@@ -307,7 +355,7 @@ app.MapGet("/", () => Results.Content("""
       updateMetrics();
       const rows = getRowsForView();
       document.querySelector("#rowCount").textContent = `${rows.length} rows`;
-      content.innerHTML = tableFor(state.view, rows);
+      content.innerHTML = controlsFor(state.view) + tableFor(state.view, rows);
       renderEventRail();
     }
 
@@ -331,6 +379,7 @@ app.MapGet("/", () => Results.Content("""
         : state.view === "events" ? (data.events ?? [])
         : state.view === "rateLimits" ? (data.rateLimits ?? [])
         : state.view === "scanPlans" ? (data.scanPlans ?? [])
+        : state.view === "scopes" ? (data.scopes ?? [])
         : (data.programs ?? []);
 
       if (state.view === "assets" && state.assetType) {
@@ -379,9 +428,111 @@ app.MapGet("/", () => Results.Content("""
           plan.seededDomainAssetId ?? "", formatTime(plan.createdAt)
         ]));
       }
+      if (view === "scopes") {
+        return renderTable(["Program","Type","Action","Pattern","Notes","Created"], rows.map(scope => [
+          programName(scope.programId), scope.scopeType, scope.action, scope.pattern, scope.notes ?? "", formatTime(scope.createdAt)
+        ]));
+      }
       return renderTable(["Name","Source","Scopes","Created","Updated"], rows.map(program => [
         program.name, program.source, (program.scopes ?? []).length, formatTime(program.createdAt), formatTime(program.updatedAt)
       ]));
+    }
+
+    function controlsFor(view) {
+      if (view === "programs") {
+        return `<form class="inline" data-command="create-program">
+          <input name="name" placeholder="Program name" required>
+          <input name="source" placeholder="Source" value="custom">
+          <input name="externalUrl" placeholder="External URL">
+          <button type="submit">Create Program</button>
+        </form>`;
+      }
+      if (view === "scopes") {
+        return `<form class="inline" data-command="create-scope">
+          ${programSelect("programId")}
+          <select name="scopeType"><option value="domain">Domain</option><option value="wildcard-domain">Wildcard Domain</option><option value="url">URL</option><option value="cidr">CIDR</option></select>
+          <select name="action"><option value="Include">Include</option><option value="Exclude">Exclude</option></select>
+          <input name="pattern" placeholder="Scope pattern" required>
+          <input name="notes" placeholder="Notes">
+          <button type="submit">Add Scope</button>
+        </form>`;
+      }
+      if (view === "scanPlans") {
+        return `<form class="inline" data-command="start-domain-discovery">
+          ${programSelect("programId")}
+          ${scopeSelect("scopeId")}
+          <input name="domain" placeholder="example.com" required>
+          <button type="submit">Start Discovery</button>
+        </form>`;
+      }
+      return "";
+    }
+
+    async function submitCommand(event) {
+      const form = event.target.closest("form[data-command]");
+      if (!form) return;
+      event.preventDefault();
+
+      const marker = document.querySelector("#refreshState");
+      marker.textContent = "submitting";
+      const formData = new FormData(form);
+      const command = form.dataset.command;
+      const payload = Object.fromEntries([...formData.entries()].map(([key, value]) => [key, normalizeFormValue(value)]));
+
+      try {
+        let response;
+        if (command === "create-program") {
+          response = await postJson("/ui/programs", payload);
+        } else if (command === "create-scope") {
+          response = await postJson(`/ui/programs/${encodeURIComponent(payload.programId)}/scopes`, payload);
+        } else if (command === "start-domain-discovery") {
+          response = await postJson("/ui/scan-plans/domain-discovery", payload);
+        }
+
+        if (!response?.ok) {
+          const message = await response?.text();
+          throw new Error(message || `Command failed with ${response?.status ?? "unknown status"}`);
+        }
+
+        form.reset();
+        await load();
+      } catch (error) {
+        marker.textContent = "command failed";
+        content.insertAdjacentHTML("afterbegin", `<div class="toolbar hot">${escapeHtml(error.message)}</div>`);
+      }
+    }
+
+    function programSelect(name) {
+      const programs = state.data?.programs ?? [];
+      const options = programs.map(program => `<option value="${escapeHtml(program.programId)}">${escapeHtml(program.name)}</option>`).join("");
+      return `<select name="${name}" required><option value="">Program</option>${options}</select>`;
+    }
+
+    function scopeSelect(name) {
+      const scopes = state.data?.scopes ?? [];
+      const options = scopes
+        .filter(scope => scope.action === "Include")
+        .map(scope => `<option value="${escapeHtml(scope.scopeId)}">${escapeHtml(programName(scope.programId))}: ${escapeHtml(scope.pattern)}</option>`)
+        .join("");
+      return `<select name="${name}"><option value="">Scope optional</option>${options}</select>`;
+    }
+
+    function programName(programId) {
+      const program = (state.data?.programs ?? []).find(program => program.programId === programId);
+      return program?.name ?? programId;
+    }
+
+    function normalizeFormValue(value) {
+      const stringValue = String(value).trim();
+      return stringValue.length ? stringValue : null;
+    }
+
+    function postJson(url, payload) {
+      return fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
     }
 
     function renderTable(headers, rows) {
@@ -446,11 +597,47 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
             client.BaseAddress = new Uri(baseAddress);
             return await client.GetFromJsonAsync<JsonNode>(path, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return path.Contains("assets", StringComparison.OrdinalIgnoreCase)
                 ? JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""")
                 : JsonNode.Parse("[]");
         }
     }
+
+    public async Task<IResult> PostJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(baseAddress);
+            using var response = await client.PostAsJsonAsync(path, payload, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/json";
+
+            return Results.Content(content, contentType, statusCode: (int)response.StatusCode);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Results.Problem($"Unable to reach backend service: {ex.Message}", statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+}
+
+internal sealed record ArgusServiceEndpoints(
+    string ProgramScope,
+    string Asset,
+    string Task,
+    string RateLimit,
+    string ScanOrchestrator,
+    string Realtime)
+{
+    public static ArgusServiceEndpoints From(IConfiguration configuration) =>
+        new(
+            configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
+            configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
+            configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
+            configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
+            configuration["ARGUS_SCAN_ORCHESTRATOR_SERVICE"] ?? "https+http://scan-orchestrator-service",
+            configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service");
 }

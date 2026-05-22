@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+artifacts/
+node_modules/
+.git/
+.vs/
+.vscode/
+*.user
+*.suo
+*.log
+deploy/argus.env

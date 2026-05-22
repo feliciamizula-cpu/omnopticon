@@ -96,7 +96,10 @@ public static partial class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        if (app.Environment.IsDevelopment())
+        var exposeHealthEndpoints = app.Environment.IsDevelopment()
+            || string.Equals(app.Configuration["ARGUS_EXPOSE_HEALTH_ENDPOINTS"], "true", StringComparison.OrdinalIgnoreCase);
+
+        if (exposeHealthEndpoints)
         {
             app.MapHealthChecks("/health");
             app.MapHealthChecks("/alive", new HealthCheckOptions
