@@ -199,6 +199,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "024",
+                      "description":  "Design #24: No authentication or authorization",
+                      "createdAt":  "2026-05-22T15:32:12.1031677-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
