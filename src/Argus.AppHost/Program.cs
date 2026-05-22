@@ -1,0 +1,65 @@
+var builder = DistributedApplication.CreateBuilder(args);
+
+var redis = builder.AddRedis("redis");
+var rabbitMq = builder.AddRabbitMQ("eventbus")
+    .WithLifetime(ContainerLifetime.Persistent);
+var postgres = builder.AddPostgres("postgres")
+    .WithImage("ankane/pgvector")
+    .WithImageTag("latest")
+    .WithLifetime(ContainerLifetime.Persistent);
+
+var argusDb = postgres.AddDatabase("argusdb");
+
+var programScope = builder.AddProject<Projects.Argus_ProgramScopeService>("program-scope-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
+var asset = builder.AddProject<Projects.Argus_AssetService>("asset-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
+var task = builder.AddProject<Projects.Argus_TaskService>("task-service")
+    .WithReference(argusDb)
+    .WithReference(redis)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
+var rateLimit = builder.AddProject<Projects.Argus_RateLimitService>("rate-limit-service")
+    .WithReference(redis)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
+var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("scan-orchestrator-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WaitFor(programScope)
+    .WaitFor(asset)
+    .WaitFor(task);
+
+var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-service")
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
+builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
+    .WithExternalHttpEndpoints()
+    .WithReference(programScope)
+    .WithReference(asset)
+    .WithReference(task)
+    .WithReference(rateLimit)
+    .WithReference(orchestrator)
+    .WithReference(realtime);
+
+builder.AddProject<Projects.Argus_Web>("argus-web")
+    .WithExternalHttpEndpoints()
+    .WithReference(programScope)
+    .WithReference(asset)
+    .WithReference(task)
+    .WithReference(rateLimit)
+    .WithReference(orchestrator)
+    .WithReference(realtime);
+
+redis.WithParentRelationship(rateLimit);
+
+builder.Build().Run();

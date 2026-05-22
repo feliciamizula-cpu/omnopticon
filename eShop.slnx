@@ -1,6 +1,10 @@
-﻿<Solution>
+<Solution>
   <Folder Name="/src/">
     <Project Path="src/eShop.AppHost/eShop.AppHost.csproj" />
+    <Project Path="src/Argus.ApiGateway/Argus.ApiGateway.csproj" />
+    <Project Path="src/Argus.AppHost/Argus.AppHost.csproj" />
+    <Project Path="src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj" />
+    <Project Path="src/Argus.Web/Argus.Web.csproj" />
     <Project Path="src/Basket.API/Basket.API.csproj" />
     <Project Path="src/Catalog.API/Catalog.API.csproj" />
     <Project Path="src/eShop.ServiceDefaults/eShop.ServiceDefaults.csproj" />
@@ -19,6 +23,17 @@
     <Project Path="src/WebAppComponents/WebAppComponents.csproj" />
     <Project Path="src/HybridApp/HybridApp.csproj" />
     <Project Path="src/ClientApp/ClientApp.csproj" />
+  </Folder>
+  <Folder Name="/src/Contracts/">
+    <Project Path="src/Contracts/Argus.Contracts/Argus.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/">
+    <Project Path="src/Services/Argus.AssetService/Argus.AssetService.csproj" />
+    <Project Path="src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj" />
+    <Project Path="src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj" />
+    <Project Path="src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj" />
+    <Project Path="src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj" />
+    <Project Path="src/Services/Argus.TaskService/Argus.TaskService.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Basket.UnitTests/Basket.UnitTests.csproj" />
