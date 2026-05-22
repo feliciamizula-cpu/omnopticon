@@ -28,6 +28,7 @@ else
 }
 
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AssetService");
+builder.Services.AddHttpClient();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
@@ -156,7 +157,93 @@ app.MapDelete("/assets/{assetId:guid}/tags/{tag}", async (
     return Results.Ok(asset);
 });
 
+app.MapPost("/assets/bulk/enqueue", async (
+    BulkEnqueueRequest request,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    if (request.AssetIds.Count == 0)
+    {
+        return Results.BadRequest("At least one asset ID is required.");
+    }
+
+    if (string.IsNullOrWhiteSpace(request.TaskType))
+    {
+        return Results.BadRequest("Task type is required.");
+    }
+
+    if (string.IsNullOrWhiteSpace(request.WorkerCapability))
+    {
+        return Results.BadRequest("Worker capability is required.");
+    }
+
+    var taskClient = httpClientFactory.CreateClient();
+    taskClient.BaseAddress = new Uri(GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
+
+    var createdCount = 0;
+    var skippedCount = 0;
+    var results = new List<ReconTaskDto>();
+
+    foreach (var assetId in request.AssetIds)
+    {
+        var dedupeHash = TaskDedupeHash.Compute(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability);
+
+        var checkResponse = await taskClient.GetAsync($"/tasks/dedupe/{dedupeHash}", cancellationToken);
+        if (checkResponse.IsSuccessStatusCode)
+        {
+            var existingTask = await checkResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
+            if (existingTask is not null)
+            {
+                skippedCount++;
+                results.Add(existingTask);
+                continue;
+            }
+        }
+
+        var createRequest = new CreateReconTaskRequest(
+            request.TaskType,
+            request.ProgramId,
+            request.ScopeId,
+            assetId,
+            null,
+            request.WorkerCapability,
+            request.MaxAttempts,
+            request.Priority,
+            dedupeHash);
+
+        using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions.Default, cancellationToken);
+        if (createResponse.IsSuccessStatusCode)
+        {
+            var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
+            if (createdTask is not null)
+            {
+                createdCount++;
+                results.Add(createdTask);
+            }
+        }
+        else
+        {
+            skippedCount++;
+        }
+    }
+
+    return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, skippedCount));
+});
+
 app.Run();
+
+internal static class TaskDedupeHash
+{
+    public static string Compute(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
+    {
+        var input = $"{programId:N}:{scopeId:N}:{taskType}:{inputAssetId:N}:{workerCapability}";
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+}
+
+static string GetServiceUri(string configKey, string fallback) =>
+    Uri.TryCreate(Environment.GetEnvironmentVariable(configKey), out var uri) ? uri.ToString() : fallback;
 
 internal interface IAssetStore
 {

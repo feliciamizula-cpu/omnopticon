@@ -1,4 +1,10 @@
+using Argus.Contracts.Tasks;
+using Argus.Contracts.Workers;
+
 namespace Argus.Contracts.Assets;
+
+using Argus.Contracts.Tasks;
+using Argus.Contracts.Workers;
 
 public enum AssetType
 {
@@ -105,4 +111,14 @@ public sealed record BulkTagRequest(
 
 public sealed record BulkEnqueueRequest(
     IReadOnlyCollection<Guid> AssetIds,
-    string TaskType);
+    string TaskType,
+    string WorkerCapability,
+    Guid ProgramId,
+    Guid? ScopeId = null,
+    int MaxAttempts = 3,
+    WorkerPriority Priority = WorkerPriority.Normal);
+
+public sealed record BulkEnqueueResponse(
+    IReadOnlyCollection<ReconTaskDto> Tasks,
+    int CreatedCount,
+    int SkippedCount);

@@ -1,4 +1,5 @@
 using Argus.BuildingBlocks.EventBus;
+using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
@@ -61,6 +62,64 @@ app.MapPost("/tasks", async (
         cancellationToken: cancellationToken);
 
     return Results.Created($"/tasks/{task.TaskId}", task);
+});
+
+app.MapPost("/tasks/bulk/enqueue", async (
+    BulkEnqueueRequest request,
+    ITaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (request.AssetIds.Count == 0)
+    {
+        return Results.BadRequest("At least one asset ID is required.");
+    }
+
+    if (string.IsNullOrWhiteSpace(request.TaskType) || string.IsNullOrWhiteSpace(request.WorkerCapability))
+    {
+        return Results.BadRequest("Task type and worker capability are required.");
+    }
+
+    var createdTasks = new List<ReconTaskDto>();
+    var skippedCount = 0;
+
+    foreach (var assetId in request.AssetIds)
+    {
+        var dedupeHash = TaskDedupeHash.Compute(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability);
+        var existingTask = await store.FindByDedupeAsync(dedupeHash, cancellationToken);
+
+        if (existingTask is not null)
+        {
+            skippedCount++;
+            continue;
+        }
+
+        var createRequest = new CreateReconTaskRequest(
+            request.TaskType,
+            request.ProgramId,
+            request.ScopeId,
+            assetId,
+            null,
+            request.WorkerCapability,
+            request.MaxAttempts,
+            request.Priority,
+            dedupeHash);
+
+        var task = await store.CreateAsync(createRequest, cancellationToken);
+        createdTasks.Add(task);
+    }
+
+    foreach (var task in createdTasks)
+    {
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+    }
+
+    var response = new BulkEnqueueResponse(createdTasks, createdTasks.Count, skippedCount);
+    return Results.Created("/tasks/bulk/enqueue", response);
 });
 
 app.MapGet("/tasks/{taskId:guid}", async (
@@ -244,6 +303,15 @@ app.MapGet("/tasks/{taskId:guid}/history", async (
     return Results.Ok(history);
 });
 
+app.MapGet("/tasks/dedupe/{dedupeHash}", async (
+    string dedupeHash,
+    ITaskStore store,
+    CancellationToken cancellationToken) =>
+{
+    var task = await store.FindByDedupeAsync(dedupeHash, cancellationToken);
+    return task is not null ? Results.Ok(task) : Results.NotFound();
+});
+
 app.Run();
 
 internal interface ITaskStore
@@ -297,6 +365,15 @@ internal sealed class InMemoryTaskStore : ITaskStore
 
     public Task<ReconTaskDto> CreateAsync(CreateReconTaskRequest request, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(request.DedupeHash))
+        {
+            var existing = _tasks.Values.FirstOrDefault(t => t.DedupeHash == request.DedupeHash);
+            if (existing is not null)
+            {
+                return Task.FromResult(existing);
+            }
+        }
+
         var task = TaskMapping.CreateDto(request);
         _tasks[task.TaskId] = task;
 
@@ -420,7 +497,7 @@ internal sealed class InMemoryTaskStore : ITaskStore
         Task.FromResult<IReadOnlyCollection<TaskHistoryDto>>([]);
 
     public Task<ReconTaskDto?> FindByDedupeAsync(string dedupeHash, CancellationToken cancellationToken) =>
-        Task.FromResult(_tasks.Values.FirstOrDefault(t => t.TaskId.ToString() == dedupeHash));
+        Task.FromResult(_tasks.Values.FirstOrDefault(t => t.DedupeHash == dedupeHash));
 
     private Task<ReconTaskDto?> TryUpdateAsync(Guid taskId, Func<ReconTaskDto, ReconTaskDto> update)
     {
@@ -469,6 +546,17 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
 
     public async Task<ReconTaskDto> CreateAsync(CreateReconTaskRequest request, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(request.DedupeHash))
+        {
+            var existing = await dbContext.Tasks
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.DedupeHash == request.DedupeHash, cancellationToken);
+            if (existing is not null)
+            {
+                return existing.ToDto();
+            }
+        }
+
         var record = TaskMapping.CreateRecord(request);
         dbContext.Tasks.Add(record);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -704,6 +792,7 @@ internal sealed class TaskRecord
             OutputSummaryJson,
             ErrorCode,
             ErrorMessage,
+            DedupeHash,
             Priority);
 }
 
@@ -818,11 +907,23 @@ internal static class TaskMapping
             State = ReconTaskState.Requested,
             Attempt = 0,
             MaxAttempts = Math.Max(1, request.MaxAttempts),
-            ProgressPercent = 0
+            ProgressPercent = 0,
+            Priority = request.Priority,
+            DedupeHash = request.DedupeHash
         };
 
     public static TimeSpan NormalizeLeaseDuration(TimeSpan leaseDuration) =>
         leaseDuration <= TimeSpan.Zero ? TimeSpan.FromMinutes(5) : leaseDuration;
+}
+
+internal static class TaskDedupeHash
+{
+    public static string Compute(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
+    {
+        var input = $"{programId:N}:{scopeId:N}:{taskType}:{inputAssetId:N}:{workerCapability}";
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
 }
 
 internal static class TaskStoreInitialization
