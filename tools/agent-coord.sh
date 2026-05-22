@@ -604,8 +604,21 @@ show_status() {
     echo "Agents:"
     echo "$state" | jq -r '.agents[] | [.id, .status, (.currentTask // "-"), (.pid // "-"), (.lastHeartbeatAt // "-"), (.currentTaskDescription // "-")] | @tsv' | \
         while IFS=$'\t' read -r id status current_task pid heartbeat desc; do
-            local runtime
+            local runtime local_state local_pid local_heartbeat local_desc
             runtime="$(agent_runtime_status "$id")"
+            local_state="$(agent_read_state "$id")"
+            local_pid="$(echo "$local_state" | jq -r '.pid // "-"')"
+            local_heartbeat="$(echo "$local_state" | jq -r '.lastHeartbeatAt // "-"')"
+            local_desc="$(echo "$local_state" | jq -r '.currentTaskDescription // empty')"
+            if [ -n "$local_desc" ]; then
+                desc="$local_desc"
+            fi
+            if [ "$local_pid" != "-" ]; then
+                pid="$local_pid"
+            fi
+            if [ "$local_heartbeat" != "-" ]; then
+                heartbeat="$local_heartbeat"
+            fi
             printf "  %-10s %-12s %-10s pid=%-7s heartbeat=%-24s %s\n" \
                 "$id" "$status/$runtime" "$current_task" "$pid" "$heartbeat" "$desc"
         done
