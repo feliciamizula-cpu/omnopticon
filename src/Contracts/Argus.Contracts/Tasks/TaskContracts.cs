@@ -65,3 +65,22 @@ public sealed record FailReconTaskRequest(
     string ErrorMessage,
     bool Retryable,
     string? CheckpointJson);
+
+public sealed record CancelTaskRequest(
+    string Reason);
+
+public sealed record TaskHistoryDto(
+    Guid HistoryId,
+    Guid TaskId,
+    ReconTaskState State,
+    DateTimeOffset Timestamp,
+    string? WorkerId,
+    string? Message,
+    string? CheckpointSummary);
+
+public sealed record TaskDedupeKey(
+    Guid ProgramId,
+    Guid? ScopeId,
+    string TaskType,
+    Guid? InputAssetId,
+    string PayloadHash);
