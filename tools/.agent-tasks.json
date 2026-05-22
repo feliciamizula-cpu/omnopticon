@@ -306,7 +306,8 @@
       "createdAt": "2026-05-22T16:21:31.2354009-04:00",
       "priority": "high",
       "assignedTo": "agent-1",
-      "status": "in_progress"
+      "status": "completed",
+      "completedAt": "2026-05-22T21:24:38.831Z"
     },
     {
       "id": "036",
