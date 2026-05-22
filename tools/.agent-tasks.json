@@ -63,6 +63,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "007",
+                      "description":  "Bug #9: RabbitMQ creates new channel per message - should use singleton channel",
+                      "createdAt":  "2026-05-22T15:23:14.3793807-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
