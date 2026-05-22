@@ -103,6 +103,14 @@
                       "priority":  "critical",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "012",
+                      "description":  "Bug #12: ScanOrchestrator not reactive - needs event consumer for automatic progression",
+                      "createdAt":  "2026-05-22T15:27:43.2122151-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
