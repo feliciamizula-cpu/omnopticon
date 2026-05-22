@@ -147,7 +147,7 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task<ReconTaskDto?> LeaseTaskAsync(CancellationToken cancellationToken)
     {
-        var request = new LeaseReconTaskRequest(_options.WorkerId, worker.Capability.WorkerType, _options.LeaseDuration);
+        var request = new LeaseReconTaskRequest(_options.WorkerId, worker.Capability.WorkerType, worker.Capability.SubscribedAssetTypes, _options.LeaseDuration);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
         using var response = await client.PostAsJsonAsync("/tasks/lease", request, JsonOptions, cancellationToken);

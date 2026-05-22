@@ -196,7 +196,8 @@ internal sealed class TaskSeeder(IHttpClientFactory httpClientFactory, IConfigur
                 task.ScopeId,
                 domainAsset.AssetId,
                 task.InputPayloadJson,
-                task.WorkerCapability);
+                task.WorkerCapability,
+                RequiredAssetType: null);
 
             using var taskResponse = await taskClient.PostAsJsonAsync("/tasks", request, ScanPlanJson.Options, cancellationToken);
             taskResponse.EnsureSuccessStatusCode();

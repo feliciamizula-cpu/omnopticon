@@ -62,7 +62,7 @@ public sealed record CreateReconTaskRequest(
 public sealed record LeaseReconTaskRequest(
     string WorkerId,
     string WorkerCapability,
-    string? RequiredAssetType,
+    IReadOnlyCollection<string> SubscribedAssetTypes,
     TimeSpan LeaseDuration);
 
 public sealed record UpdateReconTaskProgressRequest(

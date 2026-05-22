@@ -31,9 +31,10 @@ public sealed record RateLimitRequest(
 public sealed record WorkerProcessResult(
     bool PartiallySucceeded,
     string OutputSummaryJson,
-    IReadOnlyCollection<WorkerProducedAsset> ProducedAssets)
+    IReadOnlyCollection<WorkerProducedAsset> ProducedAssets,
+    TimeSpan? RetryAfter = null)
 {
-    public static WorkerProcessResult Empty(string summary) => new(false, summary, []);
+    public static WorkerProcessResult Empty(string summary) => new(false, summary, [], null);
 }
 
 public sealed record WorkerProducedAsset(

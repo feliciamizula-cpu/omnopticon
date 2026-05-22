@@ -60,6 +60,12 @@ app.MapPost("/events", (EventIngestRequest request, RealtimeStore store) =>
 
 app.MapGet("/workers", (RealtimeStore store) => store.GetWorkers());
 
+app.MapGet("/workers/capability/{assetType}", (string assetType, RealtimeStore store) =>
+    store.GetWorkersForAssetType(assetType));
+
+app.MapGet("/workers/{workerId}/capability", (string workerId, RealtimeStore store) =>
+    store.GetWorkerCapability(workerId));
+
 app.MapPost("/workers/register", (WorkerRegistrationRequest request, RealtimeStore store) =>
 {
     var worker = store.Register(request);
@@ -75,6 +81,7 @@ internal sealed class RealtimeStore
 {
     private readonly ConcurrentQueue<IntegrationEventEnvelope<JsonNode>> _events = new();
     private readonly ConcurrentDictionary<string, WorkerStatusDto> _workers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, WorkerCapabilityDescriptor> _workerCapabilities = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<Guid, Channel<IntegrationEventEnvelope<JsonNode>>> _subscriptions = new();
 
     public IReadOnlyCollection<IntegrationEventEnvelope<JsonNode>> GetEvents(int take) =>
@@ -145,6 +152,7 @@ internal sealed class RealtimeStore
             IsOnline: true);
 
         _workers[request.WorkerId] = worker;
+        _workerCapabilities[request.WorkerId] = request.Capability;
 
         return worker;
     }
@@ -188,6 +196,26 @@ internal sealed class RealtimeStore
             .OrderBy(worker => worker.WorkerType, StringComparer.OrdinalIgnoreCase)
             .ThenBy(worker => worker.WorkerId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    public IReadOnlyCollection<WorkerStatusDto> GetWorkersForAssetType(string assetType)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        return _workerCapabilities
+            .Where(kvp => kvp.Value.SubscribedAssetTypes.Contains(assetType, StringComparer.OrdinalIgnoreCase))
+            .Select(kvp => _workers.TryGetValue(kvp.Key, out var worker)
+                ? worker with { IsOnline = now - worker.LastSeenAt < TimeSpan.FromSeconds(45) }
+                : null)
+            .Where(worker => worker is not null)
+            .OrderBy(worker => worker!.WorkerType, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(worker => worker!.WorkerId, StringComparer.OrdinalIgnoreCase)
+            .ToArray()!;
+    }
+
+    public WorkerCapabilityDescriptor? GetWorkerCapability(string workerId)
+    {
+        return _workerCapabilities.TryGetValue(workerId, out var capability) ? capability : null;
     }
 }
 
