@@ -135,6 +135,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "016",
+                      "description":  "Bug #18: HttpProbeWorker hardcodes HTTPS, no HTTP fallback",
+                      "createdAt":  "2026-05-22T15:29:43.2976330-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
