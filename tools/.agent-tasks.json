@@ -2,10 +2,10 @@
     "agents":  [
                    {
                        "status":  "active",
-                       "currentTask":  null,
+                       "currentTask":  "004",
                        "name":  "Agent 1",
                        "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T15:34:41.4972798-04:00"
+                       "lastUpdated":  "2026-05-22T15:35:10.2248494-04:00"
                    },
                    {
                        "status":  "inactive",
@@ -46,8 +46,8 @@
                       "description":  "Bug #6: Outbox transactional guarantee - EnqueueAsync calls SaveChangesAsync separately from entity save",
                       "createdAt":  "2026-05-22T15:21:32.5702439-04:00",
                       "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-1",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "005",
