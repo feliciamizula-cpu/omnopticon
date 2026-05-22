@@ -107,4 +107,10 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<RabbitMqConsumerService<TDbContext>>();
         return services;
     }
+
+    public static IServiceCollection AddArgusPoisonMessageStore(this IServiceCollection services)
+    {
+        services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
+        return services;
+    }
 }

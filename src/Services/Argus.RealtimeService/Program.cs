@@ -1,7 +1,9 @@
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
+using RabbitMQ.Client;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
@@ -11,6 +13,21 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<RealtimeStore>();
+builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
+builder.Services.AddSingleton(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var connStr = config.GetConnectionString("messaging") ?? config.GetConnectionString("rabbitmq") ?? "";
+    if (string.IsNullOrWhiteSpace(connStr)) return null;
+    var factory = new ConnectionFactory { Uri = new Uri(connStr) };
+    return factory.CreateConnectionAsync().AsTask().Result;
+});
+builder.Services.AddSingleton(sp =>
+{
+    var connection = sp.GetService<IConnection>();
+    if (connection is null) return null;
+    return connection.CreateChannelAsync().AsTask().Result;
+});
 
 var app = builder.Build();
 

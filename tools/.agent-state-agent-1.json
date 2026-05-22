@@ -1,11 +1,12 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "status": "idle",
-  "lastRunAt": "2026-05-22T21:53:18.770Z",
-  "updatedAt": "2026-05-22T23:02:34.292Z",
-  "pid": null,
-  "lastError": "Task 029 requeued during reconciliation",
-  "lastHeartbeatAt": "2026-05-22T23:02:34.292Z"
+  "currentTaskId": "013",
+  "currentTaskDescription": "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
+  "status": "working",
+  "lastRunAt": "2026-05-22T23:06:57.524Z",
+  "updatedAt": "2026-05-22T23:08:27.751Z",
+  "pid": 71316,
+  "lastError": null,
+  "lastHeartbeatAt": "2026-05-22T23:08:27.751Z",
+  "startedAt": "2026-05-22T23:05:12.416Z"
 }

@@ -1,11 +1,12 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "status": "idle",
-  "lastRunAt": "2026-05-22T21:40:33.056Z",
-  "updatedAt": "2026-05-22T23:02:34.292Z",
-  "pid": null,
-  "lastError": "Task 013 requeued during reconciliation",
-  "lastHeartbeatAt": "2026-05-22T23:02:34.292Z"
+  "currentTaskId": "026",
+  "currentTaskDescription": "Bug #15: MaxConcurrency declared but only 1 task at a time",
+  "status": "working",
+  "lastRunAt": "2026-05-22T23:07:02.906Z",
+  "updatedAt": "2026-05-22T23:08:33.112Z",
+  "pid": 72791,
+  "lastError": null,
+  "lastHeartbeatAt": "2026-05-22T23:08:33.112Z",
+  "startedAt": "2026-05-22T23:05:18.164Z"
 }

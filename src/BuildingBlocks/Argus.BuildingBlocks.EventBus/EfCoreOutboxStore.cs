@@ -9,9 +9,6 @@ public sealed class EfCoreOutboxStore<TDbContext> : IOutboxStore
 
     public EfCoreOutboxStore(TDbContext dbContext)
     {
-<<<<<<< HEAD
-        dbContext.Set<OutboxMessage>().Add(message);
-=======
         _dbContext = dbContext;
     }
 
@@ -19,7 +16,6 @@ public sealed class EfCoreOutboxStore<TDbContext> : IOutboxStore
     {
         _dbContext.Set<OutboxMessage>().Add(message);
         return Task.CompletedTask;
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
     }
 
     public async Task<IReadOnlyCollection<OutboxMessage>> ClaimPendingAsync(

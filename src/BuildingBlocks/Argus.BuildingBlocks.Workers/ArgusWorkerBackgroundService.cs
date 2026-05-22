@@ -19,10 +19,14 @@ public sealed class ArgusWorkerBackgroundService(
     ILogger<ArgusWorkerBackgroundService> logger) : BackgroundService
 {
     private readonly ArgusWorkerOptions _options = options.Value;
+#pragma warning disable CS0649
+    private int _runningTaskCount;
+#pragma warning restore CS0649
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
     };
+    private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -32,25 +36,43 @@ public sealed class ArgusWorkerBackgroundService(
         {
             try
             {
-                await HeartbeatAsync(runningTasks: 0, stoppingToken);
-                var task = await LeaseTaskAsync(stoppingToken);
-
-                if (task is null)
-                {
-                    await Task.Delay(_options.PollInterval, stoppingToken);
-                    continue;
-                }
-
-                await RunTaskAsync(task, stoppingToken);
+                await _concurrencyLimiter.WaitAsync(stoppingToken);
+                _ = RunTaskWithReleaseAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                break;
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Worker loop failed for {WorkerType}", worker.Capability.WorkerType);
                 await Task.Delay(_options.PollInterval, stoppingToken);
             }
+        }
+
+        await _concurrencyLimiter.WaitAsync(stoppingToken);
+    }
+
+    private async Task RunTaskWithReleaseAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            var runningTasks = worker.Capability.MaxConcurrency - _concurrencyLimiter.CurrentCount;
+            await HeartbeatAsync(runningTasks, stoppingToken);
+            var task = await LeaseTaskAsync(stoppingToken);
+
+            if (task is null)
+            {
+                _concurrencyLimiter.Release();
+                await Task.Delay(_options.PollInterval, stoppingToken);
+                return;
+            }
+
+            await RunTaskAsync(task, stoppingToken);
+        }
+        finally
+        {
+            _concurrencyLimiter.Release();
         }
     }
 
@@ -61,7 +83,8 @@ public sealed class ArgusWorkerBackgroundService(
         await StartTaskAsync(task.TaskId, cancellationToken);
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var heartbeatTask = StartHeartbeatTimerAsync(runningTasks: 1, heartbeatCts.Token);
+        Interlocked.Exchange(ref _runningTaskCount, 1);
+        var heartbeatTask = StartHeartbeatTimerAsync(heartbeatCts.Token);
 
         var context = new WorkerExecutionContext(
             _options.WorkerId,
@@ -101,18 +124,19 @@ public sealed class ArgusWorkerBackgroundService(
         {
             heartbeatCts.Cancel();
             await heartbeatTask;
-            await HeartbeatAsync(runningTasks: 0, cancellationToken);
+            Interlocked.Exchange(ref _runningTaskCount, 0);
+            await HeartbeatAsync(_runningTaskCount, cancellationToken);
         }
     }
 
-    private async Task StartHeartbeatTimerAsync(int runningTasks, CancellationToken cancellationToken)
+    private async Task StartHeartbeatTimerAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(_options.HeartbeatInterval, cancellationToken);
-                await HeartbeatAsync(runningTasks, cancellationToken);
+                await HeartbeatAsync(_runningTaskCount, cancellationToken);
             }
             catch (OperationCanceledException)
             {

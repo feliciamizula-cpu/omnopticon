@@ -60,7 +60,7 @@ internal sealed class HttpProbeWorker : IReconWorker
 
         var schemes = new[] { "https", "http" };
         bool httpsSucceeded = false;
-        string httpsError = null;
+        string? httpsError = null;
 
         foreach (var scheme in schemes)
         {

@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "currentTaskId": "025",
+  "currentTaskDescription": "Bug #14: Heartbeat always reports 0 running tasks",
   "context": null,
-  "status": "idle",
-  "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-22T23:01:41.766Z",
-  "lastHeartbeatAt": "2026-05-22T23:02:34.292Z",
-  "lastError": "Task 025 requeued during reconciliation",
-  "updatedAt": "2026-05-22T23:02:34.292Z"
+  "status": "working",
+  "pid": 72258,
+  "startedAt": "2026-05-22T23:05:16.355Z",
+  "lastRunAt": "2026-05-22T23:07:00.869Z",
+  "lastHeartbeatAt": "2026-05-22T23:08:31.117Z",
+  "lastError": null,
+  "updatedAt": "2026-05-22T23:08:31.117Z"
 }

@@ -19,8 +19,11 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
     private readonly IOptions<ArgusEventBusOptions> _options;
     private readonly ILogger _logger;
     private readonly string _consumerName;
+    private readonly int _maxRetries = 3;
     private IConnection? _connection;
     private IChannel? _channel;
+
+    private const string DeadLetterExchange = "argus.events.dlx";
 
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
@@ -53,6 +56,15 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
             await _channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, cancellationToken: stoppingToken);
 
+            await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
+
+            foreach (var eventType in eventTypes)
+            {
+                var dlqName = $"dlq.{_consumerName}_{eventType}";
+                await _channel.QueueDeclareAsync(dlqName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+                await _channel.QueueBindAsync(dlqName, DeadLetterExchange, $"dead.{eventType}", cancellationToken: stoppingToken);
+            }
+
             var eventTypes = new[] {
                 "AssetDiscovered", "AssetUpdated", "AssetRelationshipDiscovered",
                 "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
@@ -63,13 +75,19 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             foreach (var eventType in eventTypes)
             {
                 var queueName = $"{_consumerName}_{eventType}";
-                await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
+                var args = new Dictionary<string, object?>
+                {
+                    ["x-dead-letter-exchange"] = DeadLetterExchange,
+                    ["x-dead-letter-routing-key"] = $"dead.{eventType}"
+                };
+                await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, arguments: args, cancellationToken: stoppingToken);
                 await _channel.QueueBindAsync(queueName, _options.Value.ExchangeName, eventType, cancellationToken: stoppingToken);
             }
 
             var consumer = new AsyncEventingBasicConsumer(_channel);
             consumer.ReceivedAsync += async (_, ea) =>
             {
+                var retryCount = GetRetryCount(ea.BasicProperties);
                 try
                 {
                     var body = ea.Body.ToArray();
@@ -85,8 +103,16 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing message {DeliveryTag}", ea.DeliveryTag);
-                    await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, stoppingToken);
+                    _logger.LogError(ex, "Error processing message {DeliveryTag} (retry {RetryCount})", ea.DeliveryTag, retryCount);
+                    if (retryCount >= _maxRetries)
+                    {
+                        _logger.LogWarning("Message {DeliveryTag} exceeded max retries, moving to DLQ", ea.DeliveryTag);
+                        await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, stoppingToken);
+                    }
+                    else
+                    {
+                        await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, stoppingToken);
+                    }
                 }
             };
 
@@ -220,7 +246,26 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public override async ValueTask DisposeAsync()
+    private static int GetRetryCount(IReadOnlyBasicProperties? properties)
+    {
+        if (properties?.Headers is null) return 0;
+        if (properties.Headers.TryGetValue("x-death", out var deathObj) && deathObj is IList<object> deaths)
+        {
+            var count = 0;
+            foreach (var death in deaths)
+            {
+                if (death is IDictionary<string, object> deathInfo &&
+                    deathInfo.TryGetValue("count", out var countObj))
+                {
+                    count = Convert.ToInt32(countObj);
+                }
+            }
+            return count;
+        }
+        return 0;
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
     {
         if (_channel is not null) await _channel.CloseAsync();
         if (_connection is not null) await _connection.CloseAsync();
