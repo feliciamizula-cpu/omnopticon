@@ -1,376 +1,378 @@
 {
-    "agents":  [
-                   {
-                       "status":  "active",
-                       "currentTask":  null,
-                       "name":  "Agent 1",
-                       "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T16:09:17.1633409-04:00"
-                   },
-                   {
-                       "status":  "inactive",
-                       "currentTask":  "016",
-                       "name":  "Agent 2",
-                       "id":  "agent-2",
-                       "lastUpdated":  "2026-05-22T15:50:01.8474364-04:00"
-                   }
-               ],
-    "tasks":  [
-                  {
-                      "id":  "001",
-                      "description":  "Bug #3: RabbitMQ consumer only listens to one queue - fix BasicConsumeAsync to consume all queues",
-                      "createdAt":  "2026-05-22T15:20:52.1332630-04:00",
-                      "priority":  "high",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T19:25:19.622Z"
-                  },
-                  {
-                      "id":  "002",
-                      "description":  "Bug #4: Exchange name mismatch - publisher uses argus.integration.events but consumer binds to argus.events",
-                      "createdAt":  "2026-05-22T15:21:05.0281964-04:00",
-                      "priority":  "high",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T19:27:55.961Z"
-                  },
-                  {
-                      "id":  "003",
-                      "description":  "Bug #5: Event handler dispatch - Payload.GetType() is JsonElement, never finds IIntegrationEventConsumer registrations",
-                      "createdAt":  "2026-05-22T15:21:23.2398012-04:00",
-                      "priority":  "high",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T19:30:55.305Z"
-                  },
-                  {
-                      "id":  "004",
-                      "description":  "Bug #6: Outbox transactional guarantee - EnqueueAsync calls SaveChangesAsync separately from entity save",
-                      "createdAt":  "2026-05-22T15:21:32.5702439-04:00",
-                      "priority":  "high",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T19:32:07.704Z"
-                  },
-                  {
-                      "id":  "005",
-                      "description":  "Bug #7: Task lease race condition - use FOR UPDATE SKIP LOCKED to prevent double-lease",
-                      "createdAt":  "2026-05-22T15:21:46.0697960-04:00",
-                      "priority":  "high",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T19:33:02.055Z"
-                  },
-                  {
-                      "id":  "006",
-                      "description":  "Bug #8: Dispose uses Wait() on async - can deadlock in ASP.NET Core sync context",
-                      "createdAt":  "2026-05-22T15:22:46.2064690-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T19:35:40.714Z"
-                  },
-                  {
-                      "id":  "007",
-                      "description":  "Bug #9: RabbitMQ creates new channel per message - should use singleton channel",
-                      "createdAt":  "2026-05-22T15:23:14.3793807-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T15:43:47.2233839-04:00"
-                  },
-                  {
-                      "id":  "008",
-                      "description":  "Bug #10: Inbox table never created - EnsureArgusInboxCreatedAsync not called",
-                      "createdAt":  "2026-05-22T15:23:40.6214389-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T15:45:59.4809774-04:00"
-                  },
-                  {
-                      "id":  "009",
-                      "description":  "Bug #11: AddArgusInboxConsumer never called - no event consumers wired up",
-                      "createdAt":  "2026-05-22T15:25:51.2631038-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T15:58:30.9275492-04:00"
-                  },
-                  {
-                      "id":  "010",
-                      "description":  "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
-                      "createdAt":  "2026-05-22T15:26:34.4949606-04:00",
-                      "priority":  "critical",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "011",
-                      "description":  "Critical #2: Missing AssetConfirmed event - discovery vs confirmation not modelled",
-                      "createdAt":  "2026-05-22T15:26:58.2880178-04:00",
-                      "priority":  "critical",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "012",
-                      "description":  "Bug #12: ScanOrchestrator not reactive - needs event consumer for automatic progression",
-                      "createdAt":  "2026-05-22T15:27:43.2122151-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "013",
-                      "description":  "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
-                      "createdAt":  "2026-05-22T15:28:23.5712382-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "014",
-                      "description":  "Bug #16: Env var name mismatch for scope service",
-                      "createdAt":  "2026-05-22T15:29:15.0711409-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T15:56:30.1913963-04:00"
-                  },
-                  {
-                      "id":  "015",
-                      "description":  "Bug #17: CI restores wrong solution file",
-                      "createdAt":  "2026-05-22T15:29:31.1385815-04:00",
-                      "priority":  "low",
-                      "assignedTo":  "agent-1",
-                      "status":  "completed",
-                      "completedAt":  "2026-05-22T16:09:16.9490777-04:00"
-                  },
-                  {
-                      "id":  "016",
-                      "description":  "Bug #18: HttpProbeWorker hardcodes HTTPS, no HTTP fallback",
-                      "createdAt":  "2026-05-22T15:29:43.2976330-04:00",
-                      "priority":  "low",
-                      "assignedTo":  "agent-2",
-                      "status":  "in_progress"
-                  },
-                  {
-                      "id":  "017",
-                      "description":  "Design #19: Confidence field not propagatable from workers",
-                      "createdAt":  "2026-05-22T15:29:55.5609776-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "018",
-                      "description":  "Design #20: RealtimeService fully in-memory - needs durability",
-                      "createdAt":  "2026-05-22T15:30:16.5041452-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "019",
-                      "description":  "Design #21: ProgramScopeChanged event never published",
-                      "createdAt":  "2026-05-22T15:30:43.0458915-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "020",
-                      "description":  "Design #22: No task deduplication on creation",
-                      "createdAt":  "2026-05-22T15:30:56.9241690-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "021",
-                      "description":  "Minor #25: OutboxDispatcher uses SingleOrDefault - brittle",
-                      "createdAt":  "2026-05-22T15:31:12.0058804-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "022",
-                      "description":  "Minor #26: SSE event field not sanitized",
-                      "createdAt":  "2026-05-22T15:31:28.2334487-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "023",
-                      "description":  "Design #23: Asset relationship uniqueness not enforced",
-                      "createdAt":  "2026-05-22T15:31:49.8198721-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "024",
-                      "description":  "Design #24: No authentication or authorization",
-                      "createdAt":  "2026-05-22T15:32:12.1031677-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "025",
-                      "description":  "Bug #14: Heartbeat always reports 0 running tasks",
-                      "createdAt":  "2026-05-22T15:32:35.8942564-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  "agent-3",
-                      "status":  "in_progress"
-                  },
-                  {
-                      "id":  "026",
-                      "description":  "Bug #15: MaxConcurrency declared but only 1 task at a time",
-                      "createdAt":  "2026-05-22T15:33:09.4135828-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "027",
-                      "description":  "Enhancement #1: Dead letter exchange + poison message inspection/replay",
-                      "createdAt":  "2026-05-22T15:46:31.8523630-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "028",
-                      "description":  "Enhancement #2: Event schema versioning",
-                      "createdAt":  "2026-05-22T15:46:43.6207729-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "029",
-                      "description":  "Enhancement #3: AssetPropertyChanged event for diff detection",
-                      "createdAt":  "2026-05-22T15:46:54.6295390-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "030",
-                      "description":  "Enhancement #4: Re-scan scheduling based on LastScannedAt",
-                      "createdAt":  "2026-05-22T15:47:09.2213311-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "031",
-                      "description":  "Enhancement #5: Worker priority lanes (high/normal/low)",
-                      "createdAt":  "2026-05-22T15:47:29.1079967-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "032",
-                      "description":  "Enhancement #6: Per-program rate limit policies wired into RateLimitService",
-                      "createdAt":  "2026-05-22T15:47:59.7835677-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "033",
-                      "description":  "Enhancement #7: Adaptive rate limiting on 429/503 feedback",
-                      "createdAt":  "2026-05-22T15:48:41.3526392-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "034",
-                      "description":  "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
-                      "createdAt":  "2026-05-22T16:21:08.6434833-04:00",
-                      "priority":  "critical",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "035",
-                      "description":  "Bug #2: Bulk task deduplication missing - POST /assets/bulk/enqueue creates duplicates for same asset+worker",
-                      "createdAt":  "2026-05-22T16:21:31.2354009-04:00",
-                      "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "036",
-                      "description":  "Bug #8: BulkTagRequest and BulkEnqueueRequest endpoints not wired up - API and UI missing",
-                      "createdAt":  "2026-05-22T16:21:57.9502910-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "037",
-                      "description":  "Bug #7: ArgusMetrics meter registered but no instruments - no operational metrics exist",
-                      "createdAt":  "2026-05-22T16:22:14.2085245-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "038",
-                      "description":  "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
-                      "createdAt":  "2026-05-22T16:22:34.5898677-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "039",
-                      "description":  "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
-                      "createdAt":  "2026-05-22T16:22:51.9595836-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "040",
-                      "description":  "Enhancement #12: Artifact storage - IArtifactStore with LocalFileArtifactStore and S3ArtifactStore",
-                      "createdAt":  "2026-05-22T16:23:11.0073110-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "041",
-                      "description":  "Enhancement #13: Worker test infrastructure - WorkerTestHarness with fixture-based tests",
-                      "createdAt":  "2026-05-22T16:23:24.7079028-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "042",
-                      "description":  "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
-                      "createdAt":  "2026-05-22T16:23:45.2832975-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "043",
-                      "description":  "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
-                      "createdAt":  "2026-05-22T16:24:01.4101096-04:00",
-                      "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  }
-              ],
-    "version":  "1.0"
+  "agents": [
+    {
+      "status": "active",
+      "currentTask": null,
+      "name": "Agent 1",
+      "id": "agent-1",
+      "lastUpdated": "2026-05-22T16:09:17.1633409-04:00"
+    },
+    {
+      "status": "inactive",
+      "currentTask": "016",
+      "name": "Agent 2",
+      "id": "agent-2",
+      "lastUpdated": "2026-05-22T15:50:01.8474364-04:00"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "001",
+      "description": "Bug #3: RabbitMQ consumer only listens to one queue - fix BasicConsumeAsync to consume all queues",
+      "createdAt": "2026-05-22T15:20:52.1332630-04:00",
+      "priority": "high",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T19:25:19.622Z"
+    },
+    {
+      "id": "002",
+      "description": "Bug #4: Exchange name mismatch - publisher uses argus.integration.events but consumer binds to argus.events",
+      "createdAt": "2026-05-22T15:21:05.0281964-04:00",
+      "priority": "high",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T19:27:55.961Z"
+    },
+    {
+      "id": "003",
+      "description": "Bug #5: Event handler dispatch - Payload.GetType() is JsonElement, never finds IIntegrationEventConsumer registrations",
+      "createdAt": "2026-05-22T15:21:23.2398012-04:00",
+      "priority": "high",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T19:30:55.305Z"
+    },
+    {
+      "id": "004",
+      "description": "Bug #6: Outbox transactional guarantee - EnqueueAsync calls SaveChangesAsync separately from entity save",
+      "createdAt": "2026-05-22T15:21:32.5702439-04:00",
+      "priority": "high",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T19:32:07.704Z"
+    },
+    {
+      "id": "005",
+      "description": "Bug #7: Task lease race condition - use FOR UPDATE SKIP LOCKED to prevent double-lease",
+      "createdAt": "2026-05-22T15:21:46.0697960-04:00",
+      "priority": "high",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T19:33:02.055Z"
+    },
+    {
+      "id": "006",
+      "description": "Bug #8: Dispose uses Wait() on async - can deadlock in ASP.NET Core sync context",
+      "createdAt": "2026-05-22T15:22:46.2064690-04:00",
+      "priority": "medium",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T19:35:40.714Z"
+    },
+    {
+      "id": "007",
+      "description": "Bug #9: RabbitMQ creates new channel per message - should use singleton channel",
+      "createdAt": "2026-05-22T15:23:14.3793807-04:00",
+      "priority": "medium",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T15:43:47.2233839-04:00"
+    },
+    {
+      "id": "008",
+      "description": "Bug #10: Inbox table never created - EnsureArgusInboxCreatedAsync not called",
+      "createdAt": "2026-05-22T15:23:40.6214389-04:00",
+      "priority": "medium",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T15:45:59.4809774-04:00"
+    },
+    {
+      "id": "009",
+      "description": "Bug #11: AddArgusInboxConsumer never called - no event consumers wired up",
+      "createdAt": "2026-05-22T15:25:51.2631038-04:00",
+      "priority": "medium",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T15:58:30.9275492-04:00"
+    },
+    {
+      "id": "010",
+      "description": "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
+      "createdAt": "2026-05-22T15:26:34.4949606-04:00",
+      "priority": "critical",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "011",
+      "description": "Critical #2: Missing AssetConfirmed event - discovery vs confirmation not modelled",
+      "createdAt": "2026-05-22T15:26:58.2880178-04:00",
+      "priority": "critical",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "012",
+      "description": "Bug #12: ScanOrchestrator not reactive - needs event consumer for automatic progression",
+      "createdAt": "2026-05-22T15:27:43.2122151-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "completed",
+      "completedAt": "2026-05-22T21:04:21.378Z"
+    },
+    {
+      "id": "013",
+      "description": "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
+      "createdAt": "2026-05-22T15:28:23.5712382-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "014",
+      "description": "Bug #16: Env var name mismatch for scope service",
+      "createdAt": "2026-05-22T15:29:15.0711409-04:00",
+      "priority": "medium",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T15:56:30.1913963-04:00"
+    },
+    {
+      "id": "015",
+      "description": "Bug #17: CI restores wrong solution file",
+      "createdAt": "2026-05-22T15:29:31.1385815-04:00",
+      "priority": "low",
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "completedAt": "2026-05-22T16:09:16.9490777-04:00"
+    },
+    {
+      "id": "016",
+      "description": "Bug #18: HttpProbeWorker hardcodes HTTPS, no HTTP fallback",
+      "createdAt": "2026-05-22T15:29:43.2976330-04:00",
+      "priority": "low",
+      "assignedTo": "agent-2",
+      "status": "in_progress"
+    },
+    {
+      "id": "017",
+      "description": "Design #19: Confidence field not propagatable from workers",
+      "createdAt": "2026-05-22T15:29:55.5609776-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "018",
+      "description": "Design #20: RealtimeService fully in-memory - needs durability",
+      "createdAt": "2026-05-22T15:30:16.5041452-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "019",
+      "description": "Design #21: ProgramScopeChanged event never published",
+      "createdAt": "2026-05-22T15:30:43.0458915-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "020",
+      "description": "Design #22: No task deduplication on creation",
+      "createdAt": "2026-05-22T15:30:56.9241690-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "021",
+      "description": "Minor #25: OutboxDispatcher uses SingleOrDefault - brittle",
+      "createdAt": "2026-05-22T15:31:12.0058804-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "022",
+      "description": "Minor #26: SSE event field not sanitized",
+      "createdAt": "2026-05-22T15:31:28.2334487-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "023",
+      "description": "Design #23: Asset relationship uniqueness not enforced",
+      "createdAt": "2026-05-22T15:31:49.8198721-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "024",
+      "description": "Design #24: No authentication or authorization",
+      "createdAt": "2026-05-22T15:32:12.1031677-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "025",
+      "description": "Bug #14: Heartbeat always reports 0 running tasks",
+      "createdAt": "2026-05-22T15:32:35.8942564-04:00",
+      "priority": "medium",
+      "assignedTo": "agent-3",
+      "status": "in_progress"
+    },
+    {
+      "id": "026",
+      "description": "Bug #15: MaxConcurrency declared but only 1 task at a time",
+      "createdAt": "2026-05-22T15:33:09.4135828-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "027",
+      "description": "Enhancement #1: Dead letter exchange + poison message inspection/replay",
+      "createdAt": "2026-05-22T15:46:31.8523630-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "028",
+      "description": "Enhancement #2: Event schema versioning",
+      "createdAt": "2026-05-22T15:46:43.6207729-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "029",
+      "description": "Enhancement #3: AssetPropertyChanged event for diff detection",
+      "createdAt": "2026-05-22T15:46:54.6295390-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "030",
+      "description": "Enhancement #4: Re-scan scheduling based on LastScannedAt",
+      "createdAt": "2026-05-22T15:47:09.2213311-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "031",
+      "description": "Enhancement #5: Worker priority lanes (high/normal/low)",
+      "createdAt": "2026-05-22T15:47:29.1079967-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "032",
+      "description": "Enhancement #6: Per-program rate limit policies wired into RateLimitService",
+      "createdAt": "2026-05-22T15:47:59.7835677-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "033",
+      "description": "Enhancement #7: Adaptive rate limiting on 429/503 feedback",
+      "createdAt": "2026-05-22T15:48:41.3526392-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "034",
+      "description": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
+      "createdAt": "2026-05-22T16:21:08.6434833-04:00",
+      "priority": "critical",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "035",
+      "description": "Bug #2: Bulk task deduplication missing - POST /assets/bulk/enqueue creates duplicates for same asset+worker",
+      "createdAt": "2026-05-22T16:21:31.2354009-04:00",
+      "priority": "high",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "036",
+      "description": "Bug #8: BulkTagRequest and BulkEnqueueRequest endpoints not wired up - API and UI missing",
+      "createdAt": "2026-05-22T16:21:57.9502910-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "037",
+      "description": "Bug #7: ArgusMetrics meter registered but no instruments - no operational metrics exist",
+      "createdAt": "2026-05-22T16:22:14.2085245-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "038",
+      "description": "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
+      "createdAt": "2026-05-22T16:22:34.5898677-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "039",
+      "description": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
+      "createdAt": "2026-05-22T16:22:51.9595836-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "040",
+      "description": "Enhancement #12: Artifact storage - IArtifactStore with LocalFileArtifactStore and S3ArtifactStore",
+      "createdAt": "2026-05-22T16:23:11.0073110-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "041",
+      "description": "Enhancement #13: Worker test infrastructure - WorkerTestHarness with fixture-based tests",
+      "createdAt": "2026-05-22T16:23:24.7079028-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "042",
+      "description": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
+      "createdAt": "2026-05-22T16:23:45.2832975-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "043",
+      "description": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
+      "createdAt": "2026-05-22T16:24:01.4101096-04:00",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending"
+    }
+  ],
+  "version": "1.0",
+  "lastPullAt": "2026-05-22T21:02:33.680Z"
 }
