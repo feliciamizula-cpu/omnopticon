@@ -22,7 +22,7 @@ jobs:
         run: dotnet restore eShop.slnx
 
       - name: Build
-        run: dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release --no-restore
+        run: dotnet build eShop.slnx --configuration Release --no-restore
 
       - name: Validate Compose Config
         run: docker compose --env-file deploy/argus.env.example -f deploy/compose.yaml config --quiet
