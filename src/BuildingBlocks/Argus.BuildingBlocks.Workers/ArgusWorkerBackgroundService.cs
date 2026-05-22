@@ -59,39 +59,59 @@ public sealed class ArgusWorkerBackgroundService(
         logger.LogInformation("Worker {WorkerId} leased task {TaskId} ({TaskType})", _options.WorkerId, task.TaskId, task.TaskType);
 
         await StartTaskAsync(task.TaskId, cancellationToken);
-        await HeartbeatAsync(runningTasks: 1, cancellationToken);
+
+        using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var heartbeatTask = StartHeartbeatTimerAsync(runningTasks: 1, heartbeatCts.Token);
 
         var context = new WorkerExecutionContext(
             _options.WorkerId,
-            (percent, message, checkpoint) => ReportProgressAsync(task.TaskId, percent, message, checkpoint, cancellationToken),
-            request => RequestRateLimitTokenAsync(request, cancellationToken));
+            (percent, message, checkpoint) => ReportProgressAsync(task.TaskId, percent, message, checkpoint, heartbeatCts.Token),
+            request => RequestRateLimitTokenAsync(request, heartbeatCts.Token));
 
         try
         {
-            var result = await worker.ProcessAsync(task, context, cancellationToken);
+            var result = await worker.ProcessAsync(task, context, heartbeatCts.Token);
 
             foreach (var asset in result.ProducedAssets)
             {
-                if (await IsProducedAssetInScopeAsync(task, asset, cancellationToken))
+                if (await IsProducedAssetInScopeAsync(task, asset, heartbeatCts.Token))
                 {
-                    var createdAsset = await PublishAssetAsync(task, asset, cancellationToken);
+                    var createdAsset = await PublishAssetAsync(task, asset, heartbeatCts.Token);
                     if (createdAsset is not null)
                     {
-                        await CreateRelationshipAsync(task, createdAsset, asset.AssetType, cancellationToken);
+                        await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
                     }
                 }
             }
 
-            await CompleteTaskAsync(task.TaskId, result, cancellationToken);
+            await CompleteTaskAsync(task.TaskId, result, heartbeatCts.Token);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Task {TaskId} failed in worker {WorkerId}", task.TaskId, _options.WorkerId);
-            await FailTaskAsync(task.TaskId, ex, cancellationToken);
+            await FailTaskAsync(task.TaskId, ex, heartbeatCts.Token);
         }
         finally
         {
+            heartbeatCts.Cancel();
+            await heartbeatTask;
             await HeartbeatAsync(runningTasks: 0, cancellationToken);
+        }
+    }
+
+    private async Task StartHeartbeatTimerAsync(int runningTasks, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(_options.HeartbeatInterval, cancellationToken);
+                await HeartbeatAsync(runningTasks, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 

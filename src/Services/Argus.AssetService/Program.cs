@@ -739,6 +739,7 @@ internal static class AssetStoreInitialization
         {
             await dbContext.Database.EnsureCreatedAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
+            await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }
     }
 }

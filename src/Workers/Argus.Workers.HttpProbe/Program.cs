@@ -39,9 +39,6 @@ internal sealed class HttpProbeWorker : IReconWorker
             ?? WorkerHelpers.GetString(task.InputPayloadJson, "domain")
             ?? throw new InvalidOperationException("No host in task payload");
 
-        var useHttps = true;
-        var probeUrl = $"{(useHttps ? "https" : "http")}://{host}/";
-
         await context.ReportProgressAsync(10, $"Waiting for rate-limit token for {host}", null);
 
         var allowed = await context.RequestRateLimitTokenAsync(new RateLimitRequest(
@@ -58,71 +55,97 @@ internal sealed class HttpProbeWorker : IReconWorker
             return new WorkerProcessResult(true, JsonSerializer.Serialize(new { host, delayed = true }), []);
         }
 
-        await context.ReportProgressAsync(30, $"Probing {probeUrl}", "{\"scheme\":\"https\"}");
-
-        var client = _httpClientFactory.CreateClient("probe");
-        client.Timeout = TimeSpan.FromSeconds(30);
-
         var producedAssets = new List<WorkerProducedAsset>();
         string outputSummary;
 
-        try
+        var schemes = new[] { "https", "http" };
+        bool httpsSucceeded = false;
+        string httpsError = null;
+
+        foreach (var scheme in schemes)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
-            request.Headers.UserAgent.ParseAdd("ArgusRecon/1.0 (bug-bounty-recon)");
-            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/json,*/*");
+            var probeUrl = $"{scheme}://{host}/";
 
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            var statusCode = (int)response.StatusCode;
-            var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
+            try
+            {
+                await context.ReportProgressAsync(30, $"Probing {probeUrl}", $"{{\"scheme\":\"{scheme}\"}}");
 
-            await context.ReportProgressAsync(70, $"Received {statusCode} from {host}", null);
+                var client = _httpClientFactory.CreateClient("probe");
+                client.Timeout = TimeSpan.FromSeconds(30);
 
-            producedAssets.Add(new WorkerProducedAsset(
-                "Url",
-                probeUrl,
-                null,
-                new Dictionary<string, string>
+                using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
+                request.Headers.UserAgent.ParseAdd("ArgusRecon/1.0 (bug-bounty-recon)");
+                request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/json,*/*");
+
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+                var statusCode = (int)response.StatusCode;
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
+
+                await context.ReportProgressAsync(70, $"Received {statusCode} from {host}", null);
+
+                producedAssets.Add(new WorkerProducedAsset(
+                    "Url",
+                    probeUrl,
+                    null,
+                    new Dictionary<string, string>
+                    {
+                        ["http.status_code"] = statusCode.ToString(),
+                        ["http.content_type"] = contentType,
+                        ["http.redirects"] = "0",
+                        ["url.scheme"] = scheme
+                    },
+                    ["http", "alive", scheme]));
+
+                producedAssets.Add(new WorkerProducedAsset(
+                    "HttpResponse",
+                    $"{probeUrl} {statusCode} {contentType}",
+                    contentType,
+                    new Dictionary<string, string>
+                    {
+                        ["status_code"] = statusCode.ToString(),
+                        ["content_type"] = contentType,
+                        ["content_length"] = (response.Content.Headers.ContentLength ?? 0).ToString(),
+                        ["response.scheme"] = scheme
+                    },
+                    ["response", scheme]));
+
+                if (scheme == "https")
                 {
-                    ["http.status_code"] = statusCode.ToString(),
-                    ["http.content_type"] = contentType,
-                    ["http.redirects"] = "0"
-                },
-                ["http", statusCode >= 200 && statusCode < 400 ? "alive" : "error"]));
-
-            producedAssets.Add(new WorkerProducedAsset(
-                "HttpResponse",
-                $"{probeUrl} {statusCode} {contentType}",
-                contentType,
-                new Dictionary<string, string>
+                    httpsSucceeded = true;
+                }
+                break;
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                await context.ReportProgressAsync(70, $"{scheme} probe failed: {ex.Message}", null);
+                if (scheme == "https")
                 {
-                    ["status_code"] = statusCode.ToString(),
-                    ["content_type"] = contentType,
-                    ["content_length"] = (response.Content.Headers.ContentLength ?? 0).ToString()
-                },
-                ["response"]));
+                    httpsError = ex.Message;
+                }
+            }
+            catch (Exception ex)
+            {
+                await context.ReportProgressAsync(100, $"Unexpected error: {ex.Message}", null);
+                outputSummary = JsonSerializer.Serialize(new { host, error = ex.GetType().Name });
+                return new WorkerProcessResult(false, outputSummary, producedAssets);
+            }
+        }
 
-            outputSummary = JsonSerializer.Serialize(new { host, statusCode, contentType });
-        }
-        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+        if (httpsSucceeded)
         {
-            throw;
+            outputSummary = JsonSerializer.Serialize(new { host, scheme = "https" });
         }
-        catch (HttpRequestException ex)
+        else if (httpsError != null)
         {
-            await context.ReportProgressAsync(100, $"Probe failed: {ex.Message}", null);
-            producedAssets.Add(new WorkerProducedAsset(
-                "HttpResponse",
-                $"{probeUrl} error {ex.Message}",
-                "error",
-                new Dictionary<string, string> { ["error"] = ex.Message },
-                ["http", "error"]));
-            outputSummary = JsonSerializer.Serialize(new { host, error = ex.Message });
+            outputSummary = JsonSerializer.Serialize(new { host, scheme = "http", httpsError });
         }
-        catch (Exception ex)
+        else
         {
-            await context.ReportProgressAsync(100, $"Unexpected error: {ex.Message}", null);
-            outputSummary = JsonSerializer.Serialize(new { host, error = ex.GetType().Name });
+            outputSummary = JsonSerializer.Serialize(new { host, scheme = "http" });
         }
 
         await context.ReportProgressAsync(100, "Complete", null);

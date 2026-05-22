@@ -853,6 +853,7 @@ internal static class TaskStoreInitialization
         {
             await dbContext.Database.EnsureCreatedAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
+            await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }
     }
 }

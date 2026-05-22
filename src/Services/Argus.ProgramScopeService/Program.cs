@@ -702,6 +702,7 @@ internal static class ProgramScopeStoreInitialization
         {
             await dbContext.Database.EnsureCreatedAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
+            await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }
     }
 }
