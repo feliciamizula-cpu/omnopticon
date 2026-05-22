@@ -55,6 +55,14 @@
                       "priority":  "high",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "006",
+                      "description":  "Bug #8: Dispose uses Wait() on async - can deadlock in ASP.NET Core sync context",
+                      "createdAt":  "2026-05-22T15:22:46.2064690-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
