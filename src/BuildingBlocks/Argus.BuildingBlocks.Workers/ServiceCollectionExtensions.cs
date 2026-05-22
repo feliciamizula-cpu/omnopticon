@@ -29,7 +29,7 @@ public static class ServiceCollectionExtensions
                     options.AssetServiceBaseAddress = assetService;
                 }
 
-                if (Uri.TryCreate(builder.Configuration["ARGUS_SCOPE_SERVICE"], UriKind.Absolute, out var scopeService))
+                if (Uri.TryCreate(builder.Configuration["ARGUS_PROGRAM_SCOPE_SERVICE"], UriKind.Absolute, out var scopeService))
                 {
                     options.ScopeServiceBaseAddress = scopeService;
                 }
