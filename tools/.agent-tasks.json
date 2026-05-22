@@ -231,6 +231,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "027",
+                      "description":  "Enhancement #1: Dead letter exchange + poison message inspection/replay",
+                      "createdAt":  "2026-05-22T15:46:31.8523630-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
