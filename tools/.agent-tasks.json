@@ -215,6 +215,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "026",
+                      "description":  "Bug #15: MaxConcurrency declared but only 1 task at a time",
+                      "createdAt":  "2026-05-22T15:33:09.4135828-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
