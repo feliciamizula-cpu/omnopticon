@@ -928,6 +928,7 @@ internal static class TaskMapping
             ProgramId = request.ProgramId,
             ScopeId = request.ScopeId,
             InputAssetId = request.InputAssetId,
+            InputAssetType = request.InputAssetType,
             InputPayloadJson = request.InputPayloadJson,
             WorkerCapability = request.WorkerCapability.Trim(),
             State = ReconTaskState.Requested,
