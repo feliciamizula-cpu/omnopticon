@@ -290,6 +290,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "034",
+                      "description":  "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
+                      "createdAt":  "2026-05-22T16:21:08.6434833-04:00",
+                      "priority":  "critical",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
