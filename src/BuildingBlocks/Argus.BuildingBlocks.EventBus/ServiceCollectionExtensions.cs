@@ -23,6 +23,11 @@ public static class ServiceCollectionExtensions
                     options.RealtimeServiceBaseAddress = realtimeService;
                 }
 
+                if (builder.Configuration.GetConnectionString(rabbitMqConnectionName) is { } rabbitMqConn)
+                {
+                    options.RabbitMqConnectionString = rabbitMqConn;
+                }
+
                 configure?.Invoke(options);
             });
 
@@ -72,6 +77,10 @@ public static class ServiceCollectionExtensions
             .Configure(options =>
             {
                 options.SourceService = builder.Configuration["ARGUS_SOURCE_SERVICE"] ?? options.SourceService;
+                if (builder.Configuration.GetConnectionString(connectionName) is { } conn)
+                {
+                    options.RabbitMqConnectionString = conn;
+                }
                 configure?.Invoke(options);
             });
 
@@ -89,6 +98,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IIntegrationEventPublisher, DurableIntegrationEventPublisher>();
         services.AddHostedService<OutboxDispatcher>();
 
+        return services;
+    }
+
+    public static IServiceCollection AddArgusInboxConsumer<TDbContext>(this IServiceCollection services)
+        where TDbContext : DbContext
+    {
+        services.AddHostedService<RabbitMqConsumerService<TDbContext>>();
         return services;
     }
 }

@@ -35,4 +35,25 @@ public static class OutboxDatabaseInitializer
                 ON outbox_messages ("SourceService", "EventType", "OccurredAt");
             """,
             cancellationToken);
+
+    public static Task EnsureArgusInboxCreatedAsync(
+        this DatabaseFacade database,
+        CancellationToken cancellationToken = default) =>
+        database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS inbox_messages (
+                "EventId" uuid NOT NULL,
+                "EventType" character varying(256) NOT NULL,
+                "ConsumerName" character varying(256) NOT NULL,
+                "ReceivedAt" timestamp with time zone NOT NULL,
+                "ProcessedAt" timestamp with time zone NULL,
+                "Error" character varying(2048) NULL,
+                "AttemptCount" integer NOT NULL DEFAULT 1,
+                PRIMARY KEY ("EventId", "ConsumerName")
+            );
+
+            CREATE INDEX IF NOT EXISTS "IX_inbox_messages_event_type_processed"
+                ON inbox_messages ("EventType", "ProcessedAt");
+            """,
+            cancellationToken);
 }

@@ -287,7 +287,7 @@ Acceptance criteria:
 
 ## Phase 3 - Event Bus, Outbox, Inbox
 
-Status: publisher/outbox path exists for core EF services; consumer/inbox path remains incomplete.
+Status: mostly complete. Publisher/outbox path exists for core EF services; consumer/inbox path now exists.
 
 Completed:
 
@@ -301,40 +301,16 @@ Completed:
 - Background outbox dispatcher.
 - Idempotent `outbox_messages` table initializer.
 - ProgramScope, Asset, and Task services use durable outbox when EF is enabled.
+- `RabbitMqConsumerService<TDbContext>` with durable queues per service, typed handler resolution, and inbox idempotency tracking.
+- `InboxMessageRecord` and `ConfigureInbox` model builder extension.
 
-Outstanding:
+Remaining:
 
-- RabbitMQ consumers.
-- Inbox/idempotent consumer tracking.
-- Dead-letter/retry policy for consumers.
+- Dead-letter/retry policy for consumers (basic retry on failure is in place).
 - Event type registry.
 - Contract versioning.
-- Correlation/causation propagation from incoming HTTP requests and task execution.
-- Outbox support for RateLimitService and ScanOrchestratorService where appropriate.
-
-Implementation instructions:
-
-1. Add `IIntegrationEventHandler<T>` or extend existing `IIntegrationEventConsumer<T>`.
-2. Add RabbitMQ subscription host:
-   - declares durable queues per service
-   - binds event types/routing keys
-   - deserializes `IntegrationEventEnvelope<JsonElement>`
-   - resolves typed handlers
-3. Implement inbox table:
-   - event id
-   - event type
-   - consumer name
-   - received at
-   - processed at
-   - error
-   - attempt count
-4. Add `InboxMessage` EF mapping and idempotency checks:
-   - if processed, ack immediately
-   - if in progress and lock valid, skip or reject/requeue
-   - on success, mark processed and ack
-   - on failure, retry with backoff or dead-letter
-5. Wire consumers into ScanOrchestratorService first.
-6. Then wire optional UI/realtime consumers if needed.
+- Correlation/causation propagation from incoming HTTP requests.
+- Outbox support for RateLimitService and ScanOrchestratorService.
 
 Acceptance criteria:
 
