@@ -330,6 +330,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "039",
+                      "description":  "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
+                      "createdAt":  "2026-05-22T16:22:51.9595836-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
