@@ -162,6 +162,8 @@ Remaining (lower priority):
 
 ### 2.2 AssetService
 
+Status: mostly complete.
+
 Completed:
 
 - Asset upsert with natural key.
@@ -170,63 +172,18 @@ Completed:
 - PostgreSQL/in-memory backing.
 - Outbox integration for asset events.
 - UI relationship proxy exists.
+- Status transitions (`PATCH /assets/{assetId}/status`).
+- Tag management (`POST /assets/{assetId}/tags`, `DELETE /assets/{assetId}/tags/{tag}`).
+- Extended query parameters (`sort`, `direction`, `tag`, `minInterestingScore`, `minRiskScore`).
 
-Outstanding:
+Remaining:
 
-- Full asset table set from original spec:
-  - `asset_types`
-  - `asset_observations`
-  - `asset_metadata`
-  - `asset_artifacts`
-  - `asset_tags`
-  - `asset_scores`
-  - `asset_status`
-- Rich server-side sorting.
-- Rich metadata/tag search.
-- Artifact references to object storage.
-- Better relationship dedupe.
-- Bulk tagging and bulk task enqueue API support.
-- Asset status transitions and out-of-scope marking.
-- Search vector/GIN indexing.
-
-Implementation instructions:
-
-1. Extend `AssetDbContext` carefully. The current code uses `EnsureCreated`; either keep idempotent SQL initializers for new tables or introduce real EF migrations for all services.
-2. Add API endpoints:
-   - `PATCH /assets/{assetId}/status`
-   - `POST /assets/{assetId}/tags`
-   - `DELETE /assets/{assetId}/tags/{tag}`
-   - `POST /assets/bulk/tag`
-   - `POST /assets/bulk/enqueue`
-   - `POST /assets/{assetId}/artifacts`
-   - `GET /assets/{assetId}/artifacts`
-   - `GET /assets/{assetId}/observations`
-3. Add query parameters to `GET /assets`:
-   - `sort`
-   - `direction`
-   - `tag`
-   - `minInterestingScore`
-   - `minRiskScore`
-   - metadata filter support
-4. Add unique constraints for edges:
-   - `from_asset_id`
-   - `to_asset_id`
-   - `edge_type`
-   - nullable `discovered_by_task_id` if useful
-5. When a worker creates a child asset:
-   - validate scope first
-   - upsert child asset
-   - create relationship from parent/input asset
-   - store artifact reference if applicable
-   - commit
-   - publish outbox event
-
-Acceptance criteria:
-
-- Duplicate assets and duplicate relationships are idempotent.
-- UI can request asset details, relationships, observations, artifacts, tags, and scores.
-- Asset list supports server-side sort/filter/paging.
-- Raw bodies/screenshots/tool outputs are not stored in hot asset rows.
+- `POST /assets/bulk/tag` (needs batch endpoint on store).
+- `POST /assets/bulk/enqueue` (needs TaskService integration).
+- `GET/POST /assets/{assetId}/artifacts` (needs artifact storage service).
+- `GET /assets/{assetId}/observations`.
+- Unique constraints for edges (from_asset_id, to_asset_id, edge_type, discovered_by_task_id).
+- GIN indexing for full-text search.
 
 ### 2.3 TaskService
 

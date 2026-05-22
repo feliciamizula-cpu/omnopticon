@@ -36,12 +36,17 @@ app.MapGet("/assets", (
     AssetType? type,
     AssetStatus? status,
     string? search,
+    string? tag,
+    int? minInterestingScore,
+    int? minRiskScore,
+    string? sort,
+    string? direction,
     int? page,
     int? pageSize,
     IAssetStore store,
     CancellationToken cancellationToken) =>
 {
-    var query = new AssetQuery(programId, type, status, search, page ?? 1, pageSize ?? 100);
+    var query = new AssetQuery(programId, type, status, search, tag, minInterestingScore, minRiskScore, sort, direction, page ?? 1, pageSize ?? 100);
     return store.QueryAsync(query, cancellationToken);
 });
 
@@ -117,6 +122,36 @@ app.MapPost("/assets/relationships", async (
     return Results.Created($"/assets/{request.FromAssetId}/relationships", relationship);
 });
 
+app.MapPatch("/assets/{assetId:guid}/status", async (
+    Guid assetId,
+    UpdateAssetStatusRequest request,
+    IAssetStore store,
+    CancellationToken cancellationToken) =>
+{
+    var asset = await store.UpdateStatusAsync(assetId, request.Status, cancellationToken);
+    return Results.Ok(asset);
+});
+
+app.MapPost("/assets/{assetId:guid}/tags", async (
+    Guid assetId,
+    AddAssetTagsRequest request,
+    IAssetStore store,
+    CancellationToken cancellationToken) =>
+{
+    var asset = await store.AddTagsAsync(assetId, request.Tags, cancellationToken);
+    return Results.Ok(asset);
+});
+
+app.MapDelete("/assets/{assetId:guid}/tags/{tag}", async (
+    Guid assetId,
+    string tag,
+    IAssetStore store,
+    CancellationToken cancellationToken) =>
+{
+    var asset = await store.RemoveTagAsync(assetId, tag, cancellationToken);
+    return Results.Ok(asset);
+});
+
 app.Run();
 
 internal interface IAssetStore
@@ -127,6 +162,9 @@ internal interface IAssetStore
     Task<bool> ContainsAsync(Guid assetId, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<AssetRelationshipDto>> GetRelationshipsAsync(Guid assetId, CancellationToken cancellationToken);
     Task<AssetRelationshipDto> AddRelationshipAsync(CreateAssetRelationshipRequest request, CancellationToken cancellationToken);
+    Task<AssetDto> UpdateStatusAsync(Guid assetId, AssetStatus status, CancellationToken cancellationToken);
+    Task<AssetDto> AddTagsAsync(Guid assetId, IReadOnlyCollection<string> tags, CancellationToken cancellationToken);
+    Task<AssetDto> RemoveTagAsync(Guid assetId, string tag, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryAssetStore : IAssetStore
@@ -161,10 +199,42 @@ internal sealed class InMemoryAssetStore : IAssetStore
             assets = assets.Where(asset => asset.Value.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
         }
 
-        var ordered = assets
-            .OrderByDescending(asset => asset.InterestingScore)
-            .ThenByDescending(asset => asset.LastSeenAt)
-            .ToArray();
+        if (!string.IsNullOrWhiteSpace(query.Tag))
+        {
+            assets = assets.Where(asset => asset.Tags.Contains(query.Tag, StringComparer.OrdinalIgnoreCase));
+        }
+
+        if (query.MinInterestingScore is not null)
+        {
+            assets = assets.Where(asset => asset.InterestingScore >= query.MinInterestingScore);
+        }
+
+        if (query.MinRiskScore is not null)
+        {
+            assets = assets.Where(asset => asset.RiskScore >= query.MinRiskScore);
+        }
+
+        var sort = query.Sort?.ToLowerInvariant() ?? "lastseenat";
+        var direction = query.Direction?.ToLowerInvariant() == "asc" ? "asc" : "desc";
+
+        assets = sort switch
+        {
+            "interesting_score" => direction == "asc"
+                ? assets.OrderBy(asset => asset.InterestingScore)
+                : assets.OrderByDescending(asset => asset.InterestingScore),
+            "risk_score" => direction == "asc"
+                ? assets.OrderBy(asset => asset.RiskScore)
+                : assets.OrderByDescending(asset => asset.RiskScore),
+            "firstseenat" => direction == "asc"
+                ? assets.OrderBy(asset => asset.FirstSeenAt)
+                : assets.OrderByDescending(asset => asset.FirstSeenAt),
+            "value" => direction == "asc"
+                ? assets.OrderBy(asset => asset.Value, StringComparer.OrdinalIgnoreCase)
+                : assets.OrderByDescending(asset => asset.Value, StringComparer.OrdinalIgnoreCase),
+            _ => assets.OrderByDescending(asset => asset.LastSeenAt)
+        };
+
+        var ordered = assets.ToArray();
 
         var result = new PagedResult<AssetDto>(
             ordered.Skip((page - 1) * pageSize).Take(pageSize).ToArray(),
@@ -251,6 +321,48 @@ internal sealed class InMemoryAssetStore : IAssetStore
 
         return Task.FromResult(relationship);
     }
+
+    public Task<AssetDto> UpdateStatusAsync(Guid assetId, AssetStatus status, CancellationToken cancellationToken)
+    {
+        if (!_assets.TryGetValue(assetId, out var asset))
+        {
+            throw new InvalidOperationException("Asset not found.");
+        }
+
+        var updated = asset with { Status = status };
+        _assets[assetId] = updated;
+        return Task.FromResult(updated);
+    }
+
+    public Task<AssetDto> AddTagsAsync(Guid assetId, IReadOnlyCollection<string> tags, CancellationToken cancellationToken)
+    {
+        if (!_assets.TryGetValue(assetId, out var asset))
+        {
+            throw new InvalidOperationException("Asset not found.");
+        }
+
+        var updated = asset with
+        {
+            Tags = AssetSerialization.MergeTags(asset.Tags, tags)
+        };
+        _assets[assetId] = updated;
+        return Task.FromResult(updated);
+    }
+
+    public Task<AssetDto> RemoveTagAsync(Guid assetId, string tag, CancellationToken cancellationToken)
+    {
+        if (!_assets.TryGetValue(assetId, out var asset))
+        {
+            throw new InvalidOperationException("Asset not found.");
+        }
+
+        var updated = asset with
+        {
+            Tags = asset.Tags.Where(t => !string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)).ToArray()
+        };
+        _assets[assetId] = updated;
+        return Task.FromResult(updated);
+    }
 }
 
 internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
@@ -281,16 +393,44 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
             assets = assets.Where(asset => EF.Functions.ILike(asset.Value, $"%{query.Search}%"));
         }
 
+        if (query.MinInterestingScore is not null)
+        {
+            assets = assets.Where(asset => asset.InterestingScore >= query.MinInterestingScore);
+        }
+
+        if (query.MinRiskScore is not null)
+        {
+            assets = assets.Where(asset => asset.RiskScore >= query.MinRiskScore);
+        }
+
         var totalCount = await assets.CountAsync(cancellationToken);
+
+        var sort = query.Sort?.ToLowerInvariant() ?? "lastseenat";
+        var direction = query.Direction?.ToLowerInvariant() == "asc" ? "asc" : "desc";
+
+        assets = sort switch
+        {
+            "interesting_score" => direction == "asc"
+                ? assets.OrderBy(asset => asset.InterestingScore)
+                : assets.OrderByDescending(asset => asset.InterestingScore),
+            "risk_score" => direction == "asc"
+                ? assets.OrderBy(asset => asset.RiskScore)
+                : assets.OrderByDescending(asset => asset.RiskScore),
+            "firstseenat" => direction == "asc"
+                ? assets.OrderBy(asset => asset.FirstSeenAt)
+                : assets.OrderByDescending(asset => asset.FirstSeenAt),
+            "value" => direction == "asc"
+                ? assets.OrderBy(asset => asset.Value)
+                : assets.OrderByDescending(asset => asset.Value),
+            _ => assets.OrderByDescending(asset => asset.LastSeenAt)
+        };
+
         var records = await assets
-            .OrderByDescending(asset => asset.InterestingScore)
-            .ThenByDescending(asset => asset.LastSeenAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToArrayAsync(cancellationToken);
-        var items = records.Select(asset => asset.ToDto()).ToArray();
 
-        return new PagedResult<AssetDto>(items, page, pageSize, totalCount);
+        return new PagedResult<AssetDto>(records.Select(asset => asset.ToDto()).ToArray(), page, pageSize, totalCount);
     }
 
     public async Task<AssetUpsertResult> UpsertAsync(CreateAssetRequest request, CancellationToken cancellationToken)
@@ -380,6 +520,38 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return relationship.ToDto();
+    }
+
+    public async Task<AssetDto> UpdateStatusAsync(Guid assetId, AssetStatus status, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.Assets.FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
+            ?? throw new InvalidOperationException("Asset not found.");
+
+        asset.Status = status;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return asset.ToDto();
+    }
+
+    public async Task<AssetDto> AddTagsAsync(Guid assetId, IReadOnlyCollection<string> tags, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.Assets.FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
+            ?? throw new InvalidOperationException("Asset not found.");
+
+        var existingTags = asset.Tags;
+        asset.TagsJson = JsonSerializer.Serialize(AssetSerialization.MergeTags(existingTags, tags));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return asset.ToDto();
+    }
+
+    public async Task<AssetDto> RemoveTagAsync(Guid assetId, string tag, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.Assets.FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
+            ?? throw new InvalidOperationException("Asset not found.");
+
+        var updatedTags = asset.Tags.Where(t => !string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)).ToArray();
+        asset.TagsJson = JsonSerializer.Serialize(updatedTags);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return asset.ToDto();
     }
 }
 

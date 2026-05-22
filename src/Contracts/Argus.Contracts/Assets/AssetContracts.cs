@@ -78,6 +78,11 @@ public sealed record AssetQuery(
     AssetType? Type,
     AssetStatus? Status,
     string? Search,
+    string? Tag,
+    int? MinInterestingScore,
+    int? MinRiskScore,
+    string? Sort,
+    string? Direction,
     int Page = 1,
     int PageSize = 100);
 
@@ -86,3 +91,18 @@ public sealed record PagedResult<T>(
     int Page,
     int PageSize,
     int TotalCount);
+
+public sealed record UpdateAssetStatusRequest(
+    AssetStatus Status,
+    string? Reason);
+
+public sealed record AddAssetTagsRequest(
+    IReadOnlyCollection<string> Tags);
+
+public sealed record BulkTagRequest(
+    IReadOnlyCollection<Guid> AssetIds,
+    IReadOnlyCollection<string> Tags);
+
+public sealed record BulkEnqueueRequest(
+    IReadOnlyCollection<Guid> AssetIds,
+    string TaskType);
