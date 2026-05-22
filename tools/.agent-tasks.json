@@ -159,6 +159,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "019",
+                      "description":  "Design #21: ProgramScopeChanged event never published",
+                      "createdAt":  "2026-05-22T15:30:43.0458915-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
