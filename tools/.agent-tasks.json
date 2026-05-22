@@ -322,6 +322,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "038",
+                      "description":  "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
+                      "createdAt":  "2026-05-22T16:22:34.5898677-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
