@@ -143,6 +143,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "017",
+                      "description":  "Design #19: Confidence field not propagatable from workers",
+                      "createdAt":  "2026-05-22T15:29:55.5609776-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
