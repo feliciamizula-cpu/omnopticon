@@ -1,0 +1,22 @@
+{
+    "agents":  [
+                   {
+                       "status":  "active",
+                       "currentTask":  null,
+                       "name":  "Agent 1",
+                       "id":  "agent-1",
+                       "lastUpdated":  "2026-05-22T15:20:26.4381876-04:00"
+                   },
+                   {
+                       "status":  "inactive",
+                       "currentTask":  null,
+                       "name":  "Agent 2",
+                       "id":  "agent-2",
+                       "lastUpdated":  ""
+                   }
+               ],
+    "tasks":  [
+
+              ],
+    "version":  "1.0"
+}
