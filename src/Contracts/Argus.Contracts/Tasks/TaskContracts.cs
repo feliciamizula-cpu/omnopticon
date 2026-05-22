@@ -63,7 +63,8 @@ public sealed record LeaseReconTaskRequest(
     string WorkerId,
     string WorkerCapability,
     IReadOnlyCollection<string> SubscribedAssetTypes,
-    TimeSpan LeaseDuration);
+    TimeSpan LeaseDuration,
+    WorkerPriority MinimumPriority = WorkerPriority.Low);
 
 public sealed record UpdateReconTaskProgressRequest(
     int ProgressPercent,
