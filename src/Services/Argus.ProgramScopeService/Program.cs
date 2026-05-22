@@ -100,6 +100,58 @@ app.MapPost("/programs/{programId:guid}/scopes", async (
 app.MapPost("/scope-validation/check", (ScopeValidationRequest request, IProgramScopeStore store, CancellationToken cancellationToken) =>
     store.ValidateAsync(request, cancellationToken));
 
+app.MapGet("/programs/{programId:guid}/rules/revisions", async (
+    Guid programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var revisions = await store.GetRuleRevisionsAsync(programId, cancellationToken);
+    return Results.Ok(revisions);
+});
+
+app.MapPost("/programs/{programId:guid}/exclusions", async (
+    Guid programId,
+    CreateScopeExclusionRequest request,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var exclusion = await store.CreateScopeExclusionAsync(programId, request.Pattern, request.Reason, request.ExpiresAt, cancellationToken);
+    return Results.Created($"/programs/{programId}/exclusions/{exclusion.ExclusionId}", exclusion);
+});
+
+app.MapGet("/programs/{programId:guid}/rate-limit-policies", async (
+    Guid programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var policies = await store.GetRateLimitPoliciesAsync(programId, cancellationToken);
+    return Results.Ok(policies);
+});
+
+app.MapPost("/programs/{programId:guid}/rate-limit-policies", async (
+    Guid programId,
+    CreateRateLimitPolicyRequest request,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var policy = await store.CreateRateLimitPolicyAsync(programId, request.ScopeId, request.BucketKey, request.Capacity, request.RefillRate, request.Source, cancellationToken);
+    return Results.Created($"/programs/{programId}/rate-limit-policies/{policy.PolicyId}", policy);
+});
+
+app.MapPost("/scope-validation/check-batch", async (
+    ScopeBatchValidationRequest request,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var results = new List<ScopeValidationResult>();
+    foreach (var target in request.Targets)
+    {
+        var result = await store.ValidateAsync(new ScopeValidationRequest(request.ProgramId, target, request.TargetType), cancellationToken);
+        results.Add(result);
+    }
+    return Results.Ok(results);
+});
+
 app.Run();
 
 internal interface IProgramScopeStore
@@ -110,6 +162,10 @@ internal interface IProgramScopeStore
     Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken);
     Task<ProgramScopeDto?> CreateScopeAsync(CreateProgramScopeRequest request, CancellationToken cancellationToken);
     Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<ProgramRuleRevisionDto>> GetRuleRevisionsAsync(Guid programId, CancellationToken cancellationToken);
+    Task<ScopeExclusionDto> CreateScopeExclusionAsync(Guid programId, string pattern, string? reason, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken);
+    Task<RateLimitPolicyDto> CreateRateLimitPolicyAsync(Guid programId, Guid? scopeId, string bucketKey, int capacity, int refillRate, string source, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
@@ -142,6 +198,9 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
             request.ExternalUrl,
             now,
             now,
+            [],
+            [],
+            [],
             []);
 
         _programs[record.ProgramId] = record;
@@ -194,6 +253,84 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         return Task.FromResult(ScopeMatching.Validate(request, program.Scopes));
     }
 
+    public Task<IReadOnlyCollection<ProgramRuleRevisionDto>> GetRuleRevisionsAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            return Task.FromResult<IReadOnlyCollection<ProgramRuleRevisionDto>>([]);
+        }
+
+        return Task.FromResult<IReadOnlyCollection<ProgramRuleRevisionDto>>(
+            program.RuleRevisions
+                .OrderByDescending(r => r.Version)
+                .Select(r => new ProgramRuleRevisionDto(r.RevisionId, r.ProgramId, r.Version, r.ChangeType, r.OldValue, r.NewValue, r.ChangedBy, r.CreatedAt))
+                .ToArray());
+    }
+
+    public Task<ScopeExclusionDto> CreateScopeExclusionAsync(Guid programId, string pattern, string? reason, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            throw new InvalidOperationException("Program not found.");
+        }
+
+        var exclusion = new ScopeExclusionRecord
+        {
+            ExclusionId = Guid.NewGuid(),
+            ProgramId = programId,
+            Pattern = pattern.Trim().ToLowerInvariant(),
+            Reason = reason ?? string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = expiresAt
+        };
+
+        lock (program.ScopeExclusions)
+        {
+            program.ScopeExclusions.Add(exclusion);
+        }
+
+        return Task.FromResult(new ScopeExclusionDto(exclusion.ExclusionId, exclusion.ProgramId, exclusion.Pattern, exclusion.Reason, exclusion.CreatedAt, exclusion.ExpiresAt));
+    }
+
+    public Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            return Task.FromResult<IReadOnlyCollection<RateLimitPolicyDto>>([]);
+        }
+
+        return Task.FromResult<IReadOnlyCollection<RateLimitPolicyDto>>(
+            program.RateLimitPolicies
+                .Select(p => new RateLimitPolicyDto(p.PolicyId, p.ProgramId, p.ScopeId, p.BucketKey, p.Capacity, p.RefillRate, p.Source))
+                .ToArray());
+    }
+
+    public Task<RateLimitPolicyDto> CreateRateLimitPolicyAsync(Guid programId, Guid? scopeId, string bucketKey, int capacity, int refillRate, string source, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            throw new InvalidOperationException("Program not found.");
+        }
+
+        var policy = new RateLimitPolicyRecord
+        {
+            PolicyId = Guid.NewGuid(),
+            ProgramId = programId,
+            ScopeId = scopeId,
+            BucketKey = bucketKey,
+            Capacity = capacity,
+            RefillRate = refillRate,
+            Source = source
+        };
+
+        lock (program.RateLimitPolicies)
+        {
+            program.RateLimitPolicies.Add(policy);
+        }
+
+        return Task.FromResult(new RateLimitPolicyDto(policy.PolicyId, policy.ProgramId, policy.ScopeId, policy.BucketKey, policy.Capacity, policy.RefillRate, policy.Source));
+    }
+
     private static ProgramDto ToDto(ProgramRecord record) =>
         new(
             record.ProgramId,
@@ -211,7 +348,10 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         string? ExternalUrl,
         DateTimeOffset CreatedAt,
         DateTimeOffset UpdatedAt,
-        List<ProgramScopeDto> Scopes)
+        List<ProgramScopeDto> Scopes,
+        List<ProgramRuleRevisionRecord> RuleRevisions,
+        List<ScopeExclusionRecord> ScopeExclusions,
+        List<RateLimitPolicyRecord> RateLimitPolicies)
     {
         public DateTimeOffset UpdatedAt { get; set; } = UpdatedAt;
     }
@@ -317,12 +457,85 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
 
         return ScopeMatching.Validate(request, scopes);
     }
+
+    public async Task<IReadOnlyCollection<ProgramRuleRevisionDto>> GetRuleRevisionsAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        return await dbContext.RuleRevisions
+            .AsNoTracking()
+            .Where(r => r.ProgramId == programId)
+            .OrderByDescending(r => r.Version)
+            .Select(r => new ProgramRuleRevisionDto(r.RevisionId, r.ProgramId, r.Version, r.ChangeType, r.OldValue, r.NewValue, r.ChangedBy, r.CreatedAt))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<ScopeExclusionDto> CreateScopeExclusionAsync(Guid programId, string pattern, string? reason, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs.FirstOrDefaultAsync(p => p.ProgramId == programId, cancellationToken);
+        if (program is null)
+        {
+            throw new InvalidOperationException("Program not found.");
+        }
+
+        var exclusion = new ScopeExclusionRecord
+        {
+            ExclusionId = Guid.NewGuid(),
+            ProgramId = programId,
+            Pattern = pattern.Trim().ToLowerInvariant(),
+            Reason = reason ?? string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = expiresAt
+        };
+
+        dbContext.ScopeExclusions.Add(exclusion);
+        program.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new ScopeExclusionDto(exclusion.ExclusionId, exclusion.ProgramId, exclusion.Pattern, exclusion.Reason, exclusion.CreatedAt, exclusion.ExpiresAt);
+    }
+
+    public async Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        return await dbContext.RateLimitPolicies
+            .AsNoTracking()
+            .Where(p => p.ProgramId == programId)
+            .Select(p => new RateLimitPolicyDto(p.PolicyId, p.ProgramId, p.ScopeId, p.BucketKey, p.Capacity, p.RefillRate, p.Source))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<RateLimitPolicyDto> CreateRateLimitPolicyAsync(Guid programId, Guid? scopeId, string bucketKey, int capacity, int refillRate, string source, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs.FirstOrDefaultAsync(p => p.ProgramId == programId, cancellationToken);
+        if (program is null)
+        {
+            throw new InvalidOperationException("Program not found.");
+        }
+
+        var policy = new RateLimitPolicyRecord
+        {
+            PolicyId = Guid.NewGuid(),
+            ProgramId = programId,
+            ScopeId = scopeId,
+            BucketKey = bucketKey,
+            Capacity = capacity,
+            RefillRate = refillRate,
+            Source = source
+        };
+
+        dbContext.RateLimitPolicies.Add(policy);
+        program.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return new RateLimitPolicyDto(policy.PolicyId, policy.ProgramId, policy.ScopeId, policy.BucketKey, policy.Capacity, policy.RefillRate, policy.Source);
+    }
 }
 
 internal sealed class ProgramScopeDbContext(DbContextOptions<ProgramScopeDbContext> options) : DbContext(options)
 {
     public DbSet<ProgramRecord> Programs => Set<ProgramRecord>();
     public DbSet<ProgramScopeRecord> Scopes => Set<ProgramScopeRecord>();
+    public DbSet<ProgramRuleRevisionRecord> RuleRevisions => Set<ProgramRuleRevisionRecord>();
+    public DbSet<ScopeExclusionRecord> ScopeExclusions => Set<ScopeExclusionRecord>();
+    public DbSet<RateLimitPolicyRecord> RateLimitPolicies => Set<RateLimitPolicyRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -346,6 +559,27 @@ internal sealed class ProgramScopeDbContext(DbContextOptions<ProgramScopeDbConte
         scope.Property(record => record.Pattern).HasMaxLength(2048);
         scope.Property(record => record.Action).HasConversion<string>().HasMaxLength(64);
 
+        var revision = modelBuilder.Entity<ProgramRuleRevisionRecord>();
+        revision.ToTable("program_rule_revisions");
+        revision.HasKey(record => record.RevisionId);
+        revision.HasIndex(record => record.ProgramId);
+        revision.Property(record => record.ChangeType).HasMaxLength(64);
+        revision.Property(record => record.ChangedBy).HasMaxLength(256);
+
+        var exclusion = modelBuilder.Entity<ScopeExclusionRecord>();
+        exclusion.ToTable("scope_exclusions");
+        exclusion.HasKey(record => record.ExclusionId);
+        exclusion.HasIndex(record => record.ProgramId);
+        exclusion.Property(record => record.Pattern).HasMaxLength(2048);
+        exclusion.Property(record => record.Reason).HasMaxLength(1024);
+
+        var policy = modelBuilder.Entity<RateLimitPolicyRecord>();
+        policy.ToTable("rate_limit_policies");
+        policy.HasKey(record => record.PolicyId);
+        policy.HasIndex(record => new { record.ProgramId, record.ScopeId });
+        policy.Property(record => record.BucketKey).HasMaxLength(512);
+        policy.Property(record => record.Source).HasMaxLength(256);
+
         modelBuilder.ConfigureArgusOutbox();
     }
 }
@@ -359,6 +593,9 @@ internal sealed class ProgramRecord
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<ProgramScopeRecord> Scopes { get; set; } = [];
+    public List<ProgramRuleRevisionRecord> RuleRevisions { get; set; } = [];
+    public List<ScopeExclusionRecord> ScopeExclusions { get; set; } = [];
+    public List<RateLimitPolicyRecord> RateLimitPolicies { get; set; } = [];
 
     public ProgramDto ToDto() =>
         new(ProgramId, Name, Source, ExternalUrl, CreatedAt, UpdatedAt, Scopes.Select(scope => scope.ToDto()).ToArray());
@@ -376,6 +613,39 @@ internal sealed class ProgramScopeRecord
 
     public ProgramScopeDto ToDto() =>
         new(ScopeId, ProgramId, ScopeType, Pattern, Action, Notes, CreatedAt);
+}
+
+internal sealed class ProgramRuleRevisionRecord
+{
+    public Guid RevisionId { get; set; }
+    public Guid ProgramId { get; set; }
+    public int Version { get; set; }
+    public string ChangeType { get; set; } = string.Empty;
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
+    public string ChangedBy { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+internal sealed class ScopeExclusionRecord
+{
+    public Guid ExclusionId { get; set; }
+    public Guid ProgramId { get; set; }
+    public string Pattern { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+}
+
+internal sealed class RateLimitPolicyRecord
+{
+    public Guid PolicyId { get; set; }
+    public Guid ProgramId { get; set; }
+    public Guid? ScopeId { get; set; }
+    public string BucketKey { get; set; } = string.Empty;
+    public int Capacity { get; set; }
+    public int RefillRate { get; set; }
+    public string Source { get; set; } = string.Empty;
 }
 
 internal static class ScopeMatching

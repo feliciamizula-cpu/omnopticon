@@ -47,3 +47,47 @@ public sealed record ScopeValidationResult(
     bool IsAllowed,
     Guid? MatchedScopeId,
     string Reason);
+
+public sealed record ProgramRuleRevisionDto(
+    Guid RevisionId,
+    Guid ProgramId,
+    int Version,
+    string ChangeType,
+    string? OldValue,
+    string? NewValue,
+    string ChangedBy,
+    DateTimeOffset CreatedAt);
+
+public sealed record ScopeExclusionDto(
+    Guid ExclusionId,
+    Guid ProgramId,
+    string Pattern,
+    string Reason,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ExpiresAt);
+
+public sealed record RateLimitPolicyDto(
+    Guid PolicyId,
+    Guid ProgramId,
+    Guid? ScopeId,
+    string BucketKey,
+    int Capacity,
+    int RefillRate,
+    string Source);
+
+public sealed record CreateScopeExclusionRequest(
+    string Pattern,
+    string? Reason,
+    DateTimeOffset? ExpiresAt);
+
+public sealed record CreateRateLimitPolicyRequest(
+    Guid? ScopeId,
+    string BucketKey,
+    int Capacity,
+    int RefillRate,
+    string Source);
+
+public sealed record ScopeBatchValidationRequest(
+    Guid ProgramId,
+    IReadOnlyCollection<string> Targets,
+    string TargetType);

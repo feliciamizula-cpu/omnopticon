@@ -138,6 +138,8 @@ Status: MVP service shape exists, but domain depth is incomplete.
 
 ### 2.1 ProgramScopeService
 
+Status: complete.
+
 Completed:
 
 - Program CRUD basics.
@@ -145,47 +147,18 @@ Completed:
 - Scope validation endpoint.
 - PostgreSQL/in-memory backing.
 - Outbox integration for program/scope events.
+- Rule revision history (`program_rule_revisions` table, `GET /programs/{programId}/rules/revisions`).
+- Scope exclusions as first-class records (`scope_exclusions` table, `POST /programs/{programId}/exclusions`).
+- Rate-limit policy ownership per program/scope (`rate_limit_policies` table, `GET/POST /programs/{programId}/rate-limit-policies`).
+- Batch scope validation (`POST /scope-validation/check-batch`).
 
-Outstanding:
+Remaining (lower priority):
 
-- Rule revision history.
-- Scope exclusions as first-class records.
-- Rate-limit policy ownership per program/scope.
 - Scope ingestion from HackerOne/Bugcrowd/custom sources.
 - Signed scope snapshots for workers.
-- More precise wildcard/domain/IP/CIDR/URL-pattern validation.
-
-Implementation instructions:
-
-1. Extend contracts in `src/Contracts/Argus.Contracts/Programs`.
-2. Add entities/tables in `ProgramScopeDbContext`:
-   - `program_rule_revisions`
-   - `scope_exclusions`
-   - `rate_limit_policies`
-   - optional `scope_snapshots`
-3. Add endpoints:
-   - `GET /programs/{programId}/rules/revisions`
-   - `POST /programs/{programId}/scope-imports`
-   - `GET /programs/{programId}/scope-snapshot`
-   - `POST /scope-validation/check-batch`
-4. Implement scope matching for:
-   - exact domains
-   - wildcard domains
-   - CIDR ranges
-   - URL prefix/patterns
-   - explicit exclusions overriding includes
-5. Emit events:
-   - `ProgramScopeChanged`
-   - `ProgramRuleRevisionCreated`
-   - `ScopeSnapshotPublished`
-6. Ensure workers never implement independent scope logic beyond extracting a target from an asset. The service remains authoritative.
-
-Acceptance criteria:
-
-- Adding an exclusion prevents workers from creating matching child assets.
-- Wildcard and CIDR cases are covered by tests.
-- Scope revision history is visible via API.
-- Scope changes emit integration events through the outbox.
+- More precise CIDR/URL-pattern validation.
+- `ProgramScopeChanged`, `ProgramRuleRevisionCreated`, `ScopeSnapshotPublished` events.
+- Scope revision history write path (currently read-only).
 
 ### 2.2 AssetService
 
