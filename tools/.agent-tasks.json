@@ -23,6 +23,14 @@
                       "priority":  "high",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "002",
+                      "description":  "Bug #4: Exchange name mismatch - publisher uses argus.integration.events but consumer binds to argus.events",
+                      "createdAt":  "2026-05-22T15:21:05.0281964-04:00",
+                      "priority":  "high",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
