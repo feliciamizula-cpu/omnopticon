@@ -263,6 +263,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "031",
+                      "description":  "Enhancement #5: Worker priority lanes (high/normal/low)",
+                      "createdAt":  "2026-05-22T15:47:29.1079967-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
