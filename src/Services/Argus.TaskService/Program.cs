@@ -3,19 +3,20 @@ using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Collections.Concurrent;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults();
-builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
-builder.Services.AddProblemDetails();
+builder.AddBasicServiceDefaults();
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
 {
     builder.Services.AddDbContext<TaskDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
     builder.Services.AddArgusEfCoreOutbox<TaskDbContext>();
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<ITaskStore, EfTaskStore>();
     builder.Services.AddHostedService<TaskMaintenanceService>();
 }
@@ -23,6 +24,9 @@ else
 {
     builder.Services.AddSingleton<ITaskStore, InMemoryTaskStore>();
 }
+
+builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
