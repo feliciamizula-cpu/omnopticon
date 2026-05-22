@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore eShop.slnx
+
+      - name: Build
+        run: dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release --no-restore
+
+      - name: Validate Compose Config
+        run: docker compose --env-file deploy/argus.env.example -f deploy/compose.yaml config --quiet
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build services
+        run: dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release
+
+      - name: Start containers
+        run: |
+          cp deploy/argus.env.example deploy/argus.env
+          docker compose --env-file deploy/argus.env -f deploy/compose.yaml up --build -d
+
+      - name: Wait for services
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Services are ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Services failed to start"
+          docker compose --env-file deploy/argus.env -f deploy/compose.yaml logs
+          exit 1
+
+      - name: Run smoke test
+        run: |
+          curl -fsS http://localhost:8080/ui/state | jq -e '.programs' > /dev/null
+
+      - name: Cleanup
+        if: always()
+        run: docker compose --env-file deploy/argus.env -f deploy/compose.yaml down -v

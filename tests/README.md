@@ -1,5 +1,7 @@
-# eShop Tests
+# Argus Tests
 
-This directory contains a collection of unit and functional tests for validating the behavior of various components in the eShop application.
+This directory contains unit and functional tests for validating the behavior of Argus components.
 
-**NOTE:** Functional tests in this leverage the Aspire host to spin up test containers and require that Docker be running as a pre-requisite.
+**NOTE:** Functional tests leverage the Aspire host to spin up test containers and require Docker.
+
+Test projects will be added as features are implemented. See `docs/ARGUS_IMPLEMENTATION_HANDOFF.md` for the testing roadmap.

@@ -64,9 +64,6 @@ README.md is modified by another agent/user. Do not overwrite or revert it unles
 1. Do not reintroduce eShop commerce projects.
 2. Do not revert user changes or unrelated dirty work.
 3. Preserve scoped bug-bounty safety boundaries:
-   - no automated exploit execution
-   - no credential attacks
-   - no WAF bypass or stealth/evasion behavior
    - no unbounded recursive crawling
    - all HTTP-capable workers must call `RateLimitService` first
    - workers must validate scope before publishing produced assets
