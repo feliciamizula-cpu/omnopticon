@@ -1,4 +1,5 @@
 using Argus.Contracts.Assets;
+using Argus.Contracts.Programs;
 using Argus.Contracts.RateLimits;
 using Argus.Contracts.Tasks;
 using Argus.Contracts.Workers;
@@ -6,6 +7,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Argus.BuildingBlocks.Workers;
 
@@ -16,6 +19,10 @@ public sealed class ArgusWorkerBackgroundService(
     ILogger<ArgusWorkerBackgroundService> logger) : BackgroundService
 {
     private readonly ArgusWorkerOptions _options = options.Value;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -63,10 +70,13 @@ public sealed class ArgusWorkerBackgroundService(
         {
             var result = await worker.ProcessAsync(task, context, cancellationToken);
 
-            foreach (var asset in result.ProducedAssets)
+        foreach (var asset in result.ProducedAssets)
+        {
+            if (await IsProducedAssetInScopeAsync(task, asset, cancellationToken))
             {
                 await PublishAssetAsync(task, asset, cancellationToken);
             }
+        }
 
             await CompleteTaskAsync(task.TaskId, result, cancellationToken);
         }
@@ -86,7 +96,7 @@ public sealed class ArgusWorkerBackgroundService(
         var request = new WorkerRegistrationRequest(_options.WorkerId, worker.Capability, typeof(IReconWorker).Assembly.GetName().Version?.ToString());
         var client = CreateClient(_options.RealtimeServiceBaseAddress);
 
-        using var response = await client.PostAsJsonAsync("/workers/register", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync("/workers/register", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -101,7 +111,7 @@ public sealed class ArgusWorkerBackgroundService(
 
         var client = CreateClient(_options.RealtimeServiceBaseAddress);
 
-        using var response = await client.PostAsJsonAsync("/workers/heartbeat", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync("/workers/heartbeat", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -110,7 +120,7 @@ public sealed class ArgusWorkerBackgroundService(
         var request = new LeaseReconTaskRequest(_options.WorkerId, worker.Capability.WorkerType, _options.LeaseDuration);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
-        using var response = await client.PostAsJsonAsync("/tasks/lease", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync("/tasks/lease", request, JsonOptions, cancellationToken);
 
         if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
         {
@@ -118,7 +128,7 @@ public sealed class ArgusWorkerBackgroundService(
         }
 
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken);
+        return await response.Content.ReadFromJsonAsync<ReconTaskDto>(JsonOptions, cancellationToken);
     }
 
     private async Task StartTaskAsync(Guid taskId, CancellationToken cancellationToken)
@@ -138,7 +148,7 @@ public sealed class ArgusWorkerBackgroundService(
         var request = new UpdateReconTaskProgressRequest(percent, message, checkpointJson);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/progress", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/progress", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -155,10 +165,10 @@ public sealed class ArgusWorkerBackgroundService(
             request.ProxyId,
             request.PermitCount);
 
-        using var response = await client.PostAsJsonAsync("/rate-limits/check", payload, cancellationToken);
+        using var response = await client.PostAsJsonAsync("/rate-limits/check", payload, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var decision = await response.Content.ReadFromJsonAsync<RateLimitDecision>(cancellationToken);
+        var decision = await response.Content.ReadFromJsonAsync<RateLimitDecision>(JsonOptions, cancellationToken);
         return decision?.IsAllowed == true;
     }
 
@@ -184,8 +194,53 @@ public sealed class ArgusWorkerBackgroundService(
             asset.Tags);
 
         var client = CreateClient(_options.AssetServiceBaseAddress);
-        using var response = await client.PostAsJsonAsync("/assets", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync("/assets", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
+    }
+
+    private async Task<bool> IsProducedAssetInScopeAsync(
+        ReconTaskDto task,
+        WorkerProducedAsset asset,
+        CancellationToken cancellationToken)
+    {
+        if (!_options.ScopeValidationRequired)
+        {
+            return true;
+        }
+
+        var target = ScopeValidationTarget.Extract(asset);
+
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            logger.LogWarning(
+                "Worker {WorkerType} skipped produced asset without scope-validatable target: {AssetType} {Value}",
+                worker.Capability.WorkerType,
+                asset.AssetType,
+                asset.Value);
+            return false;
+        }
+
+        var client = CreateClient(_options.ScopeServiceBaseAddress);
+        var request = new ScopeValidationRequest(task.ProgramId, target, asset.AssetType);
+
+        using var response = await client.PostAsJsonAsync("/scope-validation/check", request, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<ScopeValidationResult>(JsonOptions, cancellationToken);
+
+        if (result?.IsAllowed == true)
+        {
+            return true;
+        }
+
+        logger.LogInformation(
+            "Worker {WorkerType} skipped out-of-scope produced asset {AssetType} {Value}: {Reason}",
+            worker.Capability.WorkerType,
+            asset.AssetType,
+            asset.Value,
+            result?.Reason ?? "scope validation failed");
+
+        return false;
     }
 
     private async Task CompleteTaskAsync(
@@ -196,7 +251,7 @@ public sealed class ArgusWorkerBackgroundService(
         var request = new CompleteReconTaskRequest(result.PartiallySucceeded, result.OutputSummaryJson);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/complete", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/complete", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -205,7 +260,7 @@ public sealed class ArgusWorkerBackgroundService(
         var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: null);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/fail", request, cancellationToken);
+        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/fail", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
@@ -214,5 +269,29 @@ public sealed class ArgusWorkerBackgroundService(
         var client = httpClientFactory.CreateClient();
         client.BaseAddress = baseAddress;
         return client;
+    }
+}
+
+internal static class ScopeValidationTarget
+{
+    public static string? Extract(WorkerProducedAsset asset)
+    {
+        if (string.Equals(asset.AssetType, "Url", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "ApiEndpoint", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "HttpResponse", StringComparison.OrdinalIgnoreCase))
+        {
+            return Uri.TryCreate(asset.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)
+                ? uri.Host
+                : asset.Value;
+        }
+
+        if (string.Equals(asset.AssetType, "DnsRecord", StringComparison.OrdinalIgnoreCase)
+            && asset.Metadata?.TryGetValue("host", out var host) == true)
+        {
+            return host;
+        }
+
+        return asset.Value;
     }
 }

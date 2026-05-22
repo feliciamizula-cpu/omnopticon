@@ -41,7 +41,10 @@
   </Folder>
   <Folder Name="/src/Workers/">
     <Project Path="src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj" />
+    <Project Path="src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj" />
     <Project Path="src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj" />
+    <Project Path="src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj" />
+    <Project Path="src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj" />
     <Project Path="src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj" />
     <Project Path="src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj" />
     <Project Path="src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj" />

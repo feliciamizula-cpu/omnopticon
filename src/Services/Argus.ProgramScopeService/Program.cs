@@ -2,6 +2,7 @@ using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
 using Argus.ServiceDefaults;
+using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,17 +10,29 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddRealtimeIntegrationEvents(options => options.SourceService = "Argus.ProgramScopeService");
 builder.Services.AddProblemDetails();
-builder.Services.AddSingleton<ProgramScopeStore>();
+
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
+{
+    builder.Services.AddDbContext<ProgramScopeDbContext>(options =>
+        options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
+    builder.Services.AddScoped<IProgramScopeStore, EfProgramScopeStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
+}
 
 var app = builder.Build();
 
+await app.InitializeProgramScopeStoreAsync();
 app.MapDefaultEndpoints();
 
-app.MapGet("/programs", (ProgramScopeStore store) => store.GetPrograms());
+app.MapGet("/programs", (IProgramScopeStore store, CancellationToken cancellationToken) =>
+    store.GetProgramsAsync(cancellationToken));
 
 app.MapPost("/programs", async (
     CreateProgramRequest request,
-    ProgramScopeStore store,
+    IProgramScopeStore store,
     IIntegrationEventPublisher events,
     CancellationToken cancellationToken) =>
 {
@@ -28,7 +41,7 @@ app.MapPost("/programs", async (
         return Results.BadRequest("Program name is required.");
     }
 
-    var program = store.CreateProgram(request);
+    var program = await store.CreateProgramAsync(request, cancellationToken);
     await events.PublishAsync(
         new ProgramCreated(program.ProgramId, program.Name),
         nameof(ProgramCreated),
@@ -38,15 +51,22 @@ app.MapPost("/programs", async (
     return Results.Created($"/programs/{program.ProgramId}", program);
 });
 
-app.MapGet("/programs/{programId:guid}", (Guid programId, ProgramScopeStore store) =>
-    store.TryGetProgram(programId, out var program) ? Results.Ok(program) : Results.NotFound());
+app.MapGet("/programs/{programId:guid}", async (
+    Guid programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var program = await store.FindProgramAsync(programId, cancellationToken);
+    return program is not null ? Results.Ok(program) : Results.NotFound();
+});
 
-app.MapGet("/scopes", (ProgramScopeStore store) => store.GetScopes());
+app.MapGet("/scopes", (IProgramScopeStore store, CancellationToken cancellationToken) =>
+    store.GetScopesAsync(cancellationToken));
 
 app.MapPost("/programs/{programId:guid}/scopes", async (
     Guid programId,
     CreateProgramScopeRequest request,
-    ProgramScopeStore store,
+    IProgramScopeStore store,
     IIntegrationEventPublisher events,
     CancellationToken cancellationToken) =>
 {
@@ -60,7 +80,9 @@ app.MapPost("/programs/{programId:guid}/scopes", async (
         return Results.BadRequest("Scope pattern is required.");
     }
 
-    if (!store.TryCreateScope(request, out var scope))
+    var scope = await store.CreateScopeAsync(request, cancellationToken);
+
+    if (scope is null)
     {
         return Results.NotFound();
     }
@@ -74,40 +96,42 @@ app.MapPost("/programs/{programId:guid}/scopes", async (
     return Results.Created($"/programs/{programId}/scopes/{scope.ScopeId}", scope);
 });
 
-app.MapPost("/scope-validation/check", (ScopeValidationRequest request, ProgramScopeStore store) =>
-    store.Validate(request));
+app.MapPost("/scope-validation/check", (ScopeValidationRequest request, IProgramScopeStore store, CancellationToken cancellationToken) =>
+    store.ValidateAsync(request, cancellationToken));
 
 app.Run();
 
-internal sealed class ProgramScopeStore
+internal interface IProgramScopeStore
+{
+    Task<IReadOnlyCollection<ProgramDto>> GetProgramsAsync(CancellationToken cancellationToken);
+    Task<ProgramDto?> FindProgramAsync(Guid programId, CancellationToken cancellationToken);
+    Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken);
+    Task<ProgramScopeDto?> CreateScopeAsync(CreateProgramScopeRequest request, CancellationToken cancellationToken);
+    Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken);
+}
+
+internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
 {
     private readonly ConcurrentDictionary<Guid, ProgramRecord> _programs = new();
 
-    public IReadOnlyCollection<ProgramDto> GetPrograms() =>
-        _programs.Values
+    public Task<IReadOnlyCollection<ProgramDto>> GetProgramsAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyCollection<ProgramDto> programs = _programs.Values
             .OrderBy(program => program.Name, StringComparer.OrdinalIgnoreCase)
             .Select(ToDto)
             .ToArray();
 
-    public IReadOnlyCollection<ProgramScopeDto> GetScopes() =>
-        _programs.Values
-            .SelectMany(program => program.Scopes)
-            .OrderBy(scope => scope.Pattern, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-    public bool TryGetProgram(Guid programId, out ProgramDto? program)
-    {
-        if (_programs.TryGetValue(programId, out var record))
-        {
-            program = ToDto(record);
-            return true;
-        }
-
-        program = null;
-        return false;
+        return Task.FromResult(programs);
     }
 
-    public ProgramDto CreateProgram(CreateProgramRequest request)
+    public Task<ProgramDto?> FindProgramAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        var program = _programs.TryGetValue(programId, out var record) ? ToDto(record) : null;
+        return Task.FromResult(program);
+    }
+
+    public Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
         var record = new ProgramRecord(
@@ -121,22 +145,31 @@ internal sealed class ProgramScopeStore
 
         _programs[record.ProgramId] = record;
 
-        return ToDto(record);
+        return Task.FromResult(ToDto(record));
     }
 
-    public bool TryCreateScope(CreateProgramScopeRequest request, out ProgramScopeDto scope)
+    public Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyCollection<ProgramScopeDto> scopes = _programs.Values
+            .SelectMany(program => program.Scopes)
+            .OrderBy(scope => scope.Pattern, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return Task.FromResult(scopes);
+    }
+
+    public Task<ProgramScopeDto?> CreateScopeAsync(CreateProgramScopeRequest request, CancellationToken cancellationToken)
     {
         if (!_programs.TryGetValue(request.ProgramId, out var program))
         {
-            scope = default!;
-            return false;
+            return Task.FromResult<ProgramScopeDto?>(null);
         }
 
-        scope = new ProgramScopeDto(
+        var scope = new ProgramScopeDto(
             Guid.NewGuid(),
             request.ProgramId,
-            request.ScopeType.Trim(),
-            request.Pattern.Trim().ToLowerInvariant(),
+            NormalizeScopeType(request.ScopeType),
+            NormalizePattern(request.Pattern),
             request.Action,
             request.Notes,
             DateTimeOffset.UtcNow);
@@ -147,20 +180,209 @@ internal sealed class ProgramScopeStore
             program.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
-        return true;
+        return Task.FromResult<ProgramScopeDto?>(scope);
     }
 
-    public ScopeValidationResult Validate(ScopeValidationRequest request)
+    public Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken)
     {
         if (!_programs.TryGetValue(request.ProgramId, out var program))
+        {
+            return Task.FromResult(new ScopeValidationResult(request.ProgramId, request.Target, false, null, "Program was not found."));
+        }
+
+        return Task.FromResult(ScopeMatching.Validate(request, program.Scopes));
+    }
+
+    private static ProgramDto ToDto(ProgramRecord record) =>
+        new(
+            record.ProgramId,
+            record.Name,
+            record.Source,
+            record.ExternalUrl,
+            record.CreatedAt,
+            record.UpdatedAt,
+            record.Scopes.ToArray());
+
+    private sealed record ProgramRecord(
+        Guid ProgramId,
+        string Name,
+        string Source,
+        string? ExternalUrl,
+        DateTimeOffset CreatedAt,
+        DateTimeOffset UpdatedAt,
+        List<ProgramScopeDto> Scopes)
+    {
+        public DateTimeOffset UpdatedAt { get; set; } = UpdatedAt;
+    }
+
+    private static string NormalizeScopeType(string scopeType) =>
+        string.IsNullOrWhiteSpace(scopeType) ? "domain" : scopeType.Trim();
+
+    private static string NormalizePattern(string pattern) => pattern.Trim().ToLowerInvariant();
+}
+
+internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IProgramScopeStore
+{
+    public async Task<IReadOnlyCollection<ProgramDto>> GetProgramsAsync(CancellationToken cancellationToken)
+    {
+        var programs = await dbContext.Programs
+            .AsNoTracking()
+            .Include(program => program.Scopes)
+            .OrderBy(program => program.Name)
+            .ToArrayAsync(cancellationToken);
+
+        return programs.Select(program => program.ToDto()).ToArray();
+    }
+
+    public async Task<ProgramDto?> FindProgramAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs
+            .AsNoTracking()
+            .Include(program => program.Scopes)
+            .FirstOrDefaultAsync(program => program.ProgramId == programId, cancellationToken);
+
+        return program?.ToDto();
+    }
+
+    public async Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var program = new ProgramRecord
+        {
+            ProgramId = Guid.NewGuid(),
+            Name = request.Name.Trim(),
+            Source = string.IsNullOrWhiteSpace(request.Source) ? "custom" : request.Source.Trim(),
+            ExternalUrl = request.ExternalUrl,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        dbContext.Programs.Add(program);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return program.ToDto();
+    }
+
+    public async Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken)
+    {
+        return await dbContext.Scopes
+            .AsNoTracking()
+            .OrderBy(scope => scope.Pattern)
+            .Select(scope => scope.ToDto())
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<ProgramScopeDto?> CreateScopeAsync(CreateProgramScopeRequest request, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs.FirstOrDefaultAsync(program => program.ProgramId == request.ProgramId, cancellationToken);
+
+        if (program is null)
+        {
+            return null;
+        }
+
+        var scope = new ProgramScopeRecord
+        {
+            ScopeId = Guid.NewGuid(),
+            ProgramId = request.ProgramId,
+            ScopeType = string.IsNullOrWhiteSpace(request.ScopeType) ? "domain" : request.ScopeType.Trim(),
+            Pattern = request.Pattern.Trim().ToLowerInvariant(),
+            Action = request.Action,
+            Notes = request.Notes,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        program.UpdatedAt = DateTimeOffset.UtcNow;
+        dbContext.Scopes.Add(scope);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return scope.ToDto();
+    }
+
+    public async Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken)
+    {
+        var exists = await dbContext.Programs.AnyAsync(program => program.ProgramId == request.ProgramId, cancellationToken);
+
+        if (!exists)
         {
             return new ScopeValidationResult(request.ProgramId, request.Target, false, null, "Program was not found.");
         }
 
+        var scopes = await dbContext.Scopes
+            .AsNoTracking()
+            .Where(scope => scope.ProgramId == request.ProgramId)
+            .Select(scope => scope.ToDto())
+            .ToArrayAsync(cancellationToken);
+
+        return ScopeMatching.Validate(request, scopes);
+    }
+}
+
+internal sealed class ProgramScopeDbContext(DbContextOptions<ProgramScopeDbContext> options) : DbContext(options)
+{
+    public DbSet<ProgramRecord> Programs => Set<ProgramRecord>();
+    public DbSet<ProgramScopeRecord> Scopes => Set<ProgramScopeRecord>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        var program = modelBuilder.Entity<ProgramRecord>();
+        program.ToTable("programs");
+        program.HasKey(record => record.ProgramId);
+        program.HasIndex(record => record.Name);
+        program.Property(record => record.Name).HasMaxLength(256);
+        program.Property(record => record.Source).HasMaxLength(128);
+        program.Property(record => record.ExternalUrl).HasMaxLength(2048);
+        program.HasMany(record => record.Scopes)
+            .WithOne()
+            .HasForeignKey(record => record.ProgramId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        var scope = modelBuilder.Entity<ProgramScopeRecord>();
+        scope.ToTable("program_scopes");
+        scope.HasKey(record => record.ScopeId);
+        scope.HasIndex(record => new { record.ProgramId, record.Pattern, record.Action });
+        scope.Property(record => record.ScopeType).HasMaxLength(128);
+        scope.Property(record => record.Pattern).HasMaxLength(2048);
+        scope.Property(record => record.Action).HasConversion<string>().HasMaxLength(64);
+    }
+}
+
+internal sealed class ProgramRecord
+{
+    public Guid ProgramId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Source { get; set; } = "custom";
+    public string? ExternalUrl { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public List<ProgramScopeRecord> Scopes { get; set; } = [];
+
+    public ProgramDto ToDto() =>
+        new(ProgramId, Name, Source, ExternalUrl, CreatedAt, UpdatedAt, Scopes.Select(scope => scope.ToDto()).ToArray());
+}
+
+internal sealed class ProgramScopeRecord
+{
+    public Guid ScopeId { get; set; }
+    public Guid ProgramId { get; set; }
+    public string ScopeType { get; set; } = "domain";
+    public string Pattern { get; set; } = string.Empty;
+    public ScopeRuleAction Action { get; set; }
+    public string? Notes { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public ProgramScopeDto ToDto() =>
+        new(ScopeId, ProgramId, ScopeType, Pattern, Action, Notes, CreatedAt);
+}
+
+internal static class ScopeMatching
+{
+    public static ScopeValidationResult Validate(ScopeValidationRequest request, IEnumerable<ProgramScopeDto> scopes)
+    {
         var target = request.Target.Trim().ToLowerInvariant();
         ProgramScopeDto? includeMatch = null;
 
-        foreach (var scope in program.Scopes)
+        foreach (var scope in scopes)
         {
             if (!Matches(scope.Pattern, target))
             {
@@ -194,26 +416,18 @@ internal sealed class ProgramScopeStore
         return string.Equals(normalizedPattern, target, StringComparison.OrdinalIgnoreCase)
             || target.EndsWith($".{normalizedPattern}", StringComparison.OrdinalIgnoreCase);
     }
+}
 
-    private static ProgramDto ToDto(ProgramRecord record) =>
-        new(
-            record.ProgramId,
-            record.Name,
-            record.Source,
-            record.ExternalUrl,
-            record.CreatedAt,
-            record.UpdatedAt,
-            record.Scopes.ToArray());
-
-    private sealed record ProgramRecord(
-        Guid ProgramId,
-        string Name,
-        string Source,
-        string? ExternalUrl,
-        DateTimeOffset CreatedAt,
-        DateTimeOffset UpdatedAt,
-        List<ProgramScopeDto> Scopes)
+internal static class ProgramScopeStoreInitialization
+{
+    public static async Task InitializeProgramScopeStoreAsync(this WebApplication app)
     {
-        public DateTimeOffset UpdatedAt { get; set; } = UpdatedAt;
+        await using var scope = app.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetService<ProgramScopeDbContext>();
+
+        if (dbContext is not null)
+        {
+            await dbContext.Database.EnsureCreatedAsync();
+        }
     }
 }

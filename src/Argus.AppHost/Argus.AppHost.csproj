@@ -24,7 +24,10 @@
     <ProjectReference Include="..\Services\Argus.ScanOrchestratorService\Argus.ScanOrchestratorService.csproj" />
     <ProjectReference Include="..\Services\Argus.TaskService\Argus.TaskService.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.Amass\Argus.Workers.Amass.csproj" />
+    <ProjectReference Include="..\Workers\Argus.Workers.AssetScoring\Argus.Workers.AssetScoring.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.DnsResolver\Argus.Workers.DnsResolver.csproj" />
+    <ProjectReference Include="..\Workers\Argus.Workers.Fingerprint\Argus.Workers.Fingerprint.csproj" />
+    <ProjectReference Include="..\Workers\Argus.Workers.HeadlessSpider\Argus.Workers.HeadlessSpider.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.HtmlDomSpider\Argus.Workers.HtmlDomSpider.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.HttpProbe\Argus.Workers.HttpProbe.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.JsExtractor\Argus.Workers.JsExtractor.csproj" />

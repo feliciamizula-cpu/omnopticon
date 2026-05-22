@@ -29,6 +29,11 @@ public static class ServiceCollectionExtensions
                     options.AssetServiceBaseAddress = assetService;
                 }
 
+                if (Uri.TryCreate(builder.Configuration["ARGUS_SCOPE_SERVICE"], UriKind.Absolute, out var scopeService))
+                {
+                    options.ScopeServiceBaseAddress = scopeService;
+                }
+
                 if (Uri.TryCreate(builder.Configuration["ARGUS_RATE_LIMIT_SERVICE"], UriKind.Absolute, out var rateLimitService))
                 {
                     options.RateLimitServiceBaseAddress = rateLimitService;
@@ -37,6 +42,11 @@ public static class ServiceCollectionExtensions
                 if (Uri.TryCreate(builder.Configuration["ARGUS_REALTIME_SERVICE"], UriKind.Absolute, out var realtimeService))
                 {
                     options.RealtimeServiceBaseAddress = realtimeService;
+                }
+
+                if (bool.TryParse(builder.Configuration["ARGUS_SCOPE_VALIDATION_REQUIRED"], out var scopeValidationRequired))
+                {
+                    options.ScopeValidationRequired = scopeValidationRequired;
                 }
 
                 configure?.Invoke(options);

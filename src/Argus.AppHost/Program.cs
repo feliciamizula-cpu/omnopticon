@@ -49,6 +49,8 @@ rateLimit.WithReference(realtime);
 orchestrator.WithReference(realtime);
 
 builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -58,6 +60,8 @@ builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_Subfinder>("subfinder-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -67,6 +71,8 @@ builder.AddProject<Projects.Argus_Workers_Subfinder>("subfinder-worker")
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_DnsResolver>("dns-resolver-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -76,6 +82,8 @@ builder.AddProject<Projects.Argus_Workers_DnsResolver>("dns-resolver-worker")
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_HttpProbe>("http-probe-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -86,6 +94,8 @@ builder.AddProject<Projects.Argus_Workers_HttpProbe>("http-probe-worker")
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_HtmlDomSpider>("html-dom-spider-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -96,6 +106,8 @@ builder.AddProject<Projects.Argus_Workers_HtmlDomSpider>("html-dom-spider-worker
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_JsExtractor>("js-extractor-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -106,6 +118,8 @@ builder.AddProject<Projects.Argus_Workers_JsExtractor>("js-extractor-worker")
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_WordlistDiscovery>("wordlist-discovery-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -113,6 +127,40 @@ builder.AddProject<Projects.Argus_Workers_WordlistDiscovery>("wordlist-discovery
     .WaitFor(task)
     .WaitFor(asset)
     .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_HeadlessSpider>("headless-spider-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_Fingerprint>("fingerprint-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_AssetScoring>("asset-scoring-worker")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(programScope)
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")

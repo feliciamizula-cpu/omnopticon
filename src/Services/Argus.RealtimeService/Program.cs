@@ -2,7 +2,9 @@ using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +17,35 @@ var app = builder.Build();
 app.MapDefaultEndpoints();
 
 app.MapGet("/events", (int? take, RealtimeStore store) => store.GetEvents(take ?? 200));
+
+app.MapGet("/events/stream", async (
+    HttpContext context,
+    RealtimeStore store,
+    CancellationToken cancellationToken) =>
+{
+    context.Response.Headers.CacheControl = "no-cache";
+    context.Response.Headers.Connection = "keep-alive";
+    context.Response.ContentType = "text/event-stream";
+
+    var subscription = store.Subscribe();
+
+    try
+    {
+        foreach (var recentEvent in store.GetEvents(25).Reverse())
+        {
+            await SseWriter.WriteAsync(context, recentEvent, cancellationToken);
+        }
+
+        await foreach (var envelope in subscription.Reader.ReadAllAsync(cancellationToken))
+        {
+            await SseWriter.WriteAsync(context, envelope, cancellationToken);
+        }
+    }
+    finally
+    {
+        store.Unsubscribe(subscription.SubscriptionId);
+    }
+});
 
 app.MapPost("/events", (EventIngestRequest request, RealtimeStore store) =>
 {
@@ -44,6 +75,7 @@ internal sealed class RealtimeStore
 {
     private readonly ConcurrentQueue<IntegrationEventEnvelope<JsonNode>> _events = new();
     private readonly ConcurrentDictionary<string, WorkerStatusDto> _workers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<Guid, Channel<IntegrationEventEnvelope<JsonNode>>> _subscriptions = new();
 
     public IReadOnlyCollection<IntegrationEventEnvelope<JsonNode>> GetEvents(int take) =>
         _events
@@ -70,7 +102,34 @@ internal sealed class RealtimeStore
         {
         }
 
+        foreach (var subscription in _subscriptions.Values)
+        {
+            subscription.Writer.TryWrite(envelope);
+        }
+
         return envelope;
+    }
+
+    public EventSubscription Subscribe()
+    {
+        var channel = Channel.CreateUnbounded<IntegrationEventEnvelope<JsonNode>>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+        var subscriptionId = Guid.NewGuid();
+
+        _subscriptions[subscriptionId] = channel;
+
+        return new EventSubscription(subscriptionId, channel.Reader);
+    }
+
+    public void Unsubscribe(Guid subscriptionId)
+    {
+        if (_subscriptions.TryRemove(subscriptionId, out var channel))
+        {
+            channel.Writer.TryComplete();
+        }
     }
 
     public WorkerStatusDto Register(WorkerRegistrationRequest request)
@@ -129,6 +188,24 @@ internal sealed class RealtimeStore
             .OrderBy(worker => worker.WorkerType, StringComparer.OrdinalIgnoreCase)
             .ThenBy(worker => worker.WorkerId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+}
+
+internal sealed record EventSubscription(
+    Guid SubscriptionId,
+    ChannelReader<IntegrationEventEnvelope<JsonNode>> Reader);
+
+internal static class SseWriter
+{
+    public static async Task WriteAsync(
+        HttpContext context,
+        IntegrationEventEnvelope<JsonNode> envelope,
+        CancellationToken cancellationToken)
+    {
+        await context.Response.WriteAsync($"id: {envelope.EventId}\n", cancellationToken);
+        await context.Response.WriteAsync($"event: {envelope.EventType}\n", cancellationToken);
+        await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(envelope)}\n\n", cancellationToken);
+        await context.Response.Body.FlushAsync(cancellationToken);
     }
 }
 
