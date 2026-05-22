@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
@@ -121,18 +122,38 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             return;
         }
 
-        var handlerType = typeof(IIntegrationEventConsumer<>).MakeGenericType(envelope.Payload.GetType());
-        var handler = scope.ServiceProvider.GetService(handlerType);
+        var resolvedTypes = ResolveHandlerType(envelope.EventType);
+        if (resolvedTypes is null)
+        {
+            _logger.LogWarning("No handler type found for event type {EventType}", envelope.EventType);
+            return;
+        }
+        var handlerType = resolvedTypes.Value.handlerType;
+        var payloadType = resolvedTypes.Value.payloadType;
 
+        var handler = scope.ServiceProvider.GetService(handlerType);
         if (handler is null)
         {
             _logger.LogWarning("No handler found for event type {EventType}", envelope.EventType);
             return;
         }
 
-        var handleMethod = handlerType.GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync));
-        var task = (Task?)handleMethod?.Invoke(handler, new object[] { envelope, cancellationToken });
+        var payloadJson = envelope.Payload.GetRawText();
+        var deserializedPayload = JsonSerializer.Deserialize(payloadJson, payloadType, JsonOptions);
+        if (deserializedPayload is null)
+        {
+            _logger.LogWarning("Failed to deserialize payload for event {EventType}", envelope.EventType);
+            return;
+        }
 
+        var invokeMethod = s_dispatchDict[new (handlerType, envelope.EventType)];
+        if (invokeMethod is null)
+        {
+            _logger.LogWarning("No dispatch method for {EventType}", envelope.EventType);
+            return;
+        }
+
+        var task = (Task?)invokeMethod.Invoke(handler, new[] { envelope, deserializedPayload, cancellationToken });
         if (task is not null)
         {
             await task;
@@ -152,6 +173,52 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
         await dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Processed event {EventId} of type {EventType}", envelope.EventId, envelope.EventType);
     }
+
+    private static readonly Dictionary<string, (Type handlerType, Type payloadType)> EventTypeToTypes = new()
+    {
+        ["ProgramCreated"] = (typeof(IIntegrationEventConsumer<ProgramCreated>), typeof(ProgramCreated)),
+        ["ScopeCreated"] = (typeof(IIntegrationEventConsumer<ScopeCreated>), typeof(ScopeCreated)),
+        ["AssetDiscovered"] = (typeof(IIntegrationEventConsumer<AssetDiscovered>), typeof(AssetDiscovered)),
+        ["AssetUpdated"] = (typeof(IIntegrationEventConsumer<AssetUpdated>), typeof(AssetUpdated)),
+        ["AssetRelationshipDiscovered"] = (typeof(IIntegrationEventConsumer<AssetRelationshipDiscovered>), typeof(AssetRelationshipDiscovered)),
+        ["TaskRequested"] = (typeof(IIntegrationEventConsumer<TaskRequested>), typeof(TaskRequested)),
+        ["TaskLeased"] = (typeof(IIntegrationEventConsumer<TaskLeased>), typeof(TaskLeased)),
+        ["TaskStarted"] = (typeof(IIntegrationEventConsumer<TaskStarted>), typeof(TaskStarted)),
+        ["TaskProgressed"] = (typeof(IIntegrationEventConsumer<TaskProgressed>), typeof(TaskProgressed)),
+        ["TaskCompleted"] = (typeof(IIntegrationEventConsumer<TaskCompleted>), typeof(TaskCompleted)),
+        ["TaskFailed"] = (typeof(IIntegrationEventConsumer<TaskFailed>), typeof(TaskFailed)),
+        ["WorkerHeartbeat"] = (typeof(IIntegrationEventConsumer<WorkerHeartbeat>), typeof(WorkerHeartbeat)),
+        ["RateLimitTokenGranted"] = (typeof(IIntegrationEventConsumer<RateLimitTokenGranted>), typeof(RateLimitTokenGranted)),
+        ["RateLimitDelayed"] = (typeof(IIntegrationEventConsumer<RateLimitDelayed>), typeof(RateLimitDelayed)),
+    };
+
+    private static readonly Dictionary<(Type, string), MethodInfo> s_dispatchDict = BuildDispatchDict();
+
+    private static Dictionary<(Type, string), MethodInfo> BuildDispatchDict()
+    {
+        var dict = new Dictionary<(Type, string), MethodInfo>();
+        var iface = typeof(IIntegrationEventConsumer<>);
+        var eventTypes = new[] {
+            typeof(ProgramCreated), typeof(ScopeCreated), typeof(AssetDiscovered), typeof(AssetUpdated),
+            typeof(AssetRelationshipDiscovered), typeof(TaskRequested), typeof(TaskLeased), typeof(TaskStarted),
+            typeof(TaskProgressed), typeof(TaskCompleted), typeof(TaskFailed), typeof(WorkerHeartbeat),
+            typeof(RateLimitTokenGranted), typeof(RateLimitDelayed)
+        };
+        foreach (var t in eventTypes)
+        {
+            var handlerType = iface.MakeGenericType(t);
+            var method = handlerType.GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync))!;
+            dict[(handlerType, t.Name)] = method;
+        }
+        return dict;
+    }
+
+    private static (Type handlerType, Type payloadType)? ResolveHandlerType(string eventType)
+    {
+        return EventTypeToTypes.TryGetValue(eventType, out var types) ? types : null;
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public override void Dispose()
     {
