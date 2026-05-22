@@ -2,6 +2,7 @@ using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
 using System.Collections.Concurrent;
+using System.Text.Json.Nodes;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,19 +42,23 @@ app.Run();
 
 internal sealed class RealtimeStore
 {
-    private readonly ConcurrentQueue<IntegrationEventEnvelope<object>> _events = new();
+    private readonly ConcurrentQueue<IntegrationEventEnvelope<JsonNode>> _events = new();
     private readonly ConcurrentDictionary<string, WorkerStatusDto> _workers = new(StringComparer.OrdinalIgnoreCase);
 
-    public IReadOnlyCollection<IntegrationEventEnvelope<object>> GetEvents(int take) =>
+    public IReadOnlyCollection<IntegrationEventEnvelope<JsonNode>> GetEvents(int take) =>
         _events
             .Reverse()
             .Take(Math.Clamp(take, 1, 1_000))
             .ToArray();
 
-    public IntegrationEventEnvelope<object> RecordEvent(EventIngestRequest request)
+    public IntegrationEventEnvelope<JsonNode> RecordEvent(EventIngestRequest request)
     {
-        var envelope = IntegrationEventEnvelope<object>.Create(
-            request.PayloadJson is null ? new { } : new { request.PayloadJson },
+        var payload = string.IsNullOrWhiteSpace(request.PayloadJson)
+            ? new JsonObject()
+            : JsonNode.Parse(request.PayloadJson) ?? new JsonObject();
+
+        var envelope = IntegrationEventEnvelope<JsonNode>.Create(
+            payload,
             request.EventType.Trim(),
             request.SourceService ?? "unknown",
             request.CorrelationId,

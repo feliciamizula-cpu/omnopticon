@@ -23,4 +23,21 @@ app.MapGet("/", () => Results.Ok(new
     }
 }));
 
+MapService(app, "/programs", "https+http://program-scope-service");
+MapService(app, "/scopes", "https+http://program-scope-service");
+MapService(app, "/scope-validation", "https+http://program-scope-service");
+MapService(app, "/assets", "https+http://asset-service");
+MapService(app, "/tasks", "https+http://task-service");
+MapService(app, "/rate-limits", "https+http://rate-limit-service");
+MapService(app, "/scan-plans", "https+http://scan-orchestrator-service");
+MapService(app, "/workflow-types", "https+http://scan-orchestrator-service");
+MapService(app, "/events", "https+http://realtime-service");
+MapService(app, "/workers", "https+http://realtime-service");
+
 app.Run();
+
+static void MapService(WebApplication app, string pathPrefix, string destinationPrefix)
+{
+    app.MapForwarder(pathPrefix, destinationPrefix);
+    app.MapForwarder($"{pathPrefix}/{{**catch-all}}", destinationPrefix);
+}
