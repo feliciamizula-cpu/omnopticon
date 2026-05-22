@@ -683,6 +683,25 @@ internal sealed class AssetDbContext(DbContextOptions<AssetDbContext> options) :
 
 internal sealed class AssetRecord
 {
+    private static readonly Dictionary<AssetType, TimeSpan> ExpectedScanIntervals = new()
+    {
+        [AssetType.Subdomain] = TimeSpan.FromDays(1),
+        [AssetType.Domain] = TimeSpan.FromDays(7),
+        [AssetType.Ip] = TimeSpan.FromDays(7),
+        [AssetType.Url] = TimeSpan.FromDays(3),
+        [AssetType.HttpResponse] = TimeSpan.FromDays(7),
+        [AssetType.HtmlPage] = TimeSpan.FromDays(7),
+        [AssetType.JavaScriptFile] = TimeSpan.FromDays(14),
+        [AssetType.CssFile] = TimeSpan.FromDays(30),
+        [AssetType.JsonDocument] = TimeSpan.FromDays(30),
+        [AssetType.ApiEndpoint] = TimeSpan.FromDays(3),
+        [AssetType.Technology] = TimeSpan.FromDays(14),
+        [AssetType.Port] = TimeSpan.FromDays(7),
+        [AssetType.DnsRecord] = TimeSpan.FromDays(7)
+    };
+
+    private static readonly TimeSpan MaxStalenessInterval = TimeSpan.FromDays(90);
+
     public Guid AssetId { get; set; }
     public Guid ProgramId { get; set; }
     public Guid? ScopeId { get; set; }
@@ -696,6 +715,7 @@ internal sealed class AssetRecord
     public int InterestingScore { get; set; }
     public DateTimeOffset FirstSeenAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
+    public DateTimeOffset? LastScannedAt { get; set; }
     public string? DiscoveredByTaskId { get; set; }
     public string MetadataJson { get; set; } = "{}";
     public string TagsJson { get; set; } = "[]";
@@ -706,8 +726,22 @@ internal sealed class AssetRecord
     public IReadOnlyCollection<string> Tags =>
         JsonSerializer.Deserialize<string[]>(TagsJson) ?? [];
 
-    public AssetDto ToDto() =>
-        new(
+    public int ComputeStalenessScore()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var effectiveLastSeen = LastScannedAt ?? LastSeenAt;
+        var interval = now - effectiveLastSeen;
+        if (interval < TimeSpan.Zero) return 0;
+        var expectedInterval = ExpectedScanIntervals.GetValueOrDefault(Type, TimeSpan.FromDays(7));
+        if (interval >= MaxStalenessInterval) return 100;
+        var score = (int)((interval.TotalHours / expectedInterval.TotalHours) * 100);
+        return Math.Min(score, 100);
+    }
+
+    public AssetDto ToDto()
+    {
+        var stalenessScore = ComputeStalenessScore();
+        return new AssetDto(
             AssetId,
             ProgramId,
             ScopeId,
@@ -721,9 +755,12 @@ internal sealed class AssetRecord
             InterestingScore,
             FirstSeenAt,
             LastSeenAt,
+            LastScannedAt,
+            stalenessScore,
             DiscoveredByTaskId,
             Metadata,
             Tags);
+    }
 }
 
 internal sealed class AssetRelationshipRecord
