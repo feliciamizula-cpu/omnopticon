@@ -42,6 +42,18 @@ app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, Cancellatio
     });
 });
 
+app.MapGet("/ui/assets/{assetId:guid}/relationships", async (
+    Guid assetId,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var relationships = await gateway.GetJsonAsync(endpoints.Asset, $"/assets/{assetId}/relationships", cancellationToken);
+
+    return Results.Json(relationships ?? new JsonArray());
+});
+
 app.MapPost("/ui/programs", async (
     JsonObject payload,
     IHttpClientFactory httpClientFactory,
@@ -560,11 +572,14 @@ app.MapGet("/", () => Results.Content("""
       state.selected = {
         view: state.view,
         index,
-        row: state.currentRows[index]
+        row: state.currentRows[index],
+        relationships: null,
+        relationshipStatus: state.view === "assets" ? "loading" : null
       };
 
       highlightSelectedRow();
       renderSelectionRail();
+      loadSelectedAssetRelationships();
     }
 
     function highlightSelectedRow() {
@@ -582,7 +597,62 @@ app.MapGet("/", () => Results.Content("""
         return;
       }
 
-      rail.textContent = flattenForDisplay(state.selected.row).join("\n");
+      const lines = flattenForDisplay(state.selected.row);
+
+      if (state.selected.view === "assets") {
+        lines.push("");
+        lines.push("relationships:");
+
+        if (state.selected.relationshipStatus === "loading") {
+          lines.push("  loading...");
+        } else if (state.selected.relationshipStatus === "error") {
+          lines.push("  unavailable");
+        } else if (state.selected.relationships?.length) {
+          lines.push(...state.selected.relationships.map(formatRelationship));
+        } else {
+          lines.push("  none");
+        }
+      }
+
+      rail.textContent = lines.join("\n");
+    }
+
+    async function loadSelectedAssetRelationships() {
+      const selected = state.selected;
+      const assetId = selected?.row?.assetId;
+
+      if (selected?.view !== "assets" || !assetId) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/ui/assets/${encodeURIComponent(assetId)}/relationships`, { cache: "no-store" });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const relationships = await response.json();
+
+        if (state.selected?.row?.assetId !== assetId) {
+          return;
+        }
+
+        state.selected.relationships = Array.isArray(relationships) ? relationships : [];
+        state.selected.relationshipStatus = "ready";
+        renderSelectionRail();
+      } catch {
+        if (state.selected?.row?.assetId === assetId) {
+          state.selected.relationshipStatus = "error";
+          renderSelectionRail();
+        }
+      }
+    }
+
+    function formatRelationship(relationship) {
+      const direction = relationship.fromAssetId === state.selected?.row?.assetId ? "out" : "in";
+      const peer = direction === "out" ? relationship.toAssetId : relationship.fromAssetId;
+      return `  ${direction} ${relationship.edgeType} ${peer}`;
     }
 
     function flattenForDisplay(row) {
