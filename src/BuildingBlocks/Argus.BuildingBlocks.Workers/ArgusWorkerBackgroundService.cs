@@ -70,13 +70,17 @@ public sealed class ArgusWorkerBackgroundService(
         {
             var result = await worker.ProcessAsync(task, context, cancellationToken);
 
-        foreach (var asset in result.ProducedAssets)
-        {
-            if (await IsProducedAssetInScopeAsync(task, asset, cancellationToken))
+            foreach (var asset in result.ProducedAssets)
             {
-                await PublishAssetAsync(task, asset, cancellationToken);
+                if (await IsProducedAssetInScopeAsync(task, asset, cancellationToken))
+                {
+                    var createdAsset = await PublishAssetAsync(task, asset, cancellationToken);
+                    if (createdAsset is not null)
+                    {
+                        await CreateRelationshipAsync(task, createdAsset, asset.AssetType, cancellationToken);
+                    }
+                }
             }
-        }
 
             await CompleteTaskAsync(task.TaskId, result, cancellationToken);
         }
@@ -172,7 +176,7 @@ public sealed class ArgusWorkerBackgroundService(
         return decision?.IsAllowed == true;
     }
 
-    private async Task PublishAssetAsync(
+    private async Task<AssetDto?> PublishAssetAsync(
         ReconTaskDto task,
         WorkerProducedAsset asset,
         CancellationToken cancellationToken)
@@ -180,7 +184,7 @@ public sealed class ArgusWorkerBackgroundService(
         if (!Enum.TryParse<AssetType>(asset.AssetType, ignoreCase: true, out var assetType))
         {
             logger.LogWarning("Worker {WorkerType} produced unknown asset type {AssetType}", worker.Capability.WorkerType, asset.AssetType);
-            return;
+            return null;
         }
 
         var request = new CreateAssetRequest(
@@ -195,8 +199,58 @@ public sealed class ArgusWorkerBackgroundService(
 
         var client = CreateClient(_options.AssetServiceBaseAddress);
         using var response = await client.PostAsJsonAsync("/assets", request, JsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning("Failed to publish asset {AssetType} {Value}: {StatusCode}", asset.AssetType, asset.Value, response.StatusCode);
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<AssetDto>(JsonOptions, cancellationToken);
     }
+
+    private async Task CreateRelationshipAsync(
+        ReconTaskDto task,
+        AssetDto createdAsset,
+        string assetType,
+        CancellationToken cancellationToken)
+    {
+        if (!task.InputAssetId.HasValue)
+        {
+            return;
+        }
+
+        var edgeType = DetermineEdgeType(assetType);
+
+        var request = new CreateAssetRelationshipRequest(
+            task.InputAssetId.Value,
+            createdAsset.AssetId,
+            edgeType,
+            task.TaskId.ToString());
+
+        var client = CreateClient(_options.AssetServiceBaseAddress);
+        using var response = await client.PostAsJsonAsync("/assets/relationships", request, JsonOptions, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning("Failed to create relationship from {InputAssetId} to {AssetId}: {StatusCode}",
+                task.InputAssetId, createdAsset.AssetId, response.StatusCode);
+        }
+    }
+
+    private static string DetermineEdgeType(string assetType) =>
+        assetType.ToLowerInvariant() switch
+        {
+            "subdomain" => "resolves_to",
+            "ip" => "resolves_to",
+            "url" => "discovered_at",
+            "htmlpage" => "contains",
+            "javascriptfile" => "loads",
+            "apiendpoint" => "exposes",
+            "technology" => "uses",
+            "dnsrecord" => "recorded_as",
+            _ => "produces"
+        };
 
     private async Task<bool> IsProducedAssetInScopeAsync(
         ReconTaskDto task,

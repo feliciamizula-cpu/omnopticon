@@ -1,7 +1,10 @@
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
+using Microsoft.Extensions.Hosting;
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -12,6 +15,13 @@ await builder.Build().RunAsync();
 
 internal sealed class HttpProbeWorker : IReconWorker
 {
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    public HttpProbeWorker(IHttpClientFactory httpClientFactory)
+    {
+        _httpClientFactory = httpClientFactory;
+    }
+
     public WorkerCapabilityDescriptor Capability { get; } = new(
         "HttpProbeWorker",
         ["Subdomain", "Ip"],
@@ -25,54 +35,98 @@ internal sealed class HttpProbeWorker : IReconWorker
         WorkerExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var host = WorkerPayload.GetString(task.InputPayloadJson, "host")
-            ?? WorkerPayload.GetString(task.InputPayloadJson, "domain")
-            ?? "example.com";
+        var host = WorkerHelpers.GetString(task.InputPayloadJson, "host")
+            ?? WorkerHelpers.GetString(task.InputPayloadJson, "domain")
+            ?? throw new InvalidOperationException("No host in task payload");
 
-        await context.ReportProgressAsync(15, $"Waiting for rate-limit token for {host}", null);
+        var useHttps = true;
+        var probeUrl = $"{(useHttps ? "https" : "http")}://{host}/";
+
+        await context.ReportProgressAsync(10, $"Waiting for rate-limit token for {host}", null);
 
         var allowed = await context.RequestRateLimitTokenAsync(new RateLimitRequest(
             task.ProgramId,
             task.ScopeId,
             host,
-            WorkerPayload.GetRegisteredDomain(host),
+            WorkerHelpers.GetRegisteredDomain(host),
             null,
             Capability.WorkerType));
 
         if (!allowed)
         {
+            await context.ReportProgressAsync(100, "Rate limited, will retry", null);
             return new WorkerProcessResult(true, JsonSerializer.Serialize(new { host, delayed = true }), []);
         }
 
-        await context.ReportProgressAsync(60, $"Probing HTTPS for {host}", "{\"scheme\":\"https\"}");
-        await Task.Delay(100, cancellationToken);
+        await context.ReportProgressAsync(30, $"Probing {probeUrl}", "{\"scheme\":\"https\"}");
 
-        var assets = new[]
+        var client = _httpClientFactory.CreateClient("probe");
+        client.Timeout = TimeSpan.FromSeconds(30);
+
+        var producedAssets = new List<WorkerProducedAsset>();
+        string outputSummary;
+
+        try
         {
-            new WorkerProducedAsset("Url", $"https://{host}/", null, new Dictionary<string, string> { ["http.status_code"] = "200" }, ["http"]),
-            new WorkerProducedAsset("HttpResponse", $"https://{host}/ 200 text/html", "text/html", new Dictionary<string, string> { ["status_code"] = "200", ["content_type"] = "text/html" }, ["response"])
-        };
+            using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
+            request.Headers.UserAgent.ParseAdd("ArgusRecon/1.0 (bug-bounty-recon)");
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/json,*/*");
 
-        return new WorkerProcessResult(false, JsonSerializer.Serialize(new { host, statusCode = 200, produced = assets.Length }), assets);
-    }
-}
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+            var statusCode = (int)response.StatusCode;
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
 
-internal static class WorkerPayload
-{
-    public static string? GetString(string? payloadJson, string propertyName)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
+            await context.ReportProgressAsync(70, $"Received {statusCode} from {host}", null);
+
+            producedAssets.Add(new WorkerProducedAsset(
+                "Url",
+                probeUrl,
+                null,
+                new Dictionary<string, string>
+                {
+                    ["http.status_code"] = statusCode.ToString(),
+                    ["http.content_type"] = contentType,
+                    ["http.redirects"] = "0"
+                },
+                ["http", statusCode >= 200 && statusCode < 400 ? "alive" : "error"]));
+
+            producedAssets.Add(new WorkerProducedAsset(
+                "HttpResponse",
+                $"{probeUrl} {statusCode} {contentType}",
+                contentType,
+                new Dictionary<string, string>
+                {
+                    ["status_code"] = statusCode.ToString(),
+                    ["content_type"] = contentType,
+                    ["content_length"] = (response.Content.Headers.ContentLength ?? 0).ToString()
+                },
+                ["response"]));
+
+            outputSummary = JsonSerializer.Serialize(new { host, statusCode, contentType });
+        }
+        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return null;
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            await context.ReportProgressAsync(100, $"Probe failed: {ex.Message}", null);
+            producedAssets.Add(new WorkerProducedAsset(
+                "HttpResponse",
+                $"{probeUrl} error {ex.Message}",
+                "error",
+                new Dictionary<string, string> { ["error"] = ex.Message },
+                ["http", "error"]));
+            outputSummary = JsonSerializer.Serialize(new { host, error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            await context.ReportProgressAsync(100, $"Unexpected error: {ex.Message}", null);
+            outputSummary = JsonSerializer.Serialize(new { host, error = ex.GetType().Name });
         }
 
-        using var document = JsonDocument.Parse(payloadJson);
-        return document.RootElement.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
-    }
+        await context.ReportProgressAsync(100, "Complete", null);
 
-    public static string GetRegisteredDomain(string host)
-    {
-        var parts = host.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return parts.Length < 2 ? host : string.Join('.', parts[^2..]);
+        return new WorkerProcessResult(false, outputSummary, producedAssets);
     }
 }
