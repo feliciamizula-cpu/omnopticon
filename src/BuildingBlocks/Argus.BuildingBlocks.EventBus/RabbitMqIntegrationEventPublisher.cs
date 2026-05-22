@@ -20,8 +20,8 @@ public sealed class RabbitMqIntegrationEventPublisher(
     {
         if (!connection.IsOpen)
         {
-            logger.LogWarning("RabbitMQ connection is closed; skipped {EventType} {EventId}", envelope.EventType, envelope.EventId);
-            return;
+            logger.LogWarning("RabbitMQ connection is closed for {EventType} {EventId}", envelope.EventType, envelope.EventId);
+            throw new InvalidOperationException($"RabbitMQ connection is closed; cannot publish {envelope.EventType} {envelope.EventId}.");
         }
 
         await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);

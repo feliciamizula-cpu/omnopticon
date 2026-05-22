@@ -18,6 +18,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
 {
     builder.Services.AddDbContext<AssetDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
+    builder.Services.AddArgusEfCoreOutbox<AssetDbContext>();
     builder.Services.AddScoped<IAssetStore, EfAssetStore>();
 }
 else
@@ -412,6 +413,8 @@ internal sealed class AssetDbContext(DbContextOptions<AssetDbContext> options) :
         relationship.HasIndex(record => record.ToAssetId);
         relationship.HasIndex(record => record.EdgeType);
         relationship.Property(record => record.EdgeType).HasMaxLength(128);
+
+        modelBuilder.ConfigureArgusOutbox();
     }
 }
 
@@ -560,6 +563,7 @@ internal static class AssetStoreInitialization
         if (dbContext is not null)
         {
             await dbContext.Database.EnsureCreatedAsync();
+            await dbContext.Database.EnsureArgusOutboxCreatedAsync();
         }
     }
 }

@@ -15,6 +15,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
 {
     builder.Services.AddDbContext<ProgramScopeDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
+    builder.Services.AddArgusEfCoreOutbox<ProgramScopeDbContext>();
     builder.Services.AddScoped<IProgramScopeStore, EfProgramScopeStore>();
 }
 else
@@ -344,6 +345,8 @@ internal sealed class ProgramScopeDbContext(DbContextOptions<ProgramScopeDbConte
         scope.Property(record => record.ScopeType).HasMaxLength(128);
         scope.Property(record => record.Pattern).HasMaxLength(2048);
         scope.Property(record => record.Action).HasConversion<string>().HasMaxLength(64);
+
+        modelBuilder.ConfigureArgusOutbox();
     }
 }
 
@@ -428,6 +431,7 @@ internal static class ProgramScopeStoreInitialization
         if (dbContext is not null)
         {
             await dbContext.Database.EnsureCreatedAsync();
+            await dbContext.Database.EnsureArgusOutboxCreatedAsync();
         }
     }
 }

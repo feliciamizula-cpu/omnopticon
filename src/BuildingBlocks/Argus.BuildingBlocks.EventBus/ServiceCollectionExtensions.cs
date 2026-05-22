@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
 
 namespace Argus.BuildingBlocks.EventBus;
 
@@ -79,5 +80,15 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<RabbitMqIntegrationEventPublisher>());
 
         return builder;
+    }
+
+    public static IServiceCollection AddArgusEfCoreOutbox<TDbContext>(this IServiceCollection services)
+        where TDbContext : DbContext
+    {
+        services.AddScoped<IOutboxStore, EfCoreOutboxStore<TDbContext>>();
+        services.AddScoped<IIntegrationEventPublisher, DurableIntegrationEventPublisher>();
+        services.AddHostedService<OutboxDispatcher>();
+
+        return services;
     }
 }

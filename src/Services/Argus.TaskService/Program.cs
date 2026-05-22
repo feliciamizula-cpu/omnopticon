@@ -15,6 +15,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
 {
     builder.Services.AddDbContext<TaskDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
+    builder.Services.AddArgusEfCoreOutbox<TaskDbContext>();
     builder.Services.AddScoped<ITaskStore, EfTaskStore>();
 }
 else
@@ -470,6 +471,8 @@ internal sealed class TaskDbContext(DbContextOptions<TaskDbContext> options) : D
         task.Property(record => record.InputPayloadJson).HasColumnType("jsonb");
         task.Property(record => record.CheckpointJson).HasColumnType("jsonb");
         task.Property(record => record.OutputSummaryJson).HasColumnType("jsonb");
+
+        modelBuilder.ConfigureArgusOutbox();
     }
 }
 
@@ -558,6 +561,7 @@ internal static class TaskStoreInitialization
         if (dbContext is not null)
         {
             await dbContext.Database.EnsureCreatedAsync();
+            await dbContext.Database.EnsureArgusOutboxCreatedAsync();
         }
     }
 }
