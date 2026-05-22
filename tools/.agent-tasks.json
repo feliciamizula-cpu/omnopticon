@@ -2,10 +2,10 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "013",
+      "currentTask": "024",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-22T21:21:13.650Z"
+      "lastUpdated": "2026-05-22T21:25:32.909Z"
     },
     {
       "status": "inactive",
@@ -217,8 +217,8 @@
       "description": "Design #24: No authentication or authorization",
       "createdAt": "2026-05-22T15:32:12.1031677-04:00",
       "priority": "medium",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-1",
+      "status": "in_progress"
     },
     {
       "id": "025",
