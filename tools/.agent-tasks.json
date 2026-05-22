@@ -119,6 +119,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "014",
+                      "description":  "Bug #16: Env var name mismatch for scope service",
+                      "createdAt":  "2026-05-22T15:29:15.0711409-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
