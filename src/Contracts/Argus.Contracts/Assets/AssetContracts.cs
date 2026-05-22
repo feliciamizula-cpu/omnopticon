@@ -48,6 +48,8 @@ public sealed record AssetDto(
     int InterestingScore,
     DateTimeOffset FirstSeenAt,
     DateTimeOffset LastSeenAt,
+    DateTimeOffset? LastScannedAt,
+    int StalenessScore,
     string? DiscoveredByTaskId,
     IReadOnlyDictionary<string, string> Metadata,
     IReadOnlyCollection<string> Tags);
@@ -84,6 +86,8 @@ public sealed record AssetQuery(
     string? Tag,
     int? MinInterestingScore,
     int? MinRiskScore,
+    int? MinStalenessScore,
+    int? MaxStalenessScore,
     string? Sort,
     string? Direction,
     int Page = 1,

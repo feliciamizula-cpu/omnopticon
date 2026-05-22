@@ -394,6 +394,7 @@ internal sealed class InMemoryTaskStore : ITaskStore
             var candidate = _tasks.Values
                 .Where(task => string.Equals(task.WorkerCapability, request.WorkerCapability, StringComparison.OrdinalIgnoreCase))
                 .Where(task => task.State is ReconTaskState.Requested or ReconTaskState.Queued or ReconTaskState.RetryPending)
+                .Where(task => task.Priority >= request.MinimumPriority)
                 .OrderByDescending(task => task.Priority)
                 .ThenBy(task => task.Attempt)
                 .FirstOrDefault();
@@ -592,12 +593,11 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
             ReconTaskState.Leased.ToString(),
             request.WorkerId,
             now.Add(lockDuration),
-            request.WorkerCapability
+            request.WorkerCapability,
+            (int)request.MinimumPriority
         };
-        if (capabilityFilter is not null)
-        {
-            parameters.AddRange(request.SubscribedAssetTypes!);
-        }
+
+        var priorityCondition = $@"AND ""Priority"" >= {{4}}";
 
         var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
             $@"
@@ -610,6 +610,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
                 SELECT ""TaskId"" FROM recon_tasks
                 WHERE ""WorkerCapability"" = {{3}}
                 {assetTypeCondition}
+                {priorityCondition}
                 AND (""State"" = 'Requested' OR ""State"" = 'Queued' OR ""State"" = 'RetryPending')
                 ORDER BY ""Priority"" DESC, ""Attempt"", ""TaskId""
                 LIMIT 1
