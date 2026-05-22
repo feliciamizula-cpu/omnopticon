@@ -255,6 +255,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "030",
+                      "description":  "Enhancement #4: Re-scan scheduling based on LastScannedAt",
+                      "createdAt":  "2026-05-22T15:47:09.2213311-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
