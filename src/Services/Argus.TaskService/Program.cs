@@ -3,19 +3,20 @@ using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Collections.Concurrent;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults();
-builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
-builder.Services.AddProblemDetails();
+builder.AddBasicServiceDefaults();
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
 {
     builder.Services.AddDbContext<TaskDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
     builder.Services.AddArgusEfCoreOutbox<TaskDbContext>();
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<ITaskStore, EfTaskStore>();
     builder.Services.AddHostedService<TaskMaintenanceService>();
 }
@@ -23,6 +24,9 @@ else
 {
     builder.Services.AddSingleton<ITaskStore, InMemoryTaskStore>();
 }
+
+builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
@@ -479,6 +483,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
     public async Task<ReconTaskDto?> LeaseAsync(LeaseReconTaskRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
+<<<<<<< HEAD
 
         var candidate = await dbContext.Tasks
             .FromSqlRaw("""
@@ -489,19 +494,49 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
                 FOR UPDATE SKIP LOCKED
                 """, request.WorkerCapability)
             .FirstOrDefaultAsync(cancellationToken);
+=======
+        var lockDuration = TaskMapping.NormalizeLeaseDuration(request.LeaseDuration);
+>>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
 
-        if (candidate is null)
+        var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE recon_tasks
+            SET "State" = {0},
+                "Attempt" = "Attempt" + 1,
+                "LeaseOwner" = {1},
+                "LeaseExpiresAt" = {2}
+            WHERE "TaskId" = (
+                SELECT "TaskId" FROM recon_tasks
+                WHERE "WorkerCapability" = {3}
+                AND ("State" = 'Requested' OR "State" = 'Queued' OR "State" = 'RetryPending')
+                ORDER BY "Attempt", "TaskId"
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            """,
+            ReconTaskState.Leased.ToString(),
+            request.WorkerId,
+            now.Add(lockDuration),
+            request.WorkerCapability);
+
+        if (rowsAffected == 0)
         {
             return null;
         }
 
+<<<<<<< HEAD
         candidate.State = ReconTaskState.Leased;
         candidate.Attempt += 1;
         candidate.LeaseOwner = request.WorkerId;
         candidate.LeaseExpiresAt = now.Add(TimeSpan.FromSeconds(30));
         await dbContext.SaveChangesAsync(cancellationToken);
+=======
+        var task = await dbContext.Tasks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(task => task.LeaseOwner == request.WorkerId && task.LeaseExpiresAt == now.Add(lockDuration), cancellationToken);
+>>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
 
-        return candidate.ToDto();
+        return task?.ToDto();
     }
 
     public Task<ReconTaskDto?> StartAsync(Guid taskId, string workerId, CancellationToken cancellationToken) =>

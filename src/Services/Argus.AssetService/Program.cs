@@ -10,21 +10,24 @@ using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddServiceDefaults();
-builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AssetService");
-builder.Services.AddProblemDetails();
+builder.AddBasicServiceDefaults();
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
 {
     builder.Services.AddDbContext<AssetDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
     builder.Services.AddArgusEfCoreOutbox<AssetDbContext>();
+    builder.Services.AddHealthChecks()
+        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<IAssetStore, EfAssetStore>();
 }
 else
 {
     builder.Services.AddSingleton<IAssetStore, InMemoryAssetStore>();
 }
+
+builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AssetService");
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
