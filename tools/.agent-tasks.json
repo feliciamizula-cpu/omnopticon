@@ -354,6 +354,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "042",
+                      "description":  "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
+                      "createdAt":  "2026-05-22T16:23:45.2832975-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
