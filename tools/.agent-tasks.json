@@ -16,7 +16,14 @@
                    }
                ],
     "tasks":  [
-
+                  {
+                      "id":  "001",
+                      "description":  "Bug #3: RabbitMQ consumer only listens to one queue - fix BasicConsumeAsync to consume all queues",
+                      "createdAt":  "2026-05-22T15:20:52.1332630-04:00",
+                      "priority":  "high",
+                      "assignedTo":  null,
+                      "status":  "pending"
+                  }
               ],
     "version":  "1.0"
 }
