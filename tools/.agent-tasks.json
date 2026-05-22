@@ -111,6 +111,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "013",
+                      "description":  "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
+                      "createdAt":  "2026-05-22T15:28:23.5712382-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
