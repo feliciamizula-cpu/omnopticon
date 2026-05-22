@@ -317,7 +317,8 @@ internal sealed class InMemoryTaskStore : ITaskStore
             var candidate = _tasks.Values
                 .Where(task => string.Equals(task.WorkerCapability, request.WorkerCapability, StringComparison.OrdinalIgnoreCase))
                 .Where(task => task.State is ReconTaskState.Requested or ReconTaskState.Queued or ReconTaskState.RetryPending)
-                .OrderBy(task => task.Attempt)
+                .OrderByDescending(task => task.Priority)
+                .ThenBy(task => task.Attempt)
                 .FirstOrDefault();
 
             if (candidate is null)
@@ -484,20 +485,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
     public async Task<ReconTaskDto?> LeaseAsync(LeaseReconTaskRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-<<<<<<< HEAD
-
-        var candidate = await dbContext.Tasks
-            .FromSqlRaw("""
-                SELECT * FROM recon_tasks
-                WHERE "WorkerCapability" = {0} AND "State" IN ('Requested', 'Queued', 'RetryPending')
-                ORDER BY "Attempt", "TaskId"
-                LIMIT 1
-                FOR UPDATE SKIP LOCKED
-                """, request.WorkerCapability)
-            .FirstOrDefaultAsync(cancellationToken);
-=======
         var lockDuration = TaskMapping.NormalizeLeaseDuration(request.LeaseDuration);
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
 
         var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
             """
@@ -510,7 +498,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
                 SELECT "TaskId" FROM recon_tasks
                 WHERE "WorkerCapability" = {3}
                 AND ("State" = 'Requested' OR "State" = 'Queued' OR "State" = 'RetryPending')
-                ORDER BY "Attempt", "TaskId"
+                ORDER BY "Priority" DESC, "Attempt", "TaskId"
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
@@ -525,17 +513,9 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
             return null;
         }
 
-<<<<<<< HEAD
-        candidate.State = ReconTaskState.Leased;
-        candidate.Attempt += 1;
-        candidate.LeaseOwner = request.WorkerId;
-        candidate.LeaseExpiresAt = now.Add(TimeSpan.FromSeconds(30));
-        await dbContext.SaveChangesAsync(cancellationToken);
-=======
         var task = await dbContext.Tasks
             .AsNoTracking()
             .FirstOrDefaultAsync(task => task.LeaseOwner == request.WorkerId && task.LeaseExpiresAt == now.Add(lockDuration), cancellationToken);
->>>>>>> c48c6f9f728704bb7dab1f776908c9f9b594cdb2
 
         return task?.ToDto();
     }
@@ -700,6 +680,7 @@ internal sealed class TaskRecord
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
     public string? DedupeHash { get; set; }
+    public WorkerPriority Priority { get; set; } = WorkerPriority.Normal;
 
     public ReconTaskDto ToDto() =>
         new(
@@ -722,7 +703,8 @@ internal sealed class TaskRecord
             CheckpointJson,
             OutputSummaryJson,
             ErrorCode,
-            ErrorMessage);
+            ErrorMessage,
+            Priority);
 }
 
 internal sealed class TaskHistoryRecord

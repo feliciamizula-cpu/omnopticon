@@ -1,5 +1,12 @@
 namespace Argus.Contracts.Tasks;
 
+public enum WorkerPriority
+{
+    Low = 0,
+    Normal = 1,
+    High = 2
+}
+
 public enum ReconTaskState
 {
     Requested,
@@ -35,7 +42,8 @@ public sealed record ReconTaskDto(
     string? CheckpointJson,
     string? OutputSummaryJson,
     string? ErrorCode,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    WorkerPriority Priority = WorkerPriority.Normal);
 
 public sealed record CreateReconTaskRequest(
     string TaskType,
@@ -44,7 +52,8 @@ public sealed record CreateReconTaskRequest(
     Guid? InputAssetId,
     string? InputPayloadJson,
     string WorkerCapability,
-    int MaxAttempts = 3);
+    int MaxAttempts = 3,
+    WorkerPriority Priority = WorkerPriority.Normal);
 
 public sealed record LeaseReconTaskRequest(
     string WorkerId,

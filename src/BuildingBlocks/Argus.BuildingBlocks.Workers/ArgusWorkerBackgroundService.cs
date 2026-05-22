@@ -72,6 +72,12 @@ public sealed class ArgusWorkerBackgroundService(
         {
             var result = await worker.ProcessAsync(task, context, heartbeatCts.Token);
 
+            if (result.RetryAfter.HasValue && result.RetryAfter.Value > TimeSpan.Zero)
+            {
+                logger.LogInformation("Task {TaskId} received rate limit response, waiting {RetryAfter}s before completing", task.TaskId, result.RetryAfter.Value.TotalSeconds);
+                await Task.Delay(result.RetryAfter.Value, heartbeatCts.Token);
+            }
+
             foreach (var asset in result.ProducedAssets)
             {
                 if (await IsProducedAssetInScopeAsync(task, asset, heartbeatCts.Token))
