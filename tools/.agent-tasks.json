@@ -95,6 +95,14 @@
                       "priority":  "critical",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "011",
+                      "description":  "Critical #2: Missing AssetConfirmed event - discovery vs confirmation not modelled",
+                      "createdAt":  "2026-05-22T15:26:58.2880178-04:00",
+                      "priority":  "critical",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
