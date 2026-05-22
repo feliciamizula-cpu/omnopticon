@@ -298,6 +298,14 @@
                       "priority":  "critical",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "035",
+                      "description":  "Bug #2: Bulk task deduplication missing - POST /assets/bulk/enqueue creates duplicates for same asset+worker",
+                      "createdAt":  "2026-05-22T16:21:31.2354009-04:00",
+                      "priority":  "high",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
