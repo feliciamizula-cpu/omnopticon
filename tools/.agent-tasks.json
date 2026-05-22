@@ -2,10 +2,10 @@
     "agents":  [
                    {
                        "status":  "active",
-                       "currentTask":  null,
+                       "currentTask":  "009",
                        "name":  "Agent 1",
                        "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T15:56:30.3080152-04:00"
+                       "lastUpdated":  "2026-05-22T15:57:21.0656138-04:00"
                    },
                    {
                        "status":  "inactive",
@@ -93,8 +93,8 @@
                       "description":  "Bug #11: AddArgusInboxConsumer never called - no event consumers wired up",
                       "createdAt":  "2026-05-22T15:25:51.2631038-04:00",
                       "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-1",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "010",
