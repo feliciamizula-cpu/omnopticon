@@ -24,6 +24,10 @@
     <Project Path="src/HybridApp/HybridApp.csproj" />
     <Project Path="src/ClientApp/ClientApp.csproj" />
   </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj" />
+    <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj" />
+  </Folder>
   <Folder Name="/src/Contracts/">
     <Project Path="src/Contracts/Argus.Contracts/Argus.Contracts.csproj" />
   </Folder>
@@ -34,6 +38,15 @@
     <Project Path="src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj" />
     <Project Path="src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj" />
     <Project Path="src/Services/Argus.TaskService/Argus.TaskService.csproj" />
+  </Folder>
+  <Folder Name="/src/Workers/">
+    <Project Path="src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj" />
+    <Project Path="src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj" />
+    <Project Path="src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj" />
+    <Project Path="src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj" />
+    <Project Path="src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj" />
+    <Project Path="src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj" />
+    <Project Path="src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Basket.UnitTests/Basket.UnitTests.csproj" />

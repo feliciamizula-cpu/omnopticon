@@ -1,3 +1,5 @@
+using Argus.BuildingBlocks.EventBus;
+using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
 using System.Collections.Concurrent;
@@ -5,6 +7,7 @@ using System.Collections.Concurrent;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddRealtimeIntegrationEvents(options => options.SourceService = "Argus.TaskService");
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<TaskStore>();
 
@@ -15,7 +18,11 @@ app.MapDefaultEndpoints();
 app.MapGet("/tasks", (Guid? programId, ReconTaskState? state, string? capability, TaskStore store) =>
     store.Query(programId, state, capability));
 
-app.MapPost("/tasks", (CreateReconTaskRequest request, TaskStore store) =>
+app.MapPost("/tasks", async (
+    CreateReconTaskRequest request,
+    TaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.TaskType) || string.IsNullOrWhiteSpace(request.WorkerCapability))
     {
@@ -23,35 +30,121 @@ app.MapPost("/tasks", (CreateReconTaskRequest request, TaskStore store) =>
     }
 
     var task = store.Create(request);
+    await events.PublishAsync(
+        new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+        nameof(TaskRequested),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
+
     return Results.Created($"/tasks/{task.TaskId}", task);
 });
 
 app.MapGet("/tasks/{taskId:guid}", (Guid taskId, TaskStore store) =>
     store.TryGet(taskId, out var task) ? Results.Ok(task) : Results.NotFound());
 
-app.MapPost("/tasks/lease", (LeaseReconTaskRequest request, TaskStore store) =>
-    store.TryLease(request, out var task) ? Results.Ok(task) : Results.NoContent());
+app.MapPost("/tasks/lease", async (
+    LeaseReconTaskRequest request,
+    TaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (!store.TryLease(request, out var task) || task is null)
+    {
+        return Results.NoContent();
+    }
 
-app.MapPost("/tasks/{taskId:guid}/start", (Guid taskId, string workerId, TaskStore store) =>
-    store.TryStart(taskId, workerId, out var task) ? Results.Ok(task) : Results.NotFound());
+    await events.PublishAsync(
+        new TaskLeased(task.TaskId, request.WorkerId, task.LeaseExpiresAt ?? DateTimeOffset.UtcNow),
+        nameof(TaskLeased),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
 
-app.MapPost("/tasks/{taskId:guid}/progress", (
+    return Results.Ok(task);
+});
+
+app.MapPost("/tasks/{taskId:guid}/start", async (
+    Guid taskId,
+    string workerId,
+    TaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (!store.TryStart(taskId, workerId, out var task) || task is null)
+    {
+        return Results.NotFound();
+    }
+
+    await events.PublishAsync(
+        new TaskStarted(task.TaskId, workerId, task.StartedAt ?? DateTimeOffset.UtcNow),
+        nameof(TaskStarted),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
+
+    return Results.Ok(task);
+});
+
+app.MapPost("/tasks/{taskId:guid}/progress", async (
     Guid taskId,
     UpdateReconTaskProgressRequest request,
-    TaskStore store) =>
-    store.TryProgress(taskId, request, out var task) ? Results.Ok(task) : Results.NotFound());
+    TaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (!store.TryProgress(taskId, request, out var task) || task is null)
+    {
+        return Results.NotFound();
+    }
 
-app.MapPost("/tasks/{taskId:guid}/complete", (
+    await events.PublishAsync(
+        new TaskProgressed(task.TaskId, task.ProgressPercent, task.ProgressMessage ?? string.Empty),
+        nameof(TaskProgressed),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
+
+    return Results.Ok(task);
+});
+
+app.MapPost("/tasks/{taskId:guid}/complete", async (
     Guid taskId,
     CompleteReconTaskRequest request,
-    TaskStore store) =>
-    store.TryComplete(taskId, request, out var task) ? Results.Ok(task) : Results.NotFound());
+    TaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (!store.TryComplete(taskId, request, out var task) || task is null)
+    {
+        return Results.NotFound();
+    }
 
-app.MapPost("/tasks/{taskId:guid}/fail", (
+    await events.PublishAsync(
+        new TaskCompleted(task.TaskId, task.OutputSummaryJson ?? "{}"),
+        nameof(TaskCompleted),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
+
+    return Results.Ok(task);
+});
+
+app.MapPost("/tasks/{taskId:guid}/fail", async (
     Guid taskId,
     FailReconTaskRequest request,
-    TaskStore store) =>
-    store.TryFail(taskId, request, out var task) ? Results.Ok(task) : Results.NotFound());
+    TaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (!store.TryFail(taskId, request, out var task) || task is null)
+    {
+        return Results.NotFound();
+    }
+
+    await events.PublishAsync(
+        new TaskFailed(task.TaskId, task.ErrorCode ?? "Unknown", task.ErrorMessage ?? string.Empty),
+        nameof(TaskFailed),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
+
+    return Results.Ok(task);
+});
 
 app.Run();
 

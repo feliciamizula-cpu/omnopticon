@@ -35,8 +35,10 @@ public sealed record IntegrationEventEnvelope<T>
 public sealed record ProgramCreated(Guid ProgramId, string Name);
 public sealed record ScopeCreated(Guid ProgramId, Guid ScopeId, string Pattern, string ScopeType);
 public sealed record AssetDiscovered(Guid AssetId, Guid ProgramId, string AssetType, string Value);
+public sealed record AssetUpdated(Guid AssetId, Guid ProgramId, string AssetType, string Value);
 public sealed record AssetRelationshipDiscovered(Guid FromAssetId, Guid ToAssetId, string EdgeType);
 public sealed record TaskRequested(Guid TaskId, string TaskType, Guid ProgramId, Guid? InputAssetId);
+public sealed record TaskLeased(Guid TaskId, string WorkerId, DateTimeOffset LeaseExpiresAt);
 public sealed record TaskStarted(Guid TaskId, string WorkerId, DateTimeOffset StartedAt);
 public sealed record TaskProgressed(Guid TaskId, int ProgressPercent, string ProgressMessage);
 public sealed record TaskCompleted(Guid TaskId, string OutputSummary);

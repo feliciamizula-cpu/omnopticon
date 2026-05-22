@@ -1,3 +1,5 @@
+using Argus.BuildingBlocks.EventBus;
+using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
 using Argus.ServiceDefaults;
 using System.Collections.Concurrent;
@@ -5,6 +7,7 @@ using System.Collections.Concurrent;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddRealtimeIntegrationEvents(options => options.SourceService = "Argus.ProgramScopeService");
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<ProgramScopeStore>();
 
@@ -14,7 +17,11 @@ app.MapDefaultEndpoints();
 
 app.MapGet("/programs", (ProgramScopeStore store) => store.GetPrograms());
 
-app.MapPost("/programs", (CreateProgramRequest request, ProgramScopeStore store) =>
+app.MapPost("/programs", async (
+    CreateProgramRequest request,
+    ProgramScopeStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Name))
     {
@@ -22,6 +29,12 @@ app.MapPost("/programs", (CreateProgramRequest request, ProgramScopeStore store)
     }
 
     var program = store.CreateProgram(request);
+    await events.PublishAsync(
+        new ProgramCreated(program.ProgramId, program.Name),
+        nameof(ProgramCreated),
+        "Argus.ProgramScopeService",
+        cancellationToken: cancellationToken);
+
     return Results.Created($"/programs/{program.ProgramId}", program);
 });
 
@@ -30,10 +43,12 @@ app.MapGet("/programs/{programId:guid}", (Guid programId, ProgramScopeStore stor
 
 app.MapGet("/scopes", (ProgramScopeStore store) => store.GetScopes());
 
-app.MapPost("/programs/{programId:guid}/scopes", (
+app.MapPost("/programs/{programId:guid}/scopes", async (
     Guid programId,
     CreateProgramScopeRequest request,
-    ProgramScopeStore store) =>
+    ProgramScopeStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
 {
     if (programId != request.ProgramId)
     {
@@ -45,9 +60,18 @@ app.MapPost("/programs/{programId:guid}/scopes", (
         return Results.BadRequest("Scope pattern is required.");
     }
 
-    return store.TryCreateScope(request, out var scope)
-        ? Results.Created($"/programs/{programId}/scopes/{scope.ScopeId}", scope)
-        : Results.NotFound();
+    if (!store.TryCreateScope(request, out var scope))
+    {
+        return Results.NotFound();
+    }
+
+    await events.PublishAsync(
+        new ScopeCreated(scope.ProgramId, scope.ScopeId, scope.Pattern, scope.ScopeType),
+        nameof(ScopeCreated),
+        "Argus.ProgramScopeService",
+        cancellationToken: cancellationToken);
+
+    return Results.Created($"/programs/{programId}/scopes/{scope.ScopeId}", scope);
 });
 
 app.MapPost("/scope-validation/check", (ScopeValidationRequest request, ProgramScopeStore store) =>

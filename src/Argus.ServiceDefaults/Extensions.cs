@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using System.Text.Json.Serialization;
 
 namespace Argus.ServiceDefaults;
 
@@ -31,6 +32,8 @@ public static partial class Extensions
     {
         builder.AddDefaultHealthChecks();
         builder.ConfigureOpenTelemetry();
+        builder.Services.ConfigureHttpJsonOptions(options =>
+            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
         return builder;
     }

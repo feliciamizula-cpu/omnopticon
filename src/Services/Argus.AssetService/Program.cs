@@ -1,4 +1,6 @@
+using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Assets;
+using Argus.Contracts.Events;
 using Argus.ServiceDefaults;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
@@ -7,6 +9,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddRealtimeIntegrationEvents(options => options.SourceService = "Argus.AssetService");
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<AssetStore>();
 
@@ -27,14 +30,38 @@ app.MapGet("/assets", (
     return store.Query(query);
 });
 
-app.MapPost("/assets", (CreateAssetRequest request, AssetStore store) =>
+app.MapPost("/assets", async (
+    CreateAssetRequest request,
+    AssetStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Value))
     {
         return Results.BadRequest("Asset value is required.");
     }
 
-    var asset = store.Upsert(request);
+    var result = store.Upsert(request);
+    var asset = result.Asset;
+    var eventType = result.WasCreated ? nameof(AssetDiscovered) : nameof(AssetUpdated);
+
+    if (result.WasCreated)
+    {
+        await events.PublishAsync(
+            new AssetDiscovered(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value),
+            eventType,
+            "Argus.AssetService",
+            cancellationToken: cancellationToken);
+    }
+    else
+    {
+        await events.PublishAsync(
+            new AssetUpdated(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value),
+            eventType,
+            "Argus.AssetService",
+            cancellationToken: cancellationToken);
+    }
+
     return Results.Created($"/assets/{asset.AssetId}", asset);
 });
 
@@ -44,7 +71,11 @@ app.MapGet("/assets/{assetId:guid}", (Guid assetId, AssetStore store) =>
 app.MapGet("/assets/{assetId:guid}/relationships", (Guid assetId, AssetStore store) =>
     store.GetRelationships(assetId));
 
-app.MapPost("/assets/relationships", (CreateAssetRelationshipRequest request, AssetStore store) =>
+app.MapPost("/assets/relationships", async (
+    CreateAssetRelationshipRequest request,
+    AssetStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
 {
     if (!store.Contains(request.FromAssetId) || !store.Contains(request.ToAssetId))
     {
@@ -52,6 +83,12 @@ app.MapPost("/assets/relationships", (CreateAssetRelationshipRequest request, As
     }
 
     var relationship = store.AddRelationship(request);
+    await events.PublishAsync(
+        new AssetRelationshipDiscovered(relationship.FromAssetId, relationship.ToAssetId, relationship.EdgeType),
+        nameof(AssetRelationshipDiscovered),
+        "Argus.AssetService",
+        cancellationToken: cancellationToken);
+
     return Results.Created($"/assets/{request.FromAssetId}/relationships", relationship);
 });
 
@@ -101,7 +138,7 @@ internal sealed class AssetStore
             ordered.Length);
     }
 
-    public AssetDto Upsert(CreateAssetRequest request)
+    public AssetUpsertResult Upsert(CreateAssetRequest request)
     {
         var now = DateTimeOffset.UtcNow;
         var normalizedValue = NormalizeValue(request.Type, request.Value);
@@ -117,7 +154,7 @@ internal sealed class AssetStore
             };
 
             _assets[existing.AssetId] = updated;
-            return updated;
+            return new AssetUpsertResult(updated, WasCreated: false);
         }
 
         var asset = new AssetDto(
@@ -141,7 +178,7 @@ internal sealed class AssetStore
         _assets[asset.AssetId] = asset;
         _naturalKeys[naturalKey] = asset.AssetId;
 
-        return asset;
+        return new AssetUpsertResult(asset, WasCreated: true);
     }
 
     public bool TryGet(Guid assetId, out AssetDto? asset) => _assets.TryGetValue(assetId, out asset);
@@ -235,3 +272,5 @@ internal sealed class AssetStore
             _ => 5
         };
 }
+
+internal sealed record AssetUpsertResult(AssetDto Asset, bool WasCreated);

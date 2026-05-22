@@ -1,3 +1,5 @@
+using Argus.BuildingBlocks.EventBus;
+using Argus.Contracts.Events;
 using Argus.Contracts.RateLimits;
 using Argus.ServiceDefaults;
 using System.Collections.Concurrent;
@@ -5,6 +7,7 @@ using System.Collections.Concurrent;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddRealtimeIntegrationEvents(options => options.SourceService = "Argus.RateLimitService");
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<RateLimitStore>();
 
@@ -14,8 +17,34 @@ app.MapDefaultEndpoints();
 
 app.MapGet("/rate-limits", (RateLimitStore store) => store.GetBuckets());
 
-app.MapPost("/rate-limits/check", (RateLimitCheckRequest request, RateLimitStore store) =>
-    store.Check(request));
+app.MapPost("/rate-limits/check", async (
+    RateLimitCheckRequest request,
+    RateLimitStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    var decision = store.Check(request);
+    var tightestBucket = decision.Buckets.OrderBy(bucket => bucket.Remaining).FirstOrDefault();
+
+    if (decision.IsAllowed && decision.TokenId is not null && decision.ExpiresAt is not null && tightestBucket is not null)
+    {
+        await events.PublishAsync(
+            new RateLimitTokenGranted(tightestBucket.BucketKey, decision.TokenId.Value, decision.ExpiresAt.Value),
+            nameof(RateLimitTokenGranted),
+            "Argus.RateLimitService",
+            cancellationToken: cancellationToken);
+    }
+    else if (!decision.IsAllowed && tightestBucket is not null)
+    {
+        await events.PublishAsync(
+            new RateLimitDelayed(tightestBucket.BucketKey, decision.RetryAfter ?? TimeSpan.FromSeconds(1)),
+            nameof(RateLimitDelayed),
+            "Argus.RateLimitService",
+            cancellationToken: cancellationToken);
+    }
+
+    return decision;
+});
 
 app.Run();
 

@@ -42,6 +42,79 @@ var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-serv
     .WithReference(rabbitMq).WaitFor(rabbitMq)
     .WithHttpHealthCheck("/health");
 
+programScope.WithReference(realtime);
+asset.WithReference(realtime);
+task.WithReference(realtime);
+rateLimit.WithReference(realtime);
+orchestrator.WithReference(realtime);
+
+builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_Subfinder>("subfinder-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_DnsResolver>("dns-resolver-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_HttpProbe>("http-probe-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_HtmlDomSpider>("html-dom-spider-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_JsExtractor>("js-extractor-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_WordlistDiscovery>("wordlist-discovery-worker")
+    .WithReference(task)
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
 builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithExternalHttpEndpoints()
     .WithReference(programScope)
