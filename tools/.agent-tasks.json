@@ -2,10 +2,10 @@
     "agents":  [
                    {
                        "status":  "active",
-                       "currentTask":  null,
+                       "currentTask":  "001",
                        "name":  "Agent 1",
                        "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T15:20:26.4381876-04:00"
+                       "lastUpdated":  "2026-05-22T15:33:36.7622458-04:00"
                    },
                    {
                        "status":  "inactive",
@@ -21,8 +21,8 @@
                       "description":  "Bug #3: RabbitMQ consumer only listens to one queue - fix BasicConsumeAsync to consume all queues",
                       "createdAt":  "2026-05-22T15:20:52.1332630-04:00",
                       "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-1",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "002",
