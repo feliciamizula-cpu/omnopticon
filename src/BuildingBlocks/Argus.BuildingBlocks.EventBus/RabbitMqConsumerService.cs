@@ -279,11 +279,10 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         return 0;
     }
 
-    public override async ValueTask DisposeAsync()
+    async ValueTask IAsyncDisposable.DisposeAsync()
     {
         if (_channel is not null) await _channel.CloseAsync();
         if (_connection is not null) await _connection.CloseAsync();
-        await base.DisposeAsync();
     }
 }
 

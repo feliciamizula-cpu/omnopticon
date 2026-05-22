@@ -600,6 +600,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
 
         var priorityCondition = $@"AND ""Priority"" >= {{4}}";
 
+#pragma warning disable EF1002
         var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
             $@"
             UPDATE recon_tasks
@@ -619,6 +620,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
             )
             ",
             parameters.ToArray());
+#pragma warning restore EF1002
 
         if (rowsAffected == 0)
         {

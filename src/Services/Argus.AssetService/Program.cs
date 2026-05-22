@@ -1,6 +1,7 @@
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
+using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
@@ -11,6 +12,8 @@ using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddBasicServiceDefaults();
+
+var JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
 {
@@ -51,7 +54,7 @@ app.MapGet("/assets", (
     IAssetStore store,
     CancellationToken cancellationToken) =>
 {
-    var query = new AssetQuery(programId, type, status, search, tag, minInterestingScore, minRiskScore, sort, direction, page ?? 1, pageSize ?? 100);
+    var query = new AssetQuery(ProgramId: programId, Type: type, Status: status, Search: search, Tag: tag, MinInterestingScore: minInterestingScore, MinRiskScore: minRiskScore, MinStalenessScore: null, MaxStalenessScore: null, Sort: sort, Direction: direction, Page: page ?? 1, PageSize: pageSize ?? 100);
     return store.QueryAsync(query, cancellationToken);
 });
 
@@ -201,17 +204,18 @@ app.MapPost("/assets/bulk/enqueue", async (
         }
 
         var createRequest = new CreateReconTaskRequest(
-            request.TaskType,
-            request.ProgramId,
-            request.ScopeId,
-            assetId,
-            null,
-            request.WorkerCapability,
-            request.MaxAttempts,
-            request.Priority,
-            dedupeHash);
+            TaskType: request.TaskType,
+            ProgramId: request.ProgramId,
+            ScopeId: request.ScopeId,
+            InputAssetId: assetId,
+            InputPayloadJson: null,
+            WorkerCapability: request.WorkerCapability,
+            RequiredAssetType: null,
+            MaxAttempts: request.MaxAttempts,
+            Priority: request.Priority,
+            DedupeHash: dedupeHash);
 
-        using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions.Default, cancellationToken);
+        using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions, cancellationToken);
         if (createResponse.IsSuccessStatusCode)
         {
             var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
@@ -377,6 +381,8 @@ internal sealed class InMemoryAssetStore : IAssetStore
             InterestingScore: AssetScoring.ScoreInitialInterestingness(request.Type, request.Subtype, normalizedValue),
             FirstSeenAt: now,
             LastSeenAt: now,
+            LastScannedAt: null,
+            StalenessScore: 100,
             DiscoveredByTaskId: request.DiscoveredByTaskId,
             Metadata: request.Metadata ?? new Dictionary<string, string>(),
             Tags: request.Tags ?? []);
