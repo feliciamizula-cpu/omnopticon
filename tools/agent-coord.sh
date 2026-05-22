@@ -41,18 +41,20 @@ write_state() {
     printf '%s\n' "$state" > "$tmp_file"
     mv "$tmp_file" "$STATE_FILE"
 
-    (
-        cd "$SCRIPT_DIR"
-        if git rev-parse --git-dir > /dev/null 2>&1; then
-            git add .agent-tasks.json 2>/dev/null || true
-            if git diff --cached --quiet; then
-                :
-            else
-                git commit -m "chore: update agent coordination state [skip ci]" 2>/dev/null || true
-                git push 2>/dev/null || true
+    if [ "${AGENT_COORD_AUTOCOMMIT:-0}" = "1" ]; then
+        (
+            cd "$SCRIPT_DIR"
+            if git rev-parse --git-dir > /dev/null 2>&1; then
+                git add .agent-tasks.json 2>/dev/null || true
+                if git diff --cached --quiet; then
+                    :
+                else
+                    git commit -m "chore: update agent coordination state [skip ci]" 2>/dev/null || true
+                    git push 2>/dev/null || true
+                fi
             fi
-        fi
-    )
+        )
+    fi
 }
 
 default_agents_json() {
@@ -65,6 +67,7 @@ default_agents_json() {
             { "id": "agent-5", "name": "Agent 5", "status": "inactive" }
         ] | map(. + {
             currentTask: null,
+            workStatus: "idle",
             lastUpdated: "",
             pid: null,
             lastHeartbeatAt: null,
@@ -247,7 +250,8 @@ take_task() {
         ) |
          .agents |= map(
             if .id == $agent then
-                .status = "working" |
+                .status = (.status // "active") |
+                .workStatus = "working" |
                 .currentTask = $tid |
                 .currentTaskDescription = $desc |
                 .lastUpdated = $now |
@@ -302,7 +306,8 @@ complete_task() {
                 .currentTask = null |
                 .currentTaskDescription = null |
                 .context = null |
-                .status = "idle" |
+                .status = (.status // "active") |
+                .workStatus = "idle" |
                 .pid = null |
                 .startedAt = null |
                 .lastHeartbeatAt = $now |
@@ -356,6 +361,231 @@ checkpoint_agent() {
     echo "Updated agent $AGENT_ID: status=$status task=${current_task_id:-none}"
 }
 
+reconcile_state() {
+    acquire_lock
+    trap release_lock EXIT
+
+    local state now agent_ids agent_id local_state local_status local_task central_task task_desc updated local_runtime local_context
+    state="$(read_state)"
+    if [ "$state" = "null" ] || [ -z "$state" ]; then
+        echo "No state file"
+        exit 1
+    fi
+
+    now="$(agent_now_utc)"
+    agent_ids="$(echo "$state" | jq -r '.agents[].id')"
+
+    while IFS= read -r agent_id; do
+        [ -n "$agent_id" ] || continue
+        local_state="$(agent_read_state "$agent_id")"
+        local_status="$(echo "$local_state" | jq -r '.status // "idle"')"
+        local_task="$(echo "$local_state" | jq -r '.currentTaskId // empty')"
+        central_task="$(echo "$state" | jq -r --arg agent "$agent_id" '.agents[] | select(.id == $agent) | .currentTask // empty')"
+        local_runtime="$(agent_runtime_status "$agent_id")"
+
+        if [ -n "$local_task" ] && [ "$local_status" != "idle" ]; then
+            task_desc="$(echo "$state" | jq -r --arg tid "$local_task" '.tasks[] | select(.id == $tid) | .description // empty')"
+            if [ "$local_runtime" = "crashed" ] || [ "$local_runtime" = "stalled" ] || [ "$local_runtime" = "unresponsive" ]; then
+                local_context="$(echo "$local_state" | jq -r '.context // empty')"
+                state="$(echo "$state" | jq \
+                    --arg agent "$agent_id" \
+                    --arg tid "$local_task" \
+                    --arg context "$local_context" \
+                    --arg runtime "$local_runtime" \
+                    --arg now "$now" '
+                    .agents |= map(
+                        if .id == $agent then
+                            .status = (if .status == "inactive" then "inactive" else "active" end) |
+                            .workStatus = "idle" |
+                            .currentTask = null |
+                            .currentTaskDescription = null |
+                            .lastUpdated = $now
+                        else
+                            .
+                        end
+                    ) |
+                    .tasks |= map(
+                        if .id == $tid then
+                            .status = "pending" |
+                            .assignedTo = null |
+                            .requeuedAt = $now |
+                            .requeueReason = ("released from " + $agent + " after " + $runtime) |
+                            .recoveryContext = (if $context == "" then null else $context end)
+                        else
+                            .
+                        end
+                    )
+                ')"
+                updated="$(echo "$local_state" | jq \
+                    --arg now "$now" \
+                    --arg tid "$local_task" '
+                    .currentTaskId = null |
+                    .currentTaskDescription = null |
+                    .status = "idle" |
+                    .pid = null |
+                    .lastError = ("Task " + $tid + " requeued during reconciliation") |
+                    .lastHeartbeatAt = $now |
+                    .updatedAt = $now
+                ')"
+                agent_write_state "$agent_id" "$updated"
+                continue
+            fi
+            updated="$(echo "$local_state" | jq \
+                --arg agent "$agent_id" \
+                --arg tid "$local_task" \
+                --arg desc "$task_desc" \
+                --arg now "$now" '
+                .agentId = $agent |
+                .currentTaskId = $tid |
+                .currentTaskDescription = (if $desc == "" then .currentTaskDescription else $desc end) |
+                .updatedAt = $now
+            ')"
+            agent_write_state "$agent_id" "$updated"
+            state="$(echo "$state" | jq \
+                --arg agent "$agent_id" \
+                --arg tid "$local_task" \
+                --arg desc "$task_desc" \
+                --arg now "$now" '
+                .agents |= map(
+                    if .id == $agent then
+                        .status = (if .status == "inactive" then "inactive" else "active" end) |
+                        .workStatus = "working" |
+                        .currentTask = $tid |
+                        .currentTaskDescription = (if $desc == "" then null else $desc end) |
+                        .lastUpdated = $now
+                    else
+                        .
+                    end
+                ) |
+                .tasks |= map(
+                    if .id == $tid then
+                        .status = "in_progress" |
+                        .assignedTo = $agent
+                    else
+                        .
+                    end
+                )
+            ')"
+        elif [ -n "$central_task" ]; then
+            task_desc="$(echo "$state" | jq -r --arg tid "$central_task" '.tasks[] | select(.id == $tid) | .description // empty')"
+            updated="$(echo "$local_state" | jq \
+                --arg agent "$agent_id" \
+                --arg tid "$central_task" \
+                --arg desc "$task_desc" \
+                --arg now "$now" '
+                .agentId = $agent |
+                .currentTaskId = $tid |
+                .currentTaskDescription = (if $desc == "" then null else $desc end) |
+                .status = "working" |
+                .pid = null |
+                .lastError = "Reconstructed from central task board during reconciliation" |
+                .lastHeartbeatAt = $now |
+                .updatedAt = $now
+            ')"
+            agent_write_state "$agent_id" "$updated"
+        else
+            updated="$(echo "$local_state" | jq \
+                --arg agent "$agent_id" \
+                --arg now "$now" '
+                .agentId = $agent |
+                .currentTaskId = null |
+                .currentTaskDescription = null |
+                .status = "idle" |
+                .pid = null |
+                .updatedAt = $now
+            ')"
+            agent_write_state "$agent_id" "$updated"
+            state="$(echo "$state" | jq \
+                --arg agent "$agent_id" \
+                --arg now "$now" '
+                .agents |= map(
+                    if .id == $agent then
+                        .status = (if .status == "inactive" then "inactive" else "active" end) |
+                        .workStatus = "idle" |
+                        .currentTask = null |
+                        .currentTaskDescription = null |
+                        .lastUpdated = $now
+                    else
+                        .
+                    end
+                )
+            ')"
+        fi
+    done <<< "$agent_ids"
+
+    state="$(echo "$state" | jq --arg now "$now" '
+        . as $root |
+        .agents |= map(
+            .status = (if .status == "inactive" then "inactive" else "active" end) |
+            .workStatus = (.workStatus // (if .currentTask == null then "idle" else "working" end))
+        ) |
+        .tasks |= map(
+            . as $task |
+            if $task.status == "in_progress" and ($task.assignedTo != null) then
+                ([ $root.agents[] | select(.id == $task.assignedTo) | .currentTask ][0]) as $currentTask |
+                if $currentTask != $task.id then
+                    .status = "pending" |
+                    .assignedTo = null |
+                    .requeuedAt = $now |
+                    .requeueReason = "assigned agent is not currently working this task"
+                else
+                    .
+                end
+            else
+                .
+            end
+        )
+    ')"
+
+    write_state "$state"
+    echo "Reconciled agent task board"
+}
+
+doctor_agents() {
+    local state
+    state="$(read_state)"
+    if [ "$state" = "null" ] || [ -z "$state" ]; then
+        echo "No state file"
+        exit 1
+    fi
+
+    echo "=== Agent Doctor ==="
+    local issues=0
+
+    while IFS= read -r agent_id; do
+        [ -n "$agent_id" ] || continue
+        local state_file runtime central_task local_state local_task local_status
+        state_file="$(agent_state_path "$agent_id")"
+        runtime="$(agent_runtime_status "$agent_id")"
+        central_task="$(echo "$state" | jq -r --arg agent "$agent_id" '.agents[] | select(.id == $agent) | .currentTask // "-"')"
+        local_state="$(agent_read_state "$agent_id")"
+        local_task="$(echo "$local_state" | jq -r '.currentTaskId // "-"')"
+        local_status="$(echo "$local_state" | jq -r '.status // "idle"')"
+
+        if [ ! -s "$state_file" ]; then
+            echo "WARN $agent_id: missing or empty local state file"
+            issues=$((issues + 1))
+        fi
+        if [ "$central_task" != "$local_task" ] && { [ "$central_task" != "-" ] || [ "$local_task" != "-" ]; }; then
+            echo "WARN $agent_id: central task=$central_task local task=$local_task local status=$local_status runtime=$runtime"
+            issues=$((issues + 1))
+        fi
+    done <<< "$(echo "$state" | jq -r '.agents[].id')"
+
+    echo "$state" | jq -r '
+        . as $root |
+        .tasks[] |
+        select(.status == "in_progress" and (.assignedTo == null or .assignedTo == "")) |
+        "WARN task \(.id): in_progress with no assignee"
+    ' | while read -r line; do
+        echo "$line"
+    done
+
+    if [ "$issues" -eq 0 ]; then
+        echo "No local/central agent mismatches detected"
+    fi
+}
+
 show_status() {
     local state
     state="$(read_state)"
@@ -396,6 +626,8 @@ show_help() {
     echo "  take <task-id>    Claim a task for this agent"
     echo "  done <task-id>    Mark a task as completed"
     echo "  checkpoint        Update agent status/context"
+    echo "  reconcile         Repair central/local agent task mismatches"
+    echo "  doctor            Diagnose agent todo/state health"
     echo "  monitor           Show agent/task health"
     echo "  status            Show summary status"
     echo ""
@@ -423,7 +655,7 @@ LAST_ERROR=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        init|list|add|take|done|checkpoint|monitor|status)
+        init|list|add|take|done|checkpoint|reconcile|doctor|monitor|status)
             ACTION="$1"
             shift
             ;;
@@ -482,6 +714,8 @@ case "$ACTION" in
     take)       take_task ;;
     done)       complete_task ;;
     checkpoint) checkpoint_agent ;;
+    reconcile)  reconcile_state ;;
+    doctor)     doctor_agents ;;
     monitor)    monitor_agents ;;
     status)     show_status ;;
     *)          show_help; exit 1 ;;

@@ -1,0 +1,13 @@
+{
+  "agentId": "agent-3",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": null,
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-22T23:01:41.766Z",
+  "lastHeartbeatAt": "2026-05-22T23:02:34.292Z",
+  "lastError": "Task 025 requeued during reconciliation",
+  "updatedAt": "2026-05-22T23:02:34.292Z"
+}

@@ -5,12 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/agent-state-lib.sh"
 STATE_FILE="$SCRIPT_DIR/.agent-tasks.json"
 AGENT_COORD="$SCRIPT_DIR/agent-coord.sh"
-INTERVAL="${1:-60}"
+INTERVAL="${1:-5}"
 WORK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
 LOG_FILE="${LOG_FILE:-/tmp/auto-run-agents.log}"
 AGENT_HEARTBEAT_TIMEOUT="${AGENT_HEARTBEAT_TIMEOUT:-900}"
 AGENT_STALE_TIMEOUT="${AGENT_STALE_TIMEOUT:-1800}"
+RECONCILE_INTERVAL="${RECONCILE_INTERVAL:-60}"
 
 AGENTS=("agent-1" "agent-2" "agent-3" "agent-4" "agent-5")
 REVIEW_AGENTS=("reviewer-1" "reviewer-2")
@@ -104,6 +105,12 @@ complete_task_in_coord() {
     local agent_id="$1"
     local task_id="$2"
     AGENT_ID="$agent_id" "$AGENT_COORD" done -t "$task_id" -a "$agent_id" 2>/dev/null
+}
+
+reconcile_task_board() {
+    "$AGENT_COORD" reconcile 2>&1 | while IFS= read -r line; do
+        log "[reconcile] $line"
+    done
 }
 
 sync_agent_runtime() {
@@ -498,11 +505,12 @@ spawn_agent() {
         heartbeat_pid=$!
 
         log "Agent $agent_id spawned for task $task_id"
+        set +e
         cat "$prompt_file" | "$OPENCODE_BIN" run --dir "$WORK_DIR" 2>&1 | while IFS= read -r line; do
             log "[$agent_id] $line"
         done
-
-        exit_code=${PIPESTATUS[0]}
+        exit_code=${PIPESTATUS[1]}
+        set -e
         kill "$heartbeat_pid" 2>/dev/null || true
         wait "$heartbeat_pid" 2>/dev/null || true
 
@@ -568,6 +576,11 @@ run_agent_if_needed() {
         return
     fi
 
+    if [ "$current_status" != "idle" ]; then
+        log "Agent $agent_id is $current_status; supervisor will not assign or resume work in this slot"
+        return
+    fi
+
     if selected="$(choose_task_for_agent "$agent_id")"; then
         IFS='|' read -r kind task_id source_agent <<< "$selected"
         case "$kind" in
@@ -588,16 +601,6 @@ run_agent_if_needed() {
                 spawn_agent "$agent_id" "$task_id" "$task_desc" "new"
                 ;;
         esac
-        return
-    fi
-
-    if [ "$current_status" = "crashed" ] || [ "$current_status" = "stalled" ] || [ "$current_status" = "working" ]; then
-        if [ -n "$current_task_id" ]; then
-            task_desc="$(get_task_description "$current_task_id")"
-            if [ -n "$task_desc" ]; then
-                spawn_agent "$agent_id" "$current_task_id" "$task_desc" "resume" "$agent_id"
-            fi
-        fi
     fi
 }
 
@@ -651,9 +654,18 @@ log "Review agents: ${REVIEW_AGENTS[*]}"
 log "Max concurrent: $MAX_CONCURRENT"
 
 git_pull
+reconcile_task_board
 log "========================================"
 
+last_reconcile_epoch="$(date +%s)"
+
 while true; do
+    now_epoch="$(date +%s)"
+    if [ $((now_epoch - last_reconcile_epoch)) -ge "$RECONCILE_INTERVAL" ]; then
+        reconcile_task_board
+        last_reconcile_epoch="$now_epoch"
+    fi
+
     local_pending="$(count_tasks "pending")"
     local_in_progress="$(count_tasks "in_progress")"
 

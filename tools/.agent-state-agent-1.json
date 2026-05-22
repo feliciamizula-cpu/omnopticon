@@ -1,1 +1,11 @@
-{"agentId":"agent-1","currentTaskId":"029","currentTaskDescription":"Enhancement #3: AssetPropertyChanged event for diff detection","status":"working","lastRunAt":"2026-05-22T21:53:18.770Z"}
+{
+  "agentId": "agent-1",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "status": "idle",
+  "lastRunAt": "2026-05-22T21:53:18.770Z",
+  "updatedAt": "2026-05-22T23:02:34.292Z",
+  "pid": null,
+  "lastError": "Task 029 requeued during reconciliation",
+  "lastHeartbeatAt": "2026-05-22T23:02:34.292Z"
+}

@@ -2,38 +2,48 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "029",
+      "currentTask": null,
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-22T21:54:03.150Z"
+      "lastUpdated": "2026-05-22T23:02:34.292Z",
+      "workStatus": "idle",
+      "currentTaskDescription": null
     },
     {
       "status": "active",
-      "currentTask": "016",
+      "currentTask": null,
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-22T15:50:01.8474364-04:00"
+      "lastUpdated": "2026-05-22T23:02:34.292Z",
+      "workStatus": "idle",
+      "currentTaskDescription": null
     },
     {
       "status": "active",
-      "currentTask": "025",
+      "currentTask": null,
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-22T21:40:33.056Z"
+      "lastUpdated": "2026-05-22T23:02:34.292Z",
+      "workStatus": "idle",
+      "currentTaskDescription": null
     },
     {
       "status": "active",
-      "currentTask": "013",
+      "currentTask": null,
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-22T21:40:33.056Z"
+      "lastUpdated": "2026-05-22T23:02:34.292Z",
+      "workStatus": "idle",
+      "currentTaskDescription": null
     },
     {
       "status": "active",
       "currentTask": null,
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-22T21:40:33.056Z"
+      "lastUpdated": "2026-05-22T23:02:34.292Z",
+      "workStatus": "idle",
+      "currentTaskDescription": null
     }
   ],
   "tasks": [
@@ -148,8 +158,11 @@
       "description": "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
       "createdAt": "2026-05-22T15:28:23.5712382-04:00",
       "priority": "medium",
-      "assignedTo": "agent-1",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:02:34.292Z",
+      "requeueReason": "released from agent-4 after crashed",
+      "recoveryContext": null
     },
     {
       "id": "014",
@@ -174,8 +187,11 @@
       "description": "Bug #18: HttpProbeWorker hardcodes HTTPS, no HTTP fallback",
       "createdAt": "2026-05-22T15:29:43.2976330-04:00",
       "priority": "low",
-      "assignedTo": "agent-2",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:02:34.292Z",
+      "requeueReason": "released from agent-2 after crashed",
+      "recoveryContext": null
     },
     {
       "id": "017",
@@ -238,32 +254,41 @@
       "description": "Design #24: No authentication or authorization",
       "createdAt": "2026-05-22T15:32:12.1031677-04:00",
       "priority": "medium",
-      "assignedTo": "agent-1",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:01:41.639Z",
+      "requeueReason": "assigned agent is not currently working this task"
     },
     {
       "id": "025",
       "description": "Bug #14: Heartbeat always reports 0 running tasks",
       "createdAt": "2026-05-22T15:32:35.8942564-04:00",
       "priority": "medium",
-      "assignedTo": "agent-3",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:02:34.292Z",
+      "requeueReason": "released from agent-3 after crashed",
+      "recoveryContext": null
     },
     {
       "id": "026",
       "description": "Bug #15: MaxConcurrency declared but only 1 task at a time",
       "createdAt": "2026-05-22T15:33:09.4135828-04:00",
       "priority": "medium",
-      "assignedTo": "agent-1",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:01:41.639Z",
+      "requeueReason": "assigned agent is not currently working this task"
     },
     {
       "id": "027",
       "description": "Enhancement #1: Dead letter exchange + poison message inspection/replay",
       "createdAt": "2026-05-22T15:46:31.8523630-04:00",
       "priority": "medium",
-      "assignedTo": "agent-1",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:01:41.639Z",
+      "requeueReason": "assigned agent is not currently working this task"
     },
     {
       "id": "028",
@@ -278,16 +303,21 @@
       "description": "Enhancement #3: AssetPropertyChanged event for diff detection",
       "createdAt": "2026-05-22T15:46:54.6295390-04:00",
       "priority": "medium",
-      "assignedTo": "agent-1",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:02:34.292Z",
+      "requeueReason": "released from agent-1 after crashed",
+      "recoveryContext": null
     },
     {
       "id": "030",
       "description": "Enhancement #4: Re-scan scheduling based on LastScannedAt",
       "createdAt": "2026-05-22T15:47:09.2213311-04:00",
       "priority": "medium",
-      "assignedTo": "agent-1",
-      "status": "in_progress"
+      "assignedTo": null,
+      "status": "pending",
+      "requeuedAt": "2026-05-22T23:01:41.639Z",
+      "requeueReason": "assigned agent is not currently working this task"
     },
     {
       "id": "031",

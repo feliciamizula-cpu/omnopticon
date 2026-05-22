@@ -1,12 +1,14 @@
 #!/bin/bash
 
+AGENT_STATE_DIR="${AGENT_STATE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
 agent_now_utc() {
     date -u +"%Y-%m-%dT%H:%M:%S.%3NZ"
 }
 
 agent_state_path() {
     local agent_id="$1"
-    echo "$(dirname "$0")/.agent-state-$agent_id.json"
+    echo "$AGENT_STATE_DIR/.agent-state-$agent_id.json"
 }
 
 agent_default_state_json() {
@@ -119,4 +121,3 @@ agent_runtime_status() {
             ;;
     esac
 }
-
