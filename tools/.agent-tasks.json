@@ -47,6 +47,14 @@
                       "priority":  "high",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "005",
+                      "description":  "Bug #7: Task lease race condition - use FOR UPDATE SKIP LOCKED to prevent double-lease",
+                      "createdAt":  "2026-05-22T15:21:46.0697960-04:00",
+                      "priority":  "high",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
