@@ -59,11 +59,11 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 "WorkerHeartbeat", "ProgramScopeChanged"
             };
 
+            var queueName = $"{_consumerName}_all";
+            await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
             foreach (var eventType in eventTypes)
             {
-                var queueName = $"{_consumerName}_{eventType}";
-                await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
-                await _channel.QueueBindAsync(queueName, "argus.events", eventType, cancellationToken: stoppingToken);
+                await _channel.QueueBindAsync(queueName, _options.Value.ExchangeName, eventType, cancellationToken: stoppingToken);
             }
 
             var consumer = new AsyncEventingBasicConsumer(_channel);
@@ -89,7 +89,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 }
             };
 
-            await _channel.BasicConsumeAsync(queue: $"{_consumerName}_AssetDiscovered", autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
+            await _channel.BasicConsumeAsync(queue: queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
             _logger.LogInformation("RabbitMQ consumer {ConsumerName} started", _consumerName);
 
             while (!stoppingToken.IsCancellationRequested)
@@ -149,11 +149,11 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
         _logger.LogInformation("Processed event {EventId} of type {EventType}", envelope.EventId, envelope.EventType);
     }
 
-    public override void Dispose()
+    public override async ValueTask DisposeAsync()
     {
-        _channel?.CloseAsync().Wait();
-        _connection?.CloseAsync().Wait();
-        base.Dispose();
+        if (_channel is not null) await _channel.CloseAsync();
+        if (_connection is not null) await _connection.CloseAsync();
+        await base.DisposeAsync();
     }
 }
 

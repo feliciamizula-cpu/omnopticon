@@ -8,7 +8,6 @@ public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutbo
     public async Task EnqueueAsync(OutboxMessage message, CancellationToken cancellationToken)
     {
         dbContext.Set<OutboxMessage>().Add(message);
-        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<OutboxMessage>> ClaimPendingAsync(

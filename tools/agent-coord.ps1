@@ -20,45 +20,40 @@ param(
 $StateFile = Join-Path $PSScriptRoot ".agent-tasks.json"
 $LockFile = Join-Path $PSScriptRoot ".agent-tasks.lock"
 
-function Read-StateWithLock {
-    $lock = $null
-    try {
-        $lock = [System.IO.File]::Open($LockFile, 'Create', 'ReadWrite', 'None')
-        if (Test-Path $StateFile) {
-            $content = Get-Content $StateFile -Raw
-            return $content | ConvertFrom-Json
-        }
-        return $null
-    }
-    finally {
-        if ($lock) { $lock.Close(); Remove-Item $LockFile -ErrorAction SilentlyContinue }
-    }
+function Cleanup-Lock {
+    Remove-Item $LockFile -ErrorAction SilentlyContinue
 }
 
-function Write-StateWithLock($state) {
-    $lock = $null
-    try {
-        $lock = [System.IO.File]::Open($LockFile, 'Create', 'ReadWrite', 'None')
-        $state | ConvertTo-Json -Depth 10 | Set-Content $StateFile
-
-        Set-Location $PSScriptRoot
-        git add .agent-tasks.json
-        $status = git status --porcelain
-        if ($status) {
-            git commit -m "chore: update agent coordination state [skip ci]" 2>$null
-            git push 2>$null
+function Acquire-Lock {
+    $attempts = 0
+    while ($attempts -lt 10) {
+        try {
+            $lock = [System.IO.File]::Open($LockFile, 'Create', 'ReadWrite', 'None')
+            return $lock
+        }
+        catch {
+            Start-Sleep -Milliseconds 100
+            $attempts++
         }
     }
+    throw "Could not acquire lock after $attempts attempts"
+}
+
+function With-Lock([scriptblock]$action) {
+    $lock = $null
+    try {
+        $lock = Acquire-Lock
+        & $action
+    }
     finally {
-        if ($lock) { $lock.Close(); Remove-Item $LockFile -ErrorAction SilentlyContinue }
+        if ($lock) { $lock.Close() }
+        Cleanup-Lock
     }
 }
 
 switch ($Action) {
     'init' {
-        $lock = $null
-        try {
-            $lock = [System.IO.File]::Open($LockFile, 'Create', 'ReadWrite', 'None')
+        With-Lock {
             $state = @{
                 tasks = @()
                 agents = @(
@@ -75,9 +70,6 @@ switch ($Action) {
             git push 2>$null
 
             Write-Host "Initialized coordination state with 2 agents"
-        }
-        finally {
-            if ($lock) { $lock.Close(); Remove-Item $LockFile -ErrorAction SilentlyContinue }
         }
     }
 
@@ -110,23 +102,34 @@ switch ($Action) {
             Write-Host "Error: -Description required for 'add'" -ForegroundColor Red
             exit 1
         }
-        $state = Read-StateWithLock
-        if (-not $state) {
-            Write-Host "No state file. Run: agent-coord.ps1 init" -ForegroundColor Red
-            exit 1
+        With-Lock {
+            $content = Get-Content $StateFile -Raw -ErrorAction SilentlyContinue
+            if (-not $content) {
+                Write-Host "No state file. Run: agent-coord.ps1 init" -ForegroundColor Red
+                exit 1
+            }
+            $state = $content | ConvertFrom-Json
+            $newId = ($state.tasks.Count + 1).ToString("D3")
+            $task = @{
+                id = $newId
+                description = $Description
+                priority = $Priority
+                status = "pending"
+                assignedTo = $null
+                createdAt = (Get-Date).ToString("o")
+            }
+            $state.tasks += $task
+            $state | ConvertTo-Json -Depth 10 | Set-Content $StateFile
+
+            Set-Location $PSScriptRoot
+            git add .agent-tasks.json
+            $status = git status --porcelain
+            if ($status) {
+                git commit -m "chore: update agent coordination state [skip ci]" 2>$null
+                git push 2>$null
+            }
+            Write-Host "Added task [$newId]: $Description" -ForegroundColor Green
         }
-        $newId = ($state.tasks.Count + 1).ToString("D3")
-        $task = @{
-            id = $newId
-            description = $Description
-            priority = $Priority
-            status = "pending"
-            assignedTo = $null
-            createdAt = (Get-Date).ToString("o")
-        }
-        $state.tasks += $task
-        Write-StateWithLock $state
-        Write-Host "Added task [$newId]: $Description" -ForegroundColor Green
     }
 
     'take' {
@@ -134,29 +137,40 @@ switch ($Action) {
             Write-Host "Error: -TaskId required for 'take'" -ForegroundColor Red
             exit 1
         }
-        $state = Read-StateWithLock
-        if (-not $state) {
-            Write-Host "No state file. Run: agent-coord.ps1 init" -ForegroundColor Red
-            exit 1
+        With-Lock {
+            $content = Get-Content $StateFile -Raw -ErrorAction SilentlyContinue
+            if (-not $content) {
+                Write-Host "No state file. Run: agent-coord.ps1 init" -ForegroundColor Red
+                exit 1
+            }
+            $state = $content | ConvertFrom-Json
+            $task = $state.tasks | Where-Object { $_.id -eq $TaskId } | Select-Object -First 1
+            if (-not $task) {
+                Write-Host "Task [$TaskId] not found" -ForegroundColor Red
+                exit 1
+            }
+            if ($task.status -eq "in_progress") {
+                Write-Host "Task [$TaskId] is already in progress" -ForegroundColor Yellow
+                exit 1
+            }
+            $task.status = "in_progress"
+            $task.assignedTo = $AgentId
+            $agent = $state.agents | Where-Object { $_.id -eq $AgentId } | Select-Object -First 1
+            if ($agent) {
+                $agent.currentTask = $TaskId
+                $agent.lastUpdated = (Get-Date).ToString("o")
+            }
+            $state | ConvertTo-Json -Depth 10 | Set-Content $StateFile
+
+            Set-Location $PSScriptRoot
+            git add .agent-tasks.json
+            $status = git status --porcelain
+            if ($status) {
+                git commit -m "chore: update agent coordination state [skip ci]" 2>$null
+                git push 2>$null
+            }
+            Write-Host "Agent $AgentId took task [$TaskId]" -ForegroundColor Green
         }
-        $task = $state.tasks | Where-Object { $_.id -eq $TaskId } | Select-Object -First 1
-        if (-not $task) {
-            Write-Host "Task [$TaskId] not found" -ForegroundColor Red
-            exit 1
-        }
-        if ($task.status -eq "in_progress") {
-            Write-Host "Task [$TaskId] is already in progress" -ForegroundColor Yellow
-            exit 1
-        }
-        $task.status = "in_progress"
-        $task.assignedTo = $AgentId
-        $agent = $state.agents | Where-Object { $_.id -eq $AgentId } | Select-Object -First 1
-        if ($agent) {
-            $agent.currentTask = $TaskId
-            $agent.lastUpdated = (Get-Date).ToString("o")
-        }
-        Write-StateWithLock $state
-        Write-Host "Agent $AgentId took task [$TaskId]" -ForegroundColor Green
     }
 
     'done' {
@@ -164,25 +178,39 @@ switch ($Action) {
             Write-Host "Error: -TaskId required for 'done'" -ForegroundColor Red
             exit 1
         }
-        $state = Read-StateWithLock
-        if (-not $state) {
-            Write-Host "No state file. Run: agent-coord.ps1 init" -ForegroundColor Red
-            exit 1
+        With-Lock {
+            $content = Get-Content $StateFile -Raw -ErrorAction SilentlyContinue
+            if (-not $content) {
+                Write-Host "No state file. Run: agent-coord.ps1 init" -ForegroundColor Red
+                exit 1
+            }
+            $state = $content | ConvertFrom-Json
+            $taskArray = @($state.tasks)
+            for ($i = 0; $i -lt $taskArray.Count; $i++) {
+                if ($taskArray[$i].id -eq $TaskId) {
+                    $taskArray[$i].status = "completed"
+                    $taskArray[$i] | Add-Member -MemberType NoteProperty -Name "completedAt" -Value (Get-Date).ToString("o") -Force
+                    break
+                }
+            }
+            $state.tasks = $taskArray
+            foreach ($agent in $state.agents) {
+                if ($agent.currentTask -eq $TaskId) {
+                    $agent.currentTask = $null
+                    $agent.lastUpdated = (Get-Date).ToString("o")
+                }
+            }
+            $state | ConvertTo-Json -Depth 10 | Set-Content $StateFile
+
+            Set-Location $PSScriptRoot
+            git add .agent-tasks.json
+            $status = git status --porcelain
+            if ($status) {
+                git commit -m "chore: update agent coordination state [skip ci]" 2>$null
+                git push 2>$null
+            }
+            Write-Host "Completed task [$TaskId]" -ForegroundColor Green
         }
-        $task = $state.tasks | Where-Object { $_.id -eq $TaskId } | Select-Object -First 1
-        if (-not $task) {
-            Write-Host "Task [$TaskId] not found" -ForegroundColor Red
-            exit 1
-        }
-        $task.status = "completed"
-        $task.completedAt = (Get-Date).ToString("o")
-        $agent = $state.agents | Where-Object { $_.currentTask -eq $TaskId } | Select-Object -First 1
-        if ($agent) {
-            $agent.currentTask = $null
-            $agent.lastUpdated = (Get-Date).ToString("o")
-        }
-        Write-StateWithLock $state
-        Write-Host "Completed task [$TaskId]" -ForegroundColor Green
     }
 
     'status' {
