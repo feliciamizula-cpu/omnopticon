@@ -63,7 +63,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             {
                 var queueName = $"{_consumerName}_{eventType}";
                 await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
-                await _channel.QueueBindAsync(queueName, "argus.events", eventType, cancellationToken: stoppingToken);
+                await _channel.QueueBindAsync(queueName, _options.Value.ExchangeName, eventType, cancellationToken: stoppingToken);
             }
 
             var consumer = new AsyncEventingBasicConsumer(_channel);
