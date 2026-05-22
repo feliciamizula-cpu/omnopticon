@@ -479,11 +479,15 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
     public async Task<ReconTaskDto?> LeaseAsync(LeaseReconTaskRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
+
         var candidate = await dbContext.Tasks
-            .Where(task => task.WorkerCapability == request.WorkerCapability)
-            .Where(task => task.State == ReconTaskState.Requested || task.State == ReconTaskState.Queued || task.State == ReconTaskState.RetryPending)
-            .OrderBy(task => task.Attempt)
-            .ThenBy(task => task.TaskId)
+            .FromSqlRaw("""
+                SELECT * FROM recon_tasks
+                WHERE "WorkerCapability" = {0} AND "State" IN ('Requested', 'Queued', 'RetryPending')
+                ORDER BY "Attempt", "TaskId"
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """, request.WorkerCapability)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (candidate is null)
@@ -494,7 +498,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
         candidate.State = ReconTaskState.Leased;
         candidate.Attempt += 1;
         candidate.LeaseOwner = request.WorkerId;
-        candidate.LeaseExpiresAt = now.Add(TaskMapping.NormalizeLeaseDuration(request.LeaseDuration));
+        candidate.LeaseExpiresAt = now.Add(TimeSpan.FromSeconds(30));
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return candidate.ToDto();
