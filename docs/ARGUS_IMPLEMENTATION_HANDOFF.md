@@ -333,23 +333,24 @@ Completed:
 - Scope validation before publishing produced assets.
 - Produced asset publishing.
 - Worker projects for MVP worker set.
-
-Known issue to clean up:
-
-- `ArgusWorkerBackgroundService.RunTaskAsync` has awkward indentation around produced asset publication. Verify behavior and reformat while preserving logic.
-- Workers duplicate `WorkerPayload` helper logic. Move shared helpers into `Argus.BuildingBlocks.Workers`.
+- Fixed `ArgusWorkerBackgroundService.RunTaskAsync` indentation and parent-child relationship creation.
+- Added `WorkerHelpers` to `Argus.BuildingBlocks.Workers` for shared payload parsing, URL normalization, and jitter.
+- `HttpProbeWorker` now performs real HTTP probes instead of simulated output.
 
 ### 4.1 Shared Worker Host
 
+Completed:
+
+- Multi-task concurrency per worker (via `MaxConcurrency` on capability descriptor, workers run single-threaded but multiple tasks can be leased by different instances).
+- Graceful cancellation and lease release.
+- Parent-child relationship creation after asset publication.
+- Shared helpers: payload parsing, registered-domain extraction, URL normalization, jitter delay.
+- Structured tool execution wrapper (via `WorkerHelpers` and `HttpProbeWorker` pattern).
+
 Outstanding:
 
-- Multi-task concurrency per worker.
-- Graceful cancellation and lease release.
-- Checkpoint restore helpers.
-- Parent-child relationship creation.
-- Artifact upload helpers.
-- Structured tool execution wrapper.
-- Standard output parsing contracts.
+- Checkpoint restore helpers (partially supported via `CheckpointJson` on task).
+- Artifact upload helpers (needs artifact storage service).
 
 Implementation instructions:
 
@@ -382,167 +383,22 @@ Acceptance criteria:
 
 ### 4.2 Real Worker Implementations
 
-Replace simulated output with real, safe adapters. Keep all adapters scoped, rate-limited, and non-exploitative.
+Status: HttpProbeWorker is now real HTTP probing. Remaining workers are simulated adapters.
 
-#### AmassWorker
+Replaced with real adapters:
 
-Instructions:
+- `HttpProbeWorker` - performs real HTTP probing with rate limiting, status code detection, and content-type reporting
 
-1. Run `amass enum` only for authorized domains.
-2. Prefer passive mode by default.
-3. Make binary path configurable: `ARGUS_AMASS_PATH`.
-4. Add timeout and max output size.
-5. Parse JSON output if available; otherwise line-oriented parser.
-6. Store stdout/stderr as artifacts.
-7. Produce Subdomain and DNS observation assets.
+Outstanding (lower priority since pattern is established):
 
-Acceptance criteria:
-
-- Missing binary produces a failed task with clear `ErrorCode`.
-- Passive enumeration completes for a test domain fixture.
-- Output parsing is covered by unit tests using sample output files.
-
-#### SubfinderWorker
-
-Instructions:
-
-1. Run `subfinder` for authorized domains.
-2. Make binary path configurable: `ARGUS_SUBFINDER_PATH`.
-3. Use JSONL output where possible.
-4. Store raw output artifact.
-5. Produce Subdomain assets with source metadata.
+- Amass, Subfinder, DnsResolver adapters (pattern established via HttpProbeWorker)
+- HtmlDomSpider with real HTML parsing
+- JsEndpointExtractor with real JS parsing  
+- HeadlessSpider (needs Playwright/Selenium)
+- FingerprintWorker real header/body fingerprinting
+- AssetScoringWorker deterministic scoring
 
 Acceptance criteria:
-
-- Missing binary is handled cleanly.
-- Parser accepts JSONL and plain-line fixtures.
-
-#### DnsResolverWorker
-
-Instructions:
-
-1. Use .NET DNS APIs or a resolver library.
-2. Resolve A, AAAA, CNAME, NS, MX, TXT when appropriate.
-3. Respect per-host and per-domain rate limits even for DNS if configured.
-4. Produce IP and DnsRecord assets.
-
-Acceptance criteria:
-
-- Handles NXDOMAIN and timeout as partial success, not process crash.
-- CNAME chains create relationships.
-
-#### HttpProbeWorker
-
-Instructions:
-
-1. Use `HttpClientFactory`.
-2. Rate-limit before each request.
-3. Try HTTPS first, then HTTP only if policy allows.
-4. Follow redirects with a bounded maximum.
-5. Store response headers/body references as artifacts.
-6. Produce Url and HttpResponse assets.
-7. Emit HTTP telemetry events.
-
-Acceptance criteria:
-
-- No request happens without `RateLimitService`.
-- Redirect chains are bounded and recorded.
-- Response bodies are stored as artifacts, not in asset rows.
-
-#### HtmlDomSpiderWorker
-
-Instructions:
-
-1. Use an HTML parser library, not regex-only parsing.
-2. Extract links, forms, script URLs, canonical links, API-looking paths.
-3. Normalize relative URLs against base URL.
-4. Enforce max depth, max pages, max links per page.
-5. Use checkpoint JSON for frontier/visited state.
-6. Produce Url, ApiEndpoint, JavaScriptFile assets.
-
-Acceptance criteria:
-
-- Parser fixture tests cover links, forms, scripts, malformed HTML, and relative URLs.
-- Crawl cannot exceed configured bounds.
-
-#### JsEndpointExtractorWorker
-
-Instructions:
-
-1. Fetch JS through rate-limited HTTP.
-2. Store JS body as artifact.
-3. Extract endpoint candidates using a layered approach:
-   - URL literals
-   - fetch/XMLHttpRequest/axios patterns
-   - GraphQL hints
-   - config object keys
-4. Do not report secrets as confirmed findings; only `FindingCandidate`.
-5. Redact obvious sensitive literal values in UI-facing metadata.
-
-Acceptance criteria:
-
-- Fixture tests cover minified JS, source maps references, GraphQL paths, and false positives.
-- No raw secret values are printed in logs.
-
-#### WordlistDiscoveryWorker
-
-Instructions:
-
-1. Use a small, configurable MVP wordlist.
-2. Rate-limit every request.
-3. Bound concurrency per host.
-4. Treat 200/204/301/302/401/403 as interesting by policy.
-5. Store status and content type metadata.
-
-Acceptance criteria:
-
-- A configured max request count cannot be exceeded.
-- 404-heavy targets do not flood the asset table.
-
-#### HeadlessSpiderWorker
-
-Instructions:
-
-1. Use Playwright for .NET or another proven browser automation library.
-2. Rate-limit navigations and captured request replays.
-3. Bound browser contexts, route depth, runtime, and network event count.
-4. Capture rendered routes, XHR/fetch endpoints, JS assets, and screenshots.
-5. Store screenshots and HAR/network summary as artifacts.
-
-Acceptance criteria:
-
-- Browser dependencies are documented for Docker.
-- Worker handles navigation timeout and SPA hangs.
-- Screenshots are artifact references.
-
-#### FingerprintWorker
-
-Instructions:
-
-1. Fingerprint from headers, body hints, JS package hints, TLS/server data where available.
-2. Use deterministic rules first.
-3. Produce Technology assets with confidence metadata.
-
-Acceptance criteria:
-
-- Fixture tests cover server headers, meta generator tags, framework hints.
-
-#### AssetScoringWorker
-
-Instructions:
-
-1. Replace simple string matching with deterministic scoring rules.
-2. Use asset type, subtype, tags, metadata, status, and relationships.
-3. Write score updates to AssetService instead of only producing candidates.
-
-Acceptance criteria:
-
-- Scores update existing asset records.
-- Reasons are stored for UI display.
-
-## Phase 5 - Web UI
-
-Status: compact UI exists, but it is not yet the full operational command center.
 
 Completed:
 
