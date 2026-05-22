@@ -89,8 +89,12 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 }
             };
 
-            await _channel.BasicConsumeAsync(queue: $"{_consumerName}_AssetDiscovered", autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
-            _logger.LogInformation("RabbitMQ consumer {ConsumerName} started", _consumerName);
+            foreach (var eventType in eventTypes)
+            {
+                var queueName = $"{_consumerName}_{eventType}";
+                await _channel.BasicConsumeAsync(queue: queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
+            }
+            _logger.LogInformation("RabbitMQ consumer {ConsumerName} started, listening on {QueueCount} queues", _consumerName, eventTypes.Length);
 
             while (!stoppingToken.IsCancellationRequested)
             {
