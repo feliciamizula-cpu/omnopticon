@@ -479,25 +479,39 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
     public async Task<ReconTaskDto?> LeaseAsync(LeaseReconTaskRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var candidate = await dbContext.Tasks
-            .Where(task => task.WorkerCapability == request.WorkerCapability)
-            .Where(task => task.State == ReconTaskState.Requested || task.State == ReconTaskState.Queued || task.State == ReconTaskState.RetryPending)
-            .OrderBy(task => task.Attempt)
-            .ThenBy(task => task.TaskId)
-            .FirstOrDefaultAsync(cancellationToken);
+        var lockDuration = TaskMapping.NormalizeLeaseDuration(request.LeaseDuration);
 
-        if (candidate is null)
+        var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE recon_tasks
+            SET "State" = {0},
+                "Attempt" = "Attempt" + 1,
+                "LeaseOwner" = {1},
+                "LeaseExpiresAt" = {2}
+            WHERE "TaskId" = (
+                SELECT "TaskId" FROM recon_tasks
+                WHERE "WorkerCapability" = {3}
+                AND ("State" = 'Requested' OR "State" = 'Queued' OR "State" = 'RetryPending')
+                ORDER BY "Attempt", "TaskId"
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            """,
+            ReconTaskState.Leased.ToString(),
+            request.WorkerId,
+            now.Add(lockDuration),
+            request.WorkerCapability);
+
+        if (rowsAffected == 0)
         {
             return null;
         }
 
-        candidate.State = ReconTaskState.Leased;
-        candidate.Attempt += 1;
-        candidate.LeaseOwner = request.WorkerId;
-        candidate.LeaseExpiresAt = now.Add(TaskMapping.NormalizeLeaseDuration(request.LeaseDuration));
-        await dbContext.SaveChangesAsync(cancellationToken);
+        var task = await dbContext.Tasks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(task => task.LeaseOwner == request.WorkerId && task.LeaseExpiresAt == now.Add(lockDuration), cancellationToken);
 
-        return candidate.ToDto();
+        return task?.ToDto();
     }
 
     public Task<ReconTaskDto?> StartAsync(Guid taskId, string workerId, CancellationToken cancellationToken) =>
