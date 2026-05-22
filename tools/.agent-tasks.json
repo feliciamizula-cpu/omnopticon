@@ -183,6 +183,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "022",
+                      "description":  "Minor #26: SSE event field not sanitized",
+                      "createdAt":  "2026-05-22T15:31:28.2334487-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
