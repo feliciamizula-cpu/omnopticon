@@ -16,6 +16,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<ArgusEventBusOptions> _options;
+    private readonly IEventTypeRegistry _eventTypeRegistry;
     private readonly ILogger _logger;
     private readonly string _consumerName;
     private IConnection? _connection;
@@ -24,10 +25,12 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
         IOptions<ArgusEventBusOptions> options,
+        IEventTypeRegistry eventTypeRegistry,
         ILogger<RabbitMqConsumerService<TDbContext>> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
+        _eventTypeRegistry = eventTypeRegistry;
         _logger = logger;
         _consumerName = $"{options.Value.SourceService}_{typeof(TDbContext).Name}";
     }
@@ -85,7 +88,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error processing message {DeliveryTag}", ea.DeliveryTag);
-                    await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
+                    await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, stoppingToken);
                 }
             };
 
@@ -117,7 +120,8 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             return;
         }
 
-        var handlerType = typeof(IIntegrationEventConsumer<>).MakeGenericType(envelope.Payload.GetType());
+        var payloadType = _eventTypeRegistry.GetPayloadType(envelope.EventType);
+        var handlerType = typeof(IIntegrationEventConsumer<>).MakeGenericType(payloadType);
         var handler = scope.ServiceProvider.GetService(handlerType);
 
         if (handler is null)
@@ -126,12 +130,30 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService
             return;
         }
 
-        var handleMethod = handlerType.GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync));
-        var task = (Task?)handleMethod?.Invoke(handler, new object[] { envelope, cancellationToken });
+        var method = typeof(IIntegrationEventConsumer<object>).GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync));
+        var invokeMethod = handlerType.GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync));
 
-        if (task is not null)
+        if (invokeMethod != null)
         {
-            await task;
+            var deserializedPayload = JsonSerializer.Deserialize(envelope.Payload.GetRawText(), payloadType);
+            if (deserializedPayload == null)
+            {
+                _logger.LogError("Failed to deserialize payload for event {EventType}", envelope.EventType);
+                return;
+            }
+
+            var concreteEnvelope = IntegrationEventEnvelope<object>.Create(
+                deserializedPayload,
+                envelope.EventType,
+                envelope.SourceService,
+                envelope.CorrelationId,
+                envelope.CausationId);
+
+            var task = (Task?)invokeMethod.Invoke(handler, new object[] { concreteEnvelope, cancellationToken });
+            if (task is not null)
+            {
+                await task;
+            }
         }
 
         dbContext.Set<InboxMessageRecord>().Add(new InboxMessageRecord

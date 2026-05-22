@@ -104,6 +104,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddArgusInboxConsumer<TDbContext>(this IServiceCollection services)
         where TDbContext : DbContext
     {
+        services.AddSingleton<IEventTypeRegistry, EventTypeRegistry>();
         services.AddHostedService<RabbitMqConsumerService<TDbContext>>();
         return services;
     }
