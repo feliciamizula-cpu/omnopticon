@@ -87,6 +87,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "010",
+                      "description":  "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
+                      "createdAt":  "2026-05-22T15:26:34.4949606-04:00",
+                      "priority":  "critical",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
