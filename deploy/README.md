@@ -34,6 +34,12 @@ The realtime service is exposed at:
 http://localhost:8082
 ```
 
+Seed demo data:
+
+```bash
+tools/seed-demo-data.sh
+```
+
 ## Configuration
 
 Edit `deploy/argus.env` before first use:

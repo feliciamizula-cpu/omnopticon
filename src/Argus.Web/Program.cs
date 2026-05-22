@@ -237,6 +237,9 @@ app.MapGet("/", () => Results.Content("""
       color: var(--muted);
       font-weight: 600;
     }
+    tbody tr { cursor: default; }
+    tbody tr:hover { background: #1d2429; }
+    tbody tr.selected { background: #20313a; }
     .metric-row {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -304,12 +307,14 @@ app.MapGet("/", () => Results.Content("""
       <div class="metric-row"><span>Queue depth</span><span class="metric" id="queueDepth">0</span></div>
       <div class="metric-row"><span>Workers online</span><span class="metric ok" id="workerCount">0</span></div>
       <div class="metric-row"><span>Rate-limit waits</span><span class="metric warn" id="rateLimitWaits">0</span></div>
+      <div class="side-title">Selection</div>
+      <div id="selectionRail" class="log muted">No row selected</div>
       <div class="side-title">Recent Events</div>
       <div id="eventRail" class="log muted"></div>
     </aside>
   </main>
   <script>
-    const state = { view: "assets", data: null, filter: "", assetType: "" };
+    const state = { view: "assets", data: null, filter: "", assetType: "", currentRows: [], selected: null };
     const content = document.querySelector("#content");
     const search = document.querySelector("#search");
     const assetType = document.querySelector("#assetType");
@@ -319,6 +324,7 @@ app.MapGet("/", () => Results.Content("""
       if (!button) return;
       state.view = button.dataset.view;
       document.querySelectorAll("#tabs button").forEach(tab => tab.classList.toggle("active", tab === button));
+      state.selected = null;
       render();
     });
 
@@ -326,6 +332,7 @@ app.MapGet("/", () => Results.Content("""
     search.addEventListener("input", () => { state.filter = search.value.toLowerCase(); render(); });
     assetType.addEventListener("change", () => { state.assetType = assetType.value; render(); });
     content.addEventListener("submit", submitCommand);
+    content.addEventListener("click", selectRow);
 
     async function load() {
       const marker = document.querySelector("#refreshState");
@@ -354,8 +361,11 @@ app.MapGet("/", () => Results.Content("""
       if (!state.data) return;
       updateMetrics();
       const rows = getRowsForView();
+      state.currentRows = rows;
       document.querySelector("#rowCount").textContent = `${rows.length} rows`;
       content.innerHTML = controlsFor(state.view) + tableFor(state.view, rows);
+      highlightSelectedRow();
+      renderSelectionRail();
       renderEventRail();
     }
 
@@ -537,9 +547,60 @@ app.MapGet("/", () => Results.Content("""
 
     function renderTable(headers, rows) {
       const body = rows.length
-        ? rows.map(row => `<tr>${row.map(value => `<td>${escapeHtml(value ?? "")}</td>`).join("")}</tr>`).join("")
+        ? rows.map((row, index) => `<tr data-row-index="${index}">${row.map(value => `<td>${escapeHtml(value ?? "")}</td>`).join("")}</tr>`).join("")
         : `<tr><td colspan="${headers.length}" class="muted">No rows</td></tr>`;
       return `<table><thead><tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+    }
+
+    function selectRow(event) {
+      const row = event.target.closest("tr[data-row-index]");
+      if (!row) return;
+
+      const index = Number(row.dataset.rowIndex);
+      state.selected = {
+        view: state.view,
+        index,
+        row: state.currentRows[index]
+      };
+
+      highlightSelectedRow();
+      renderSelectionRail();
+    }
+
+    function highlightSelectedRow() {
+      content.querySelectorAll("tr[data-row-index]").forEach(row => {
+        const isSelected = state.selected?.view === state.view && Number(row.dataset.rowIndex) === state.selected.index;
+        row.classList.toggle("selected", isSelected);
+      });
+    }
+
+    function renderSelectionRail() {
+      const rail = document.querySelector("#selectionRail");
+
+      if (!state.selected?.row) {
+        rail.textContent = "No row selected";
+        return;
+      }
+
+      rail.textContent = flattenForDisplay(state.selected.row).join("\n");
+    }
+
+    function flattenForDisplay(row) {
+      return Object.entries(row)
+        .filter(([, value]) => value !== null && value !== undefined && value !== "")
+        .map(([key, value]) => `${key}: ${formatDetailValue(value)}`);
+    }
+
+    function formatDetailValue(value) {
+      if (Array.isArray(value)) {
+        return value.length ? value.map(item => typeof item === "object" ? JSON.stringify(item) : item).join(", ") : "[]";
+      }
+
+      if (typeof value === "object") {
+        return JSON.stringify(value);
+      }
+
+      return value;
     }
 
     function renderEventRail() {

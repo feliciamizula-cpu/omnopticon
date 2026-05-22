@@ -49,6 +49,20 @@ Default exposed endpoints:
 
 See [deploy/README.md](deploy/README.md) for configuration, health checks, update commands, and teardown commands.
 
+## Demo Data
+
+After the services are running, seed a compact demo program, scopes, assets, relationships, tasks, workers, rate-limit buckets, and live events through the API gateway:
+
+```bash
+tools/seed-demo-data.sh
+```
+
+The script targets `http://localhost:8081` by default. Override it when using Aspire-assigned ports:
+
+```bash
+ARGUS_API_BASE=http://localhost:12345 tools/seed-demo-data.sh
+```
+
 ## MVP Phase Status
 
 - Phase 1, eShop foundation: mostly complete. Argus AppHost, ServiceDefaults, Web, ApiGateway, Contracts, and BuildingBlocks are in place; remaining work is cleanup of old eShop residue and polish.

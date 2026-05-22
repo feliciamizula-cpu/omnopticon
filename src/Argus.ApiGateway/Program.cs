@@ -4,6 +4,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
+builder.Services.AddHttpForwarder();
 
 var app = builder.Build();
 var endpoints = ArgusServiceEndpoints.From(app.Configuration);
