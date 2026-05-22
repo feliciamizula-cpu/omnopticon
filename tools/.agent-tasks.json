@@ -2,10 +2,10 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "004",
+      "currentTask": null,
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-22T19:30:56.620Z"
+      "lastUpdated": "2026-05-22T19:32:07.704Z"
     },
     {
       "status": "inactive",
@@ -49,7 +49,8 @@
       "createdAt": "2026-05-22T15:21:32.5702439-04:00",
       "priority": "high",
       "assignedTo": "agent-1",
-      "status": "in_progress"
+      "status": "completed",
+      "completedAt": "2026-05-22T19:32:07.704Z"
     },
     {
       "id": "005",
