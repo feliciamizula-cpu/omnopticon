@@ -306,6 +306,14 @@
                       "priority":  "high",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "036",
+                      "description":  "Bug #8: BulkTagRequest and BulkEnqueueRequest endpoints not wired up - API and UI missing",
+                      "createdAt":  "2026-05-22T16:21:57.9502910-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
