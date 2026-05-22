@@ -178,7 +178,7 @@ app.MapPost("/assets/bulk/enqueue", async (
     }
 
     var taskClient = httpClientFactory.CreateClient();
-    taskClient.BaseAddress = new Uri(GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
+    taskClient.BaseAddress = new Uri(ServiceUriHelper.GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
 
     var createdCount = 0;
     var skippedCount = 0;
@@ -242,8 +242,16 @@ internal static class TaskDedupeHash
     }
 }
 
-static string GetServiceUri(string configKey, string fallback) =>
-    Uri.TryCreate(Environment.GetEnvironmentVariable(configKey), out var uri) ? uri.ToString() : fallback;
+internal static class ServiceUriHelper
+{
+    public static string GetServiceUri(string configKey, string fallback)
+    {
+        var envValue = Environment.GetEnvironmentVariable(configKey);
+        if (!string.IsNullOrWhiteSpace(envValue) && Uri.TryCreate(envValue, UriKind.Absolute, out var uri))
+            return uri.ToString();
+        return fallback;
+    }
+}
 
 internal interface IAssetStore
 {

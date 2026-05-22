@@ -1,0 +1,10 @@
+{
+  "reviewerId": "reviewer-1",
+  "status": "idle",
+  "pid": 354195,
+  "currentBatch": "90bef64403a9",
+  "currentReviewFile": "/workspaces/omnopticon/tools/reviews/20260522-234501-90bef64403a9-reviewer-1.md",
+  "lastReviewAt": "2026-05-22T23:40:59.115Z",
+  "updatedAt": "2026-05-22T23:49:13.099Z",
+  "lastError": null
+}

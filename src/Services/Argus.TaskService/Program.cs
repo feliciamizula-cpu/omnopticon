@@ -95,15 +95,16 @@ app.MapPost("/tasks/bulk/enqueue", async (
         }
 
         var createRequest = new CreateReconTaskRequest(
-            request.TaskType,
-            request.ProgramId,
-            request.ScopeId,
-            assetId,
-            null,
-            request.WorkerCapability,
-            request.MaxAttempts,
-            request.Priority,
-            dedupeHash);
+            TaskType: request.TaskType,
+            ProgramId: request.ProgramId,
+            ScopeId: request.ScopeId,
+            InputAssetId: assetId,
+            InputPayloadJson: null,
+            WorkerCapability: request.WorkerCapability,
+            RequiredAssetType: null,
+            MaxAttempts: request.MaxAttempts,
+            Priority: request.Priority,
+            DedupeHash: dedupeHash);
 
         var task = await store.CreateAsync(createRequest, cancellationToken);
         createdTasks.Add(task);
@@ -749,13 +750,11 @@ internal sealed class TaskDbContext(DbContextOptions<TaskDbContext> options) : D
         task.HasIndex(record => record.LeaseExpiresAt);
         task.HasIndex(record => record.DedupeHash);
         task.HasIndex(record => record.RequiredAssetType);
-        task.HasIndex(record => record.InputAssetType);
         task.Property(record => record.State).HasConversion<string>().HasMaxLength(64);
         task.Property(record => record.TaskType).HasMaxLength(128);
         task.Property(record => record.WorkerCapability).HasMaxLength(128);
         task.Property(record => record.LeaseOwner).HasMaxLength(256);
         task.Property(record => record.ErrorCode).HasMaxLength(128);
-        task.Property(record => record.InputAssetType).HasMaxLength(64);
         task.Property(record => record.RequiredAssetType).HasMaxLength(64);
         task.Property(record => record.InputPayloadJson).HasColumnType("jsonb");
         task.Property(record => record.CheckpointJson).HasColumnType("jsonb");
@@ -800,29 +799,29 @@ internal sealed class TaskRecord
 
     public ReconTaskDto ToDto() =>
         new(
-            TaskId,
-            TaskType,
-            ProgramId,
-            ScopeId,
-            InputAssetId,
-            RequiredAssetType,
-            InputPayloadJson,
-            WorkerCapability,
-            State,
-            Attempt,
-            MaxAttempts,
-            LeaseOwner,
-            LeaseExpiresAt,
-            StartedAt,
-            CompletedAt,
-            ProgressPercent,
-            ProgressMessage,
-            CheckpointJson,
-            OutputSummaryJson,
-            ErrorCode,
-            ErrorMessage,
-            DedupeHash,
-            Priority);
+            TaskId: TaskId,
+            TaskType: TaskType,
+            ProgramId: ProgramId,
+            ScopeId: ScopeId,
+            InputAssetId: InputAssetId,
+            InputPayloadJson: InputPayloadJson,
+            WorkerCapability: WorkerCapability,
+            RequiredAssetType: RequiredAssetType,
+            State: State,
+            Attempt: Attempt,
+            MaxAttempts: MaxAttempts,
+            LeaseOwner: LeaseOwner,
+            LeaseExpiresAt: LeaseExpiresAt,
+            StartedAt: StartedAt,
+            CompletedAt: CompletedAt,
+            ProgressPercent: ProgressPercent,
+            ProgressMessage: ProgressMessage,
+            CheckpointJson: CheckpointJson,
+            OutputSummaryJson: OutputSummaryJson,
+            ErrorCode: ErrorCode,
+            ErrorMessage: ErrorMessage,
+            DedupeHash: DedupeHash,
+            Priority: Priority);
 }
 
 internal sealed class TaskHistoryRecord

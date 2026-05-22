@@ -60,11 +60,13 @@ write_state() {
 default_agents_json() {
     jq -n '
         [
-            { "id": "agent-1", "name": "Agent 1", "status": "active" },
-            { "id": "agent-2", "name": "Agent 2", "status": "inactive" },
-            { "id": "agent-3", "name": "Agent 3", "status": "inactive" },
-            { "id": "agent-4", "name": "Agent 4", "status": "inactive" },
-            { "id": "agent-5", "name": "Agent 5", "status": "inactive" }
+            { "id": "agent-1", "name": "Agent 1", "role": "development", "status": "active", "responsibilities": ["application implementation"] },
+            { "id": "agent-2", "name": "Agent 2", "role": "development", "status": "inactive", "responsibilities": ["application implementation"] },
+            { "id": "agent-3", "name": "Agent 3", "role": "development", "status": "inactive", "responsibilities": ["application implementation"] },
+            { "id": "agent-4", "name": "Agent 4", "role": "development", "status": "inactive", "responsibilities": ["application implementation"] },
+            { "id": "agent-5", "name": "Agent 5", "role": "development", "status": "inactive", "responsibilities": ["application implementation"] },
+            { "id": "devops-1", "name": "DevOps Agent 1", "role": "devops", "status": "active", "responsibilities": ["application health", "deployed component health", "release readiness"] },
+            { "id": "devops-2", "name": "DevOps Agent 2", "role": "devops", "status": "active", "responsibilities": ["AI agent health", "coordination system health", "task-board hygiene"] }
         ] | map(. + {
             currentTask: null,
             workStatus: "idle",
@@ -91,7 +93,7 @@ init_state() {
 EOF
 
     write_state "$(cat "$STATE_FILE")"
-    echo "Initialized coordination state with 5 agents"
+    echo "Initialized coordination state with 7 agents"
 }
 
 list_tasks() {

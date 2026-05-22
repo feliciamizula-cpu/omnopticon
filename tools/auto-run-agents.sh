@@ -14,8 +14,11 @@ AGENT_STALE_TIMEOUT="${AGENT_STALE_TIMEOUT:-1800}"
 RECONCILE_INTERVAL="${RECONCILE_INTERVAL:-60}"
 
 AGENTS=("agent-1" "agent-2" "agent-3" "agent-4" "agent-5")
+DEVOPS_AGENTS=("devops-1" "devops-2")
 REVIEW_AGENTS=("reviewer-1" "reviewer-2")
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+MAX_CONCURRENT_DEVOPS="${MAX_CONCURRENT_DEVOPS:-1}"
+DEVOPS_AGENT_INTERVAL="${DEVOPS_AGENT_INTERVAL:-300}"
 
 log() { echo "[$(date +'%Y-%m-%dT%H:%M:%S')] $*" >> "$LOG_FILE"; }
 
@@ -64,6 +67,15 @@ get_task_status() {
 get_task_assignee() {
     local task_id="$1"
     jq -r ".tasks[] | select(.id == \"$task_id\") | .assignedTo // empty" "$STATE_FILE"
+}
+
+get_monitoring_task_for_agent() {
+    local agent_id="$1"
+    jq -r --arg agent "$agent_id" '
+        [.tasks[] | select(.status == "monitoring" and .assignedTo == $agent)] |
+        sort_by(.id) |
+        .[0].id // empty
+    ' "$STATE_FILE"
 }
 
 count_tasks() {
@@ -284,6 +296,171 @@ CRITICAL INSTRUCTIONS:
 Continue from the saved state instead of re-discovering work that has already been done.
 PROMPT
     fi
+}
+
+set_central_agent_status() {
+    local agent_id="$1"
+    local work_status="$2"
+    local task_id="${3:-}"
+    local task_desc="${4:-}"
+    local pid="${5:-}"
+    local last_error="${6:-}"
+
+    [ -f "$STATE_FILE" ] || return
+
+    local tmp_file now
+    tmp_file="$(mktemp "${STATE_FILE}.tmp.XXXXXX")"
+    now="$(agent_now_utc)"
+
+    jq \
+        --arg agent "$agent_id" \
+        --arg work "$work_status" \
+        --arg task_id "$task_id" \
+        --arg task_desc "$task_desc" \
+        --arg pid "$pid" \
+        --arg last_error "$last_error" \
+        --arg now "$now" '
+        .agents |= map(
+            if .id == $agent then
+                .status = (if .status == "inactive" then "inactive" else "active" end) |
+                .workStatus = $work |
+                .currentTask = (if $task_id == "" then null else $task_id end) |
+                .currentTaskDescription = (if $task_desc == "" then null else $task_desc end) |
+                .pid = (if $pid == "" then null else ($pid | tonumber?) end) |
+                .lastError = (if $last_error == "" then null else $last_error end) |
+                .lastHeartbeatAt = $now |
+                .lastUpdated = $now
+            else
+                .
+            end
+        )
+    ' "$STATE_FILE" > "$tmp_file" && mv "$tmp_file" "$STATE_FILE"
+}
+
+write_devops_prompt() {
+    local agent_id="$1"
+    local task_id="$2"
+    local description="$3"
+    local state_file
+    state_file="$(agent_state_path "$agent_id")"
+
+    cat << PROMPT > "$SCRIPT_DIR/.agent-prompt-$agent_id.txt"
+You are $agent_id, a DevOps operations agent for the Argus workspace.
+
+Your state file: $state_file
+Standing task ID: $task_id
+Standing task: $description
+
+Scope:
+- Keep the application and deployed components healthy.
+- Keep the AI agent runner, reviewer agents, coordination state, and dashboard healthy.
+- Prefer observation, reconciliation, and precise fixes over broad product work.
+
+Operating checklist:
+1. FIRST: cat $state_file and inspect the current coordination state:
+   cd $SCRIPT_DIR && ./agent-coord.sh doctor && ./agent-coord.sh status
+2. Check application health:
+   cd $WORK_DIR && dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release --verbosity quiet
+3. Check deployment wiring without starting services:
+   cd $WORK_DIR && test -f deploy/compose.yaml && docker compose -f deploy/compose.yaml config >/tmp/argus-compose-check.txt 2>&1 || true
+4. If agents or tasks are stale, reconcile:
+   cd $SCRIPT_DIR && ./agent-coord.sh reconcile
+5. Update your state with a compact summary:
+   cd $SCRIPT_DIR && ./agent-coord.sh checkpoint -a $agent_id -t $task_id -s working -c "<health summary, alerts, next action>"
+6. If there is an urgent operational issue, append one short line to:
+   $SCRIPT_DIR/.critical-alerts
+7. Do not mark the standing monitoring task done; leave it available for the next sweep.
+
+Make narrowly scoped operational fixes only when they are necessary to keep the app, deployment, or agent system running.
+PROMPT
+}
+
+spawn_devops_agent() {
+    local agent_id="$1"
+    local task_id="$2"
+    local description="$3"
+    local prompt_file now runtime_pid heartbeat_pid exit_code
+    prompt_file="$SCRIPT_DIR/.agent-prompt-$agent_id.txt"
+    now="$(agent_now_utc)"
+
+    write_devops_prompt "$agent_id" "$task_id" "$description"
+
+    (
+        runtime_pid="${BASHPID:-$$}"
+        local initial_state
+        initial_state="$(agent_read_state "$agent_id")"
+        initial_state="$(echo "$initial_state" | jq \
+            --arg agent "$agent_id" \
+            --arg task_id "$task_id" \
+            --arg desc "$description" \
+            --arg now "$now" \
+            --argjson pid "$runtime_pid" '
+            .agentId = $agent |
+            .currentTaskId = $task_id |
+            .currentTaskDescription = $desc |
+            .status = "working" |
+            .pid = $pid |
+            .startedAt = $now |
+            .lastRunAt = $now |
+            .lastHeartbeatAt = $now |
+            .lastError = null |
+            .updatedAt = $now
+        ')"
+        agent_write_state "$agent_id" "$initial_state"
+        set_central_agent_status "$agent_id" "monitoring" "$task_id" "$description" "$runtime_pid" ""
+
+        (
+            while kill -0 "$runtime_pid" 2>/dev/null; do
+                sleep 45
+                local heartbeat_state
+                heartbeat_state="$(agent_read_state "$agent_id")"
+                heartbeat_state="$(echo "$heartbeat_state" | jq --arg now "$(agent_now_utc)" '.lastHeartbeatAt = $now | .updatedAt = $now')"
+                agent_write_state "$agent_id" "$heartbeat_state"
+                set_central_agent_status "$agent_id" "monitoring" "$task_id" "$description" "$runtime_pid" ""
+            done
+        ) &
+        heartbeat_pid=$!
+
+        log "DevOps agent $agent_id spawned for standing task $task_id"
+        set +e
+        cat "$prompt_file" | "$OPENCODE_BIN" run --dir "$WORK_DIR" 2>&1 | while IFS= read -r line; do
+            log "[$agent_id] $line"
+        done
+        exit_code=${PIPESTATUS[1]}
+        set -e
+        kill "$heartbeat_pid" 2>/dev/null || true
+        wait "$heartbeat_pid" 2>/dev/null || true
+
+        local final_state final_error final_status
+        if [ "$exit_code" -eq 0 ]; then
+            final_status="idle"
+            final_error=""
+        else
+            final_status="stalled"
+            final_error="devops sweep exited with code $exit_code"
+        fi
+
+        final_state="$(agent_read_state "$agent_id")"
+        final_state="$(echo "$final_state" | jq \
+            --arg status "$final_status" \
+            --arg error "$final_error" \
+            --arg now "$(agent_now_utc)" '
+            .status = $status |
+            .pid = null |
+            .startedAt = null |
+            .lastHeartbeatAt = $now |
+            .lastRunAt = $now |
+            .updatedAt = $now |
+            .lastError = (if $error == "" then null else $error end)
+        ')"
+        agent_write_state "$agent_id" "$final_state"
+        set_central_agent_status "$agent_id" "idle" "" "" "" "$final_error"
+
+        rm -f "$prompt_file"
+        log "DevOps agent $agent_id finished standing task $task_id (exit: $exit_code)"
+    ) &
+
+    log "DevOps agent $agent_id background PID: $!"
 }
 
 spawn_review_agent() {
@@ -616,6 +793,49 @@ count_busy_agents() {
     echo "$count"
 }
 
+count_busy_devops_agents() {
+    local count=0
+    for agent in "${DEVOPS_AGENTS[@]}"; do
+        local runtime
+        runtime="$(agent_runtime_status "$agent")"
+        if [ "$runtime" = "running" ] || [ "$runtime" = "unresponsive" ]; then
+            count=$((count + 1))
+        fi
+    done
+    echo "$count"
+}
+
+run_devops_agent_if_needed() {
+    local agent_id="$1"
+
+    if ! is_agent_active "$agent_id"; then
+        return
+    fi
+
+    sync_agent_runtime "$agent_id"
+
+    local state_json runtime last_run_age task_id task_desc
+    state_json="$(agent_read_state "$agent_id")"
+    runtime="$(agent_runtime_status "$agent_id")"
+    if [ "$runtime" = "running" ] || [ "$runtime" = "unresponsive" ]; then
+        return
+    fi
+
+    last_run_age="$(agent_status_age_seconds "$(echo "$state_json" | jq -r '.lastRunAt // empty')")"
+    if [ "$last_run_age" -lt "$DEVOPS_AGENT_INTERVAL" ]; then
+        return
+    fi
+
+    task_id="$(get_monitoring_task_for_agent "$agent_id")"
+    if [ -z "$task_id" ]; then
+        log "DevOps agent $agent_id has no standing monitoring task"
+        return
+    fi
+
+    task_desc="$(get_task_description "$task_id")"
+    spawn_devops_agent "$agent_id" "$task_id" "$task_desc"
+}
+
 run_review_cycle() {
     local modified_files
     modified_files="$(get_modified_files)"
@@ -650,8 +870,10 @@ log "========================================"
 log "Auto-run-agents starting (interval: ${INTERVAL}s)"
 log "Working directory: $WORK_DIR"
 log "Dev agents: ${AGENTS[*]}"
+log "DevOps agents: ${DEVOPS_AGENTS[*]}"
 log "Review agents: ${REVIEW_AGENTS[*]}"
 log "Max concurrent: $MAX_CONCURRENT"
+log "Max concurrent DevOps: $MAX_CONCURRENT_DEVOPS"
 
 git_pull || true
 reconcile_task_board
@@ -679,7 +901,7 @@ while true; do
         git_pull || true
     fi
 
-    for agent in "${AGENTS[@]}"; do
+    for agent in "${AGENTS[@]}" "${DEVOPS_AGENTS[@]}"; do
         sync_agent_runtime "$agent"
     done
 
@@ -702,6 +924,19 @@ while true; do
             fi
 
             run_agent_if_needed "$agent"
+            sleep 1
+        done
+    fi
+
+    busy_devops_count="$(count_busy_devops_agents)"
+    log "Busy DevOps agents: $busy_devops_count / $MAX_CONCURRENT_DEVOPS"
+    if [ "$busy_devops_count" -lt "$MAX_CONCURRENT_DEVOPS" ]; then
+        for agent in "${DEVOPS_AGENTS[@]}"; do
+            if [ "$(count_busy_devops_agents)" -ge "$MAX_CONCURRENT_DEVOPS" ]; then
+                break
+            fi
+
+            run_devops_agent_if_needed "$agent"
             sleep 1
         done
     fi

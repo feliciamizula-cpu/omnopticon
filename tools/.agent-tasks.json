@@ -10,7 +10,11 @@
       "currentTaskDescription": "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
       "lastRunAt": "2026-05-22T23:06:57.506Z",
       "lastHeartbeatAt": "2026-05-22T23:06:57.506Z",
-      "lastError": null
+      "lastError": null,
+      "role": "development",
+      "responsibilities": [
+        "application implementation"
+      ]
     },
     {
       "status": "active",
@@ -22,7 +26,11 @@
       "currentTaskDescription": "Design #24: No authentication or authorization",
       "lastRunAt": "2026-05-22T23:06:59.006Z",
       "lastHeartbeatAt": "2026-05-22T23:06:59.006Z",
-      "lastError": null
+      "lastError": null,
+      "role": "development",
+      "responsibilities": [
+        "application implementation"
+      ]
     },
     {
       "status": "active",
@@ -37,7 +45,11 @@
       "lastError": null,
       "context": null,
       "pid": null,
-      "startedAt": null
+      "startedAt": null,
+      "role": "development",
+      "responsibilities": [
+        "application implementation"
+      ]
     },
     {
       "status": "active",
@@ -52,7 +64,11 @@
       "lastError": null,
       "context": null,
       "pid": null,
-      "startedAt": null
+      "startedAt": null,
+      "role": "development",
+      "responsibilities": [
+        "application implementation"
+      ]
     },
     {
       "status": "active",
@@ -64,7 +80,53 @@
       "currentTaskDescription": "Enhancement #1: Dead letter exchange + poison message inspection/replay",
       "lastRunAt": "2026-05-22T23:07:05.527Z",
       "lastHeartbeatAt": "2026-05-22T23:07:05.527Z",
-      "lastError": null
+      "lastError": null,
+      "role": "development",
+      "responsibilities": [
+        "application implementation"
+      ]
+    },
+    {
+      "id": "devops-1",
+      "name": "DevOps Agent 1",
+      "role": "devops",
+      "status": "active",
+      "responsibilities": [
+        "application health",
+        "deployed component health",
+        "release readiness"
+      ],
+      "currentTask": null,
+      "workStatus": "idle",
+      "lastUpdated": "2026-05-22T23:48:51.516Z",
+      "pid": null,
+      "lastHeartbeatAt": "2026-05-22T23:48:51.516Z",
+      "currentTaskDescription": null,
+      "context": null,
+      "lastError": null,
+      "lastRunAt": "2026-05-22T23:48:51.516Z",
+      "startedAt": null
+    },
+    {
+      "id": "devops-2",
+      "name": "DevOps Agent 2",
+      "role": "devops",
+      "status": "active",
+      "responsibilities": [
+        "AI agent health",
+        "coordination system health",
+        "task-board hygiene"
+      ],
+      "currentTask": null,
+      "workStatus": "idle",
+      "lastUpdated": "2026-05-22T23:48:51.516Z",
+      "pid": null,
+      "lastHeartbeatAt": "2026-05-22T23:48:51.516Z",
+      "currentTaskDescription": null,
+      "context": null,
+      "lastError": null,
+      "lastRunAt": "2026-05-22T23:48:51.516Z",
+      "startedAt": null
     }
   ],
   "tasks": [
@@ -463,6 +525,32 @@
       "priority": "low",
       "assignedTo": null,
       "status": "pending"
+    },
+    {
+      "id": "044",
+      "description": "DevOps: Keep the application and deployed components healthy",
+      "createdAt": "2026-05-22T23:48:51.516Z",
+      "priority": "critical",
+      "assignedTo": "devops-1",
+      "status": "monitoring",
+      "scope": [
+        "application",
+        "deployed-components",
+        "release-readiness"
+      ]
+    },
+    {
+      "id": "045",
+      "description": "DevOps: Keep AI agents and coordination systems healthy",
+      "createdAt": "2026-05-22T23:48:51.516Z",
+      "priority": "critical",
+      "assignedTo": "devops-2",
+      "status": "monitoring",
+      "scope": [
+        "ai-agents",
+        "coordination-state",
+        "dashboard"
+      ]
     }
   ],
   "version": "1.0",

@@ -89,7 +89,8 @@ get_review_summary_uncached() {
         local date reviewer findings
         date="$(head -1 "$latest" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' || echo "unknown")"
         reviewer="$(grep "Reviewer:" "$latest" | head -1 | awk '{print $2}' || echo "?")"
-        findings="$(grep -c "## Critical" "$latest" 2>/dev/null || echo "0")"
+        findings="$(grep -c "## Critical" "$latest" 2>/dev/null || true)"
+        [ -n "$findings" ] || findings="0"
         echo "Last review: $date by $reviewer, $findings critical sections"
     else
         echo "No reviews yet"
@@ -270,57 +271,108 @@ task_counts_tsv() {
             (.tasks | length),
             ([.tasks[] | select(.status == "completed")] | length),
             ([.tasks[] | select(.status == "pending")] | length),
-            ([.tasks[] | select(.status == "in_progress")] | length)
+            ([.tasks[] | select(.status == "in_progress")] | length),
+            ([.tasks[] | select(.status == "monitoring")] | length)
         ] | @tsv
-    ' 2>/dev/null || echo "0	0	0	0"
+    ' 2>/dev/null || echo "0	0	0	0	0"
+}
+
+task_counts_summary() {
+    local state_json="$1"
+    echo "$state_json" | jq -r '
+        if (.tasks | length) == 0 then
+            "none"
+        else
+            (.tasks | group_by(.status) |
+                map({status: .[0].status, count: length}) |
+                sort_by(
+                    if .status == "critical" then 0
+                    elif .status == "in_progress" then 1
+                    elif .status == "pending" then 2
+                    elif .status == "monitoring" then 3
+                    elif .status == "completed" then 4
+                    else 5 end,
+                    .status
+                ) |
+                map("\(.status):\(.count)") |
+                join("  "))
+        end
+    ' 2>/dev/null || echo "none"
+}
+
+age_label() {
+    local timestamp="$1"
+    local age
+    age="$(agent_status_age_seconds "$timestamp")"
+    if [ "$age" -ge 999999 ]; then
+        echo "-"
+    elif [ "$age" -lt 60 ]; then
+        echo "${age}s"
+    elif [ "$age" -lt 3600 ]; then
+        echo "$((age / 60))m"
+    else
+        echo "$((age / 3600))h"
+    fi
 }
 
 agent_row_data() {
     local state_json="$1"
     local agent_id="$2"
-    local agent_json local_state status current_task pid heartbeat runtime task_desc
+    local agent_json local_state role status work_status current_task pid heartbeat heartbeat_age runtime task_desc last_error
 
     agent_json="$(echo "$state_json" | jq -r ".agents[] | select(.id == \"$agent_id\")" 2>/dev/null || echo "{}")"
+    role="$(echo "$agent_json" | jq -r '.role // "development"')"
     status="$(echo "$agent_json" | jq -r '.status // "inactive"')"
+    work_status="$(echo "$agent_json" | jq -r '.workStatus // "idle"')"
     current_task="$(echo "$agent_json" | jq -r '.currentTask // "-"')"
     local_state="$(agent_read_state "$agent_id")"
     pid="$(echo "$local_state" | jq -r '.pid // "-"')"
     heartbeat="$(echo "$local_state" | jq -r '.lastHeartbeatAt // "-"')"
+    heartbeat_age="$(age_label "$heartbeat")"
     runtime="$(agent_runtime_status "$agent_id")"
-    task_desc="$(echo "$local_state" | jq -r '.currentTaskDescription // "-"' | cut -c1-33)"
+    task_desc="$(echo "$local_state" | jq -r '.currentTaskDescription // "-"' | cut -c1-44)"
+    last_error="$(echo "$local_state" | jq -r '.lastError // empty' | cut -c1-36)"
 
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$agent_id" "$status" "$runtime" "$current_task" "$pid" "$heartbeat" "$task_desc"
+    if [ -n "$last_error" ]; then
+        task_desc="ERR: $last_error"
+    elif [ "$task_desc" = "-" ] && [ "$role" = "devops" ]; then
+        task_desc="$(echo "$agent_json" | jq -r '[.responsibilities[]?] | join(", ")' | cut -c1-44)"
+    fi
+
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+        "$agent_id" "$role" "$status" "$work_status" "$runtime" "$current_task" "$pid" "$heartbeat_age" "$task_desc"
 }
 
 draw_agents() {
     local state_json="$1"
-    printf "\033[1;34m━━━ DEV AGENTS ━━━\033[0m\n"
-    printf "%-10s %-14s %-8s %-8s %-24s %-35s\n" "AGENT" "STATUS" "TASK" "PID" "HEARTBEAT" "DESCRIPTION"
-    echo "──────────────────────────────────────────────────────────────────"
+    printf "\033[1;34m━━━ AGENTS ━━━\033[0m\n"
+    printf "%-10s %-7s %-12s %-7s %-7s %-5s %s\n" "ID" "ROLE" "STATE" "TASK" "PID" "HB" "NOTE"
+    echo "────────────────────────────────────────────────────────────────────────────"
 
-    for agent_id in agent-1 agent-2 agent-3 agent-4 agent-5; do
-        local row status runtime label current_task pid heartbeat task_desc
+    while IFS= read -r agent_id; do
+        [ -n "$agent_id" ] || continue
+        local row role status work_status runtime label current_task pid heartbeat_age task_desc color
         row="$(agent_row_data "$state_json" "$agent_id")"
-        IFS=$'\t' read -r _agent status runtime current_task pid heartbeat task_desc <<< "$row"
+        IFS=$'\t' read -r _agent role status work_status runtime current_task pid heartbeat_age task_desc <<< "$row"
 
         if [ "$status" = "active" ] && [ "$runtime" = "running" ]; then
-            label="RUNNING"
-            printf "\033[1;33m%-10s\033[0m %-14s %-8s %-8s %-24s %-35s\n" "$agent_id" "$label" "$current_task" "$pid" "$heartbeat" "$task_desc"
+            label="$(echo "${work_status:-running}" | tr '[:lower:]' '[:upper:]')"
+            color="\033[1;33m"
         elif [ "$status" = "active" ] && { [ "$runtime" = "stalled" ] || [ "$runtime" = "crashed" ] || [ "$runtime" = "unresponsive" ]; }; then
             label="${runtime^^}"
-            printf "\033[1;31m%-10s\033[0m %-14s %-8s %-8s %-24s %-35s\n" "$agent_id" "$label" "$current_task" "$pid" "$heartbeat" "$task_desc"
+            color="\033[1;31m"
         elif [ "$status" = "active" ]; then
-            printf "\033[1;32m%-10s\033[0m %-14s %-8s %-8s %-24s %-35s\n" "$agent_id" "IDLE" "$current_task" "$pid" "$heartbeat" "$task_desc"
+            label="$(echo "${work_status:-idle}" | tr '[:lower:]' '[:upper:]')"
+            [ -n "$label" ] || label="IDLE"
+            label="${label:0:12}"
+            color="\033[1;32m"
         else
-            printf "\033[1;30m%-10s\033[0m %-14s %-8s %-8s %-24s %-35s\n" "$agent_id" "OFF" "$current_task" "$pid" "$heartbeat" "$task_desc"
+            label="OFF"
+            color="\033[1;30m"
         fi
-    done
-}
-
-draw_reviewers() {
-    printf "\033[1;35m━━━ REVIEWERS ━━━\033[0m\n"
-    printf "%-12s %-12s %-20s\n" "REVIEWER" "STATUS" "LAST REVIEW"
-    echo "────────────────────────────────────────────────────────"
+        printf "${color}%-10s\033[0m %-7s %-12s %-7s %-7s %-5s %s\n" \
+            "$agent_id" "${role:0:7}" "$label" "$current_task" "$pid" "$heartbeat_age" "$task_desc"
+    done <<< "$(echo "$state_json" | jq -r '.agents | sort_by(.role // "development", .id) | .[].id' 2>/dev/null)"
 
     for reviewer in reviewer-1 reviewer-2; do
         local review_state last_review status
@@ -334,12 +386,13 @@ draw_reviewers() {
         fi
 
         if [ "$status" = "reviewing" ]; then
-            printf "\033[1;33m%-12s\033[0m %-12s %-20s\n" "$reviewer" "REVIEWING" "$last_review"
+            printf "\033[1;33m%-10s\033[0m %-7s %-12s %-7s %-7s %-5s last=%s\n" \
+                "$reviewer" "review" "REVIEWING" "-" "-" "-" "$last_review"
         else
-            printf "\033[1;32m%-12s\033[0m %-12s %-20s\n" "$reviewer" "IDLE" "$last_review"
+            printf "\033[1;32m%-10s\033[0m %-7s %-12s %-7s %-7s %-5s last=%s\n" \
+                "$reviewer" "review" "IDLE" "-" "-" "-" "$last_review"
         fi
     done
-    printf "  Latest review: \033[1;36m%s\033[0m\n" "$(get_review_summary)"
 }
 
 draw_tasks_in_progress() {
@@ -348,9 +401,14 @@ draw_tasks_in_progress() {
     local in_prog
     in_prog="$(echo "$state_json" | jq -c '[.tasks[] | select(.status == "in_progress")] | sort_by(.id)' 2>/dev/null || echo "[]")"
     if [ "$in_prog" != "[]" ]; then
-        echo "$in_prog" | jq -r '.[] | "\(.id) \(.assignedTo // "?") \(.description[0:50])"' 2>/dev/null | while read -r tid agent desc; do
+        echo "$in_prog" | jq -r '.[0:5][] | "\(.id) \(.assignedTo // "?") \(.description[0:54])"' 2>/dev/null | while read -r tid agent desc; do
             printf "  \033[1;36m[\033[0m%s\033[1;36m]\033[0m %-10s %s\n" "$tid" "$agent" "$desc"
         done
+        local total
+        total="$(echo "$in_prog" | jq 'length' 2>/dev/null || echo 0)"
+        if [ "$total" -gt 5 ]; then
+            printf "  \033[1;30m... and %d more\033[0m\n" $((total - 5))
+        fi
     else
         printf "  \033[1;30m(none)\033[0m\n"
     fi
@@ -363,11 +421,11 @@ draw_git_changes() {
     if [ -n "$modified" ]; then
         count="$(echo "$modified" | wc -l)"
         printf "  \033[1;33m%d files modified:\033[0m\n" "$count"
-        echo "$modified" | head -8 | while read -r f; do
+        echo "$modified" | head -4 | while read -r f; do
             printf "    \033[1;36m•\033[0m %s\n" "$f"
         done
-        if [ "$count" -gt 8 ]; then
-            printf "    \033[1;30m... and %d more\033[0m\n" $((count - 8))
+        if [ "$count" -gt 4 ]; then
+            printf "    \033[1;30m... and %d more\033[0m\n" $((count - 4))
         fi
     else
         printf "  \033[1;32mClean - no modified files\033[0m\n"
@@ -390,39 +448,34 @@ draw_completed() {
 draw() {
     start_async_refresh
 
-    local state_json ts last_pull alerts counts total completed pending in_progress
+    local state_json ts last_pull alerts counts total completed pending in_progress monitoring count_summary
     state_json="$(state_snapshot)"
     ts="$(date +'%Y-%m-%d %H:%M:%S')"
     last_pull="$(get_last_pull_time "$state_json")"
     alerts="$(get_critical_alerts)"
     counts="$(task_counts_tsv "$state_json")"
-    IFS=$'\t' read -r total completed pending in_progress <<< "$counts"
+    IFS=$'\t' read -r total completed pending in_progress monitoring <<< "$counts"
+    count_summary="$(task_counts_summary "$state_json")"
 
     if [ "$INTERACTIVE" -eq 1 ]; then
         printf "\033[2J\033[H"
-        printf "\033[1;36m┌──────────────────────────────────────────────────────────────────┐\033[0m\n"
-        printf "\033[1;36m│\033[0m           \033[1;33m★ ARGUS AGENT + REVIEWER DASHBOARD ★\033[0m            \033[1;36m│\033[0m\n"
-        printf "\033[1;36m└──────────────────────────────────────────────────────────────────┘\033[0m\n"
-        printf "  %s\n" "$ts"
-        printf "  Last pull: \033[1;35m%s\033[0m\n" "$last_pull"
+        printf "\033[1;36mARGUS OPS DASHBOARD\033[0m  %s  pull=\033[1;35m%s\033[0m\n" "$ts" "$last_pull"
+        printf "  tasks(%d): \033[1;36m%s\033[0m  latest review: \033[1;35m%s\033[0m\n" "$total" "$count_summary" "$(get_review_summary)"
         if [ -n "$alerts" ]; then
-            printf "\n  \033[1;41m⚠ CRITICAL ALERTS: %s\033[0m\n" "$alerts"
+            printf "  \033[1;41mALERTS: %s\033[0m\n" "$alerts"
         fi
-        printf "\n  \033[1;32m✓ %d\033[0m completed  \033[1;33m⟳ %d\033[0m in progress  \033[1;34m○ %d\033[0m pending\n" "$completed" "$in_progress" "$pending"
     else
         echo "═══════════════════════════════════════════════════════════════════"
-        echo "              ★ ARGUS AGENT + REVIEWER DASHBOARD ★"
+        echo "                       ARGUS OPS DASHBOARD"
         echo "═══════════════════════════════════════════════════════════════════"
-        echo "  $ts"
-        echo "  Last pull: $last_pull"
+        echo "  $ts  pull=$last_pull"
+        echo "  tasks($total): $count_summary"
+        echo "  latest review: $(get_review_summary)"
         if [ -n "$alerts" ]; then
-            echo "  [WARNING] CRITICAL ALERTS: $alerts"
+            echo "  [WARNING] ALERTS: $alerts"
         fi
-        echo "  [OK] $completed completed  [RUN] $in_progress in progress  [---] $pending pending"
     fi
 
-    echo ""
-    draw_reviewers
     echo ""
     draw_agents "$state_json"
     echo ""
@@ -433,7 +486,7 @@ draw() {
     draw_git_changes
     echo ""
     printf "\033[1;33mRecent commits:\033[0m\n"
-    get_recent_commits | while read -r line; do
+    get_recent_commits | head -3 | while read -r line; do
         printf "  %s\n" "$line" | cut -c1-75
     done
     echo ""

@@ -1,3 +1,4 @@
+using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
@@ -18,15 +19,15 @@ builder.Services.AddSingleton(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
     var connStr = config.GetConnectionString("messaging") ?? config.GetConnectionString("rabbitmq") ?? "";
-    if (string.IsNullOrWhiteSpace(connStr)) return null;
+    if (string.IsNullOrWhiteSpace(connStr)) return null!;
     var factory = new ConnectionFactory { Uri = new Uri(connStr) };
-    return factory.CreateConnectionAsync().AsTask().Result;
+    return factory.CreateConnectionAsync().GetAwaiter().GetResult();
 });
 builder.Services.AddSingleton(sp =>
 {
     var connection = sp.GetService<IConnection>();
-    if (connection is null) return null;
-    return connection.CreateChannelAsync().AsTask().Result;
+    if (connection is null) return null!;
+    return connection.CreateChannelAsync().GetAwaiter().GetResult();
 });
 
 var app = builder.Build();
