@@ -194,49 +194,12 @@ Completed:
 - PostgreSQL/in-memory backing.
 - Outbox integration for task events.
 
-Outstanding:
+Remaining (lower priority):
 
-- Retry state machine with backoff.
-- Heartbeat lost detection.
-- Expired lease recovery.
-- Cancellation endpoint.
-- Partial success retry policy.
-- Checkpoint resume helpers.
-- Task dedupe.
 - Task dependency links.
-
-Implementation instructions:
-
-1. Add a background maintenance service inside TaskService.
-2. Maintenance loop should:
-   - find `Leased` or `Running` tasks with expired leases
-   - mark as `HeartbeatLost` or `RetryPending`
-   - increment attempt when requeued
-   - mark as `Expired` when max attempts or TTL is exceeded
-3. Add endpoints:
-   - `POST /tasks/{taskId}/cancel`
-   - `POST /tasks/{taskId}/retry`
-   - `POST /tasks/{taskId}/heartbeat`
-   - `GET /tasks/{taskId}/history`
-4. Add task history table:
-   - state
-   - timestamp
-   - worker id
-   - message
-   - checkpoint summary
-5. Add dedupe keys to task creation:
-   - `program_id`
-   - `scope_id`
-   - `task_type`
-   - `input_asset_id`
-   - normalized payload hash
-
-Acceptance criteria:
-
-- Killing a worker while it runs a task eventually requeues or fails the task according to policy.
-- Retried tasks preserve checkpoint JSON.
-- Duplicate task requests do not create runaway duplicate work.
-- UI can distinguish queued, running, failed, retry pending, and expired tasks.
+- Task dedupe write path with dedupe hash on create (currently read-only `FindByDedupeAsync` exists).
+- Backoff policy on retry.
+- Partial success retry policy (already supports `PartiallySucceeded` state).
 
 ### 2.4 RateLimitService
 

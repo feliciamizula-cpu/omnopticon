@@ -181,6 +181,64 @@ app.MapPost("/tasks/{taskId:guid}/fail", async (
     return Results.Ok(task);
 });
 
+app.MapPost("/tasks/{taskId:guid}/cancel", async (
+    Guid taskId,
+    CancelTaskRequest request,
+    ITaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    var task = await store.CancelAsync(taskId, request.Reason, cancellationToken);
+
+    if (task is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(task);
+});
+
+app.MapPost("/tasks/{taskId:guid}/retry", async (
+    Guid taskId,
+    ITaskStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    var task = await store.RetryAsync(taskId, cancellationToken);
+
+    if (task is null)
+    {
+        return Results.NotFound();
+    }
+
+    await events.PublishAsync(
+        new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+        nameof(TaskRequested),
+        "Argus.TaskService",
+        cancellationToken: cancellationToken);
+
+    return Results.Ok(task);
+});
+
+app.MapPost("/tasks/{taskId:guid}/heartbeat", async (
+    Guid taskId,
+    string workerId,
+    ITaskStore store,
+    CancellationToken cancellationToken) =>
+{
+    var task = await store.HeartbeatAsync(taskId, workerId, cancellationToken);
+    return task is not null ? Results.Ok(task) : Results.NotFound();
+});
+
+app.MapGet("/tasks/{taskId:guid}/history", async (
+    Guid taskId,
+    ITaskStore store,
+    CancellationToken cancellationToken) =>
+{
+    var history = await store.GetHistoryAsync(taskId, cancellationToken);
+    return Results.Ok(history);
+});
+
 app.Run();
 
 internal interface ITaskStore
@@ -193,6 +251,11 @@ internal interface ITaskStore
     Task<ReconTaskDto?> ProgressAsync(Guid taskId, UpdateReconTaskProgressRequest request, CancellationToken cancellationToken);
     Task<ReconTaskDto?> CompleteAsync(Guid taskId, CompleteReconTaskRequest request, CancellationToken cancellationToken);
     Task<ReconTaskDto?> FailAsync(Guid taskId, FailReconTaskRequest request, CancellationToken cancellationToken);
+    Task<ReconTaskDto?> CancelAsync(Guid taskId, string reason, CancellationToken cancellationToken);
+    Task<ReconTaskDto?> RetryAsync(Guid taskId, CancellationToken cancellationToken);
+    Task<ReconTaskDto?> HeartbeatAsync(Guid taskId, string workerId, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<TaskHistoryDto>> GetHistoryAsync(Guid taskId, CancellationToken cancellationToken);
+    Task<ReconTaskDto?> FindByDedupeAsync(string dedupeHash, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryTaskStore : ITaskStore
@@ -312,6 +375,46 @@ internal sealed class InMemoryTaskStore : ITaskStore
                 LeaseExpiresAt = null
             };
         });
+
+    public Task<ReconTaskDto?> CancelAsync(Guid taskId, string reason, CancellationToken cancellationToken) =>
+        TryUpdateAsync(taskId, task => task with
+        {
+            State = ReconTaskState.Cancelled,
+            CompletedAt = DateTimeOffset.UtcNow,
+            ErrorMessage = reason,
+            LeaseExpiresAt = null
+        });
+
+    public Task<ReconTaskDto?> RetryAsync(Guid taskId, CancellationToken cancellationToken) =>
+        TryUpdateAsync(taskId, task => task with
+        {
+            State = ReconTaskState.Requested,
+            Attempt = 0,
+            CompletedAt = null,
+            ErrorCode = null,
+            ErrorMessage = null,
+            LeaseExpiresAt = null
+        });
+
+    public Task<ReconTaskDto?> HeartbeatAsync(Guid taskId, string workerId, CancellationToken cancellationToken) =>
+        TryUpdateAsync(taskId, task =>
+        {
+            if (task.State != ReconTaskState.Running || task.LeaseOwner != workerId)
+            {
+                return task;
+            }
+
+            return task with
+            {
+                LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5)
+            };
+        });
+
+    public Task<IReadOnlyCollection<TaskHistoryDto>> GetHistoryAsync(Guid taskId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyCollection<TaskHistoryDto>>([]);
+
+    public Task<ReconTaskDto?> FindByDedupeAsync(string dedupeHash, CancellationToken cancellationToken) =>
+        Task.FromResult(_tasks.Values.FirstOrDefault(t => t.TaskId.ToString() == dedupeHash));
 
     private Task<ReconTaskDto?> TryUpdateAsync(Guid taskId, Func<ReconTaskDto, ReconTaskDto> update)
     {
@@ -436,6 +539,54 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
             task.LeaseExpiresAt = null;
         }, cancellationToken);
 
+    public Task<ReconTaskDto?> CancelAsync(Guid taskId, string reason, CancellationToken cancellationToken) =>
+        UpdateAsync(taskId, task =>
+        {
+            task.State = ReconTaskState.Cancelled;
+            task.CompletedAt = DateTimeOffset.UtcNow;
+            task.ErrorMessage = reason;
+            task.LeaseExpiresAt = null;
+        }, cancellationToken);
+
+    public Task<ReconTaskDto?> RetryAsync(Guid taskId, CancellationToken cancellationToken) =>
+        UpdateAsync(taskId, task =>
+        {
+            task.State = ReconTaskState.Requested;
+            task.Attempt = 0;
+            task.CompletedAt = null;
+            task.ErrorCode = null;
+            task.ErrorMessage = null;
+            task.LeaseExpiresAt = null;
+        }, cancellationToken);
+
+    public Task<ReconTaskDto?> HeartbeatAsync(Guid taskId, string workerId, CancellationToken cancellationToken) =>
+        UpdateAsync(taskId, task =>
+        {
+            if (task.State != ReconTaskState.Running || task.LeaseOwner != workerId)
+            {
+                return;
+            }
+
+            task.LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        }, cancellationToken);
+
+    public async Task<IReadOnlyCollection<TaskHistoryDto>> GetHistoryAsync(Guid taskId, CancellationToken cancellationToken)
+    {
+        return await dbContext.TaskHistory
+            .AsNoTracking()
+            .Where(h => h.TaskId == taskId)
+            .OrderBy(h => h.Timestamp)
+            .Select(h => new TaskHistoryDto(h.HistoryId, h.TaskId, h.State, h.Timestamp, h.WorkerId, h.Message, h.CheckpointSummary))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<ReconTaskDto?> FindByDedupeAsync(string dedupeHash, CancellationToken cancellationToken)
+    {
+        var task = await dbContext.Tasks.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.DedupeHash == dedupeHash, cancellationToken);
+        return task?.ToDto();
+    }
+
     private async Task<ReconTaskDto?> UpdateAsync(Guid taskId, Action<TaskRecord> update, CancellationToken cancellationToken)
     {
         var task = await dbContext.Tasks.FirstOrDefaultAsync(task => task.TaskId == taskId, cancellationToken);
@@ -455,6 +606,7 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
 internal sealed class TaskDbContext(DbContextOptions<TaskDbContext> options) : DbContext(options)
 {
     public DbSet<TaskRecord> Tasks => Set<TaskRecord>();
+    public DbSet<TaskHistoryRecord> TaskHistory => Set<TaskHistoryRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -464,6 +616,7 @@ internal sealed class TaskDbContext(DbContextOptions<TaskDbContext> options) : D
         task.HasIndex(record => new { record.ProgramId, record.State });
         task.HasIndex(record => new { record.WorkerCapability, record.State, record.Attempt });
         task.HasIndex(record => record.LeaseExpiresAt);
+        task.HasIndex(record => record.DedupeHash);
         task.Property(record => record.State).HasConversion<string>().HasMaxLength(64);
         task.Property(record => record.TaskType).HasMaxLength(128);
         task.Property(record => record.WorkerCapability).HasMaxLength(128);
@@ -472,6 +625,13 @@ internal sealed class TaskDbContext(DbContextOptions<TaskDbContext> options) : D
         task.Property(record => record.InputPayloadJson).HasColumnType("jsonb");
         task.Property(record => record.CheckpointJson).HasColumnType("jsonb");
         task.Property(record => record.OutputSummaryJson).HasColumnType("jsonb");
+
+        var history = modelBuilder.Entity<TaskHistoryRecord>();
+        history.ToTable("task_history");
+        history.HasKey(record => record.HistoryId);
+        history.HasIndex(record => record.TaskId);
+        history.Property(record => record.State).HasConversion<string>().HasMaxLength(64);
+        history.Property(record => record.Message).HasMaxLength(1024);
 
         modelBuilder.ConfigureArgusOutbox();
     }
@@ -499,6 +659,7 @@ internal sealed class TaskRecord
     public string? OutputSummaryJson { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? DedupeHash { get; set; }
 
     public ReconTaskDto ToDto() =>
         new(
@@ -522,6 +683,96 @@ internal sealed class TaskRecord
             OutputSummaryJson,
             ErrorCode,
             ErrorMessage);
+}
+
+internal sealed class TaskHistoryRecord
+{
+    public Guid HistoryId { get; set; }
+    public Guid TaskId { get; set; }
+    public ReconTaskState State { get; set; }
+    public DateTimeOffset Timestamp { get; set; }
+    public string? WorkerId { get; set; }
+    public string? Message { get; set; }
+    public string? CheckpointSummary { get; set; }
+}
+
+internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, ILogger<TaskMaintenanceService> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await RunMaintenanceAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error running task maintenance");
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+        }
+    }
+
+    private async Task RunMaintenanceAsync(CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<TaskDbContext>();
+        var now = DateTimeOffset.UtcNow;
+
+        var expiredLeases = await dbContext.Tasks
+            .Where(t => t.State == ReconTaskState.Leased && t.LeaseExpiresAt < now)
+            .ToListAsync(cancellationToken);
+
+        foreach (var task in expiredLeases)
+        {
+            var canRetry = task.Attempt < task.MaxAttempts;
+            var previousState = task.State;
+
+            task.State = canRetry ? ReconTaskState.RetryPending : ReconTaskState.Expired;
+            task.CompletedAt = canRetry ? null : now;
+
+            dbContext.TaskHistory.Add(new TaskHistoryRecord
+            {
+                HistoryId = Guid.NewGuid(),
+                TaskId = task.TaskId,
+                State = previousState,
+                Timestamp = now,
+                Message = canRetry
+                    ? $"Lease expired, requeued for retry (attempt {task.Attempt}/{task.MaxAttempts})"
+                    : $"Lease expired, marked as expired after {task.Attempt} attempts"
+            });
+
+            logger.LogInformation("Task {TaskId} lease expired, state: {State}", task.TaskId, task.State);
+        }
+
+        var orphanedRunning = await dbContext.Tasks
+            .Where(t => t.State == ReconTaskState.Running && t.LeaseExpiresAt < now)
+            .ToListAsync(cancellationToken);
+
+        foreach (var task in orphanedRunning)
+        {
+            task.State = ReconTaskState.HeartbeatLost;
+            task.CompletedAt = now;
+
+            dbContext.TaskHistory.Add(new TaskHistoryRecord
+            {
+                HistoryId = Guid.NewGuid(),
+                TaskId = task.TaskId,
+                State = ReconTaskState.Running,
+                Timestamp = now,
+                Message = "Heartbeat lost, marked as abandoned"
+            });
+
+            logger.LogWarning("Task {TaskId} heartbeat lost", task.TaskId);
+        }
+
+        if (expiredLeases.Count > 0 || orphanedRunning.Count > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
 }
 
 internal static class TaskMapping
