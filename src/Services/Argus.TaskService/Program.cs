@@ -575,26 +575,48 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
         var now = DateTimeOffset.UtcNow;
         var lockDuration = TaskMapping.NormalizeLeaseDuration(request.LeaseDuration);
 
-        var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
-            """
-            UPDATE recon_tasks
-            SET "State" = {0},
-                "Attempt" = "Attempt" + 1,
-                "LeaseOwner" = {1},
-                "LeaseExpiresAt" = {2}
-            WHERE "TaskId" = (
-                SELECT "TaskId" FROM recon_tasks
-                WHERE "WorkerCapability" = {3}
-                AND ("State" = 'Requested' OR "State" = 'Queued' OR "State" = 'RetryPending')
-                ORDER BY "Priority" DESC, "Attempt", "TaskId"
-                LIMIT 1
-                FOR UPDATE SKIP LOCKED
-            )
-            """,
+        var capabilityFilter = request.SubscribedAssetTypes?.Count > 0
+            ? string.Join(", ", request.SubscribedAssetTypes.Select((_, i) => $"{{{3 + i}}}"))
+            : null;
+
+        var assetTypeCondition = capabilityFilter is not null
+            ? @"
+                AND (
+                    ""InputAssetType"" IS NULL
+                    OR ""InputAssetType"" IN (" + capabilityFilter + @")
+                )"
+            : "";
+
+        var parameters = new List<object>
+        {
             ReconTaskState.Leased.ToString(),
             request.WorkerId,
             now.Add(lockDuration),
-            request.WorkerCapability);
+            request.WorkerCapability
+        };
+        if (capabilityFilter is not null)
+        {
+            parameters.AddRange(request.SubscribedAssetTypes!);
+        }
+
+        var rowsAffected = await dbContext.Database.ExecuteSqlRawAsync(
+            $@"
+            UPDATE recon_tasks
+            SET ""State"" = {{0}},
+                ""Attempt"" = ""Attempt"" + 1,
+                ""LeaseOwner"" = {{1}},
+                ""LeaseExpiresAt"" = {{2}}
+            WHERE ""TaskId"" = (
+                SELECT ""TaskId"" FROM recon_tasks
+                WHERE ""WorkerCapability"" = {{3}}
+                {assetTypeCondition}
+                AND (""State"" = 'Requested' OR ""State"" = 'Queued' OR ""State"" = 'RetryPending')
+                ORDER BY ""Priority"" DESC, ""Attempt"", ""TaskId""
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            ",
+            parameters.ToArray());
 
         if (rowsAffected == 0)
         {
@@ -780,6 +802,7 @@ internal sealed class TaskRecord
             ProgramId,
             ScopeId,
             InputAssetId,
+            InputAssetType,
             InputPayloadJson,
             WorkerCapability,
             State,
