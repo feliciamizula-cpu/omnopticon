@@ -2,13 +2,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Argus.BuildingBlocks.EventBus;
 
-public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutboxStore
+public sealed class EfCoreOutboxStore<TDbContext> : IOutboxStore
     where TDbContext : DbContext
 {
-    public async Task EnqueueAsync(OutboxMessage message, CancellationToken cancellationToken)
+    private readonly TDbContext _dbContext;
+
+    public EfCoreOutboxStore(TDbContext dbContext)
     {
-        dbContext.Set<OutboxMessage>().Add(message);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        _dbContext = dbContext;
+    }
+
+    public Task EnqueueAsync(OutboxMessage message, CancellationToken cancellationToken)
+    {
+        _dbContext.Set<OutboxMessage>().Add(message);
+        return Task.CompletedTask;
     }
 
     public async Task<IReadOnlyCollection<OutboxMessage>> ClaimPendingAsync(
@@ -19,7 +26,7 @@ public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutbo
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var messages = await dbContext.Set<OutboxMessage>()
+        var messages = await _dbContext.Set<OutboxMessage>()
             .Where(message =>
                 message.SourceService == sourceService
                 && message.ProcessedAt == null
@@ -35,13 +42,13 @@ public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutbo
             message.LockedUntil = now.Add(lockDuration);
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
         return messages;
     }
 
     public async Task MarkProcessedAsync(Guid outboxMessageId, CancellationToken cancellationToken)
     {
-        var message = await dbContext.Set<OutboxMessage>()
+        var message = await _dbContext.Set<OutboxMessage>()
             .FirstOrDefaultAsync(message => message.OutboxMessageId == outboxMessageId, cancellationToken);
 
         if (message is null)
@@ -54,7 +61,7 @@ public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutbo
         message.LockedUntil = null;
         message.Error = null;
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task MarkFailedAsync(
@@ -63,7 +70,7 @@ public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutbo
         TimeSpan retryAfter,
         CancellationToken cancellationToken)
     {
-        var message = await dbContext.Set<OutboxMessage>()
+        var message = await _dbContext.Set<OutboxMessage>()
             .FirstOrDefaultAsync(message => message.OutboxMessageId == outboxMessageId, cancellationToken);
 
         if (message is null)
@@ -77,6 +84,6 @@ public sealed class EfCoreOutboxStore<TDbContext>(TDbContext dbContext) : IOutbo
         message.LockOwner = null;
         message.LockedUntil = null;
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 }
