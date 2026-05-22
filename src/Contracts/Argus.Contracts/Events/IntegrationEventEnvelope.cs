@@ -47,3 +47,11 @@ public sealed record WorkerHeartbeat(Guid WorkerId, string WorkerType, DateTimeO
 public sealed record RateLimitTokenGranted(string BucketKey, Guid TokenId, DateTimeOffset ExpiresAt);
 public sealed record RateLimitDelayed(string BucketKey, TimeSpan RetryAfter);
 public sealed record ProgramScopeChanged(Guid ProgramId, Guid ScopeId, string ChangeType);
+public sealed record AssetPropertyChanged(
+    Guid AssetId,
+    Guid ProgramId,
+    string AssetType,
+    string Value,
+    IReadOnlyDictionary<string, string> PreviousMetadata,
+    IReadOnlyDictionary<string, string> NewMetadata,
+    IReadOnlyCollection<string> ChangedKeys);
