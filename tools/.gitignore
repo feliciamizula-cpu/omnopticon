@@ -1,0 +1,12 @@
+# Agent state and temporary files
+tools/.agent-state-*.json
+tools/.agent-prompt-*.txt
+tools/.reviewed-commits
+tools/.critical-alerts
+tools/.reviewer-state-*.json
+
+# Review documents
+tools/reviews/
+
+# Agent coordination state
+tools/.agent-tasks.json
