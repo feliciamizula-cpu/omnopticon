@@ -175,6 +175,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "021",
+                      "description":  "Minor #25: OutboxDispatcher uses SingleOrDefault - brittle",
+                      "createdAt":  "2026-05-22T15:31:12.0058804-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
