@@ -338,6 +338,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "040",
+                      "description":  "Enhancement #12: Artifact storage - IArtifactStore with LocalFileArtifactStore and S3ArtifactStore",
+                      "createdAt":  "2026-05-22T16:23:11.0073110-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
