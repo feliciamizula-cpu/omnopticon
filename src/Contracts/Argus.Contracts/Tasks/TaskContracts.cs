@@ -54,6 +54,7 @@ public sealed record CreateReconTaskRequest(
     Guid? InputAssetId,
     string? InputPayloadJson,
     string WorkerCapability,
+    string? RequiredAssetType,
     int MaxAttempts = 3,
     WorkerPriority Priority = WorkerPriority.Normal,
     string? DedupeHash = null);
@@ -61,6 +62,7 @@ public sealed record CreateReconTaskRequest(
 public sealed record LeaseReconTaskRequest(
     string WorkerId,
     string WorkerCapability,
+    string? RequiredAssetType,
     TimeSpan LeaseDuration);
 
 public sealed record UpdateReconTaskProgressRequest(

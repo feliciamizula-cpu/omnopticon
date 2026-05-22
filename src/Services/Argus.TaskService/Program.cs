@@ -754,6 +754,7 @@ internal sealed class TaskRecord
     public Guid? InputAssetId { get; set; }
     public string? InputPayloadJson { get; set; }
     public string WorkerCapability { get; set; } = string.Empty;
+    public string? RequiredAssetType { get; set; }
     public ReconTaskState State { get; set; }
     public int Attempt { get; set; }
     public int MaxAttempts { get; set; }

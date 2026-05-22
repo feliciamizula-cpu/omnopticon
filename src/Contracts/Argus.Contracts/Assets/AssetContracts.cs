@@ -3,9 +3,6 @@ using Argus.Contracts.Workers;
 
 namespace Argus.Contracts.Assets;
 
-using Argus.Contracts.Tasks;
-using Argus.Contracts.Workers;
-
 public enum AssetType
 {
     Program,
