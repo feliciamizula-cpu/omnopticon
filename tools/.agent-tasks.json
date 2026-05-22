@@ -9,10 +9,10 @@
                    },
                    {
                        "status":  "inactive",
-                       "currentTask":  null,
+                       "currentTask":  "016",
                        "name":  "Agent 2",
                        "id":  "agent-2",
-                       "lastUpdated":  ""
+                       "lastUpdated":  "2026-05-22T15:50:01.8474364-04:00"
                    }
                ],
     "tasks":  [
@@ -149,8 +149,8 @@
                       "description":  "Bug #18: HttpProbeWorker hardcodes HTTPS, no HTTP fallback",
                       "createdAt":  "2026-05-22T15:29:43.2976330-04:00",
                       "priority":  "low",
-                      "assignedTo":  null,
-                      "status":  "pending"
+                      "assignedTo":  "agent-2",
+                      "status":  "in_progress"
                   },
                   {
                       "id":  "017",
