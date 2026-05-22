@@ -191,6 +191,14 @@
                       "priority":  "low",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "023",
+                      "description":  "Design #23: Asset relationship uniqueness not enforced",
+                      "createdAt":  "2026-05-22T15:31:49.8198721-04:00",
+                      "priority":  "low",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
