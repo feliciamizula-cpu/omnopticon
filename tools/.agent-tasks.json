@@ -2,10 +2,10 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": null,
+      "currentTask": "005",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-22T19:32:07.704Z"
+      "lastUpdated": "2026-05-22T19:32:09.036Z"
     },
     {
       "status": "inactive",
@@ -57,8 +57,8 @@
       "description": "Bug #7: Task lease race condition - use FOR UPDATE SKIP LOCKED to prevent double-lease",
       "createdAt": "2026-05-22T15:21:46.0697960-04:00",
       "priority": "high",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-1",
+      "status": "in_progress"
     },
     {
       "id": "006",
