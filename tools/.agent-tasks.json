@@ -71,6 +71,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "008",
+                      "description":  "Bug #10: Inbox table never created - EnsureArgusInboxCreatedAsync not called",
+                      "createdAt":  "2026-05-22T15:23:40.6214389-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
