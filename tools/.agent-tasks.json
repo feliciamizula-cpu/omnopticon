@@ -1,77 +1,77 @@
 {
-    "agents":  [
-                   {
-                       "status":  "active",
-                       "currentTask":  null,
-                       "name":  "Agent 1",
-                       "id":  "agent-1",
-                       "lastUpdated":  "2026-05-22T15:20:26.4381876-04:00"
-                   },
-                   {
-                       "status":  "inactive",
-                       "currentTask":  null,
-                       "name":  "Agent 2",
-                       "id":  "agent-2",
-                       "lastUpdated":  ""
-                   }
-               ],
-    "tasks":  [
-                  {
-                      "id":  "001",
-                      "description":  "Bug #3: RabbitMQ consumer only listens to one queue - fix BasicConsumeAsync to consume all queues",
-                      "createdAt":  "2026-05-22T15:20:52.1332630-04:00",
-                      "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "002",
-                      "description":  "Bug #4: Exchange name mismatch - publisher uses argus.integration.events but consumer binds to argus.events",
-                      "createdAt":  "2026-05-22T15:21:05.0281964-04:00",
-                      "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "003",
-                      "description":  "Bug #5: Event handler dispatch - Payload.GetType() is JsonElement, never finds IIntegrationEventConsumer registrations",
-                      "createdAt":  "2026-05-22T15:21:23.2398012-04:00",
-                      "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "004",
-                      "description":  "Bug #6: Outbox transactional guarantee - EnqueueAsync calls SaveChangesAsync separately from entity save",
-                      "createdAt":  "2026-05-22T15:21:32.5702439-04:00",
-                      "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "005",
-                      "description":  "Bug #7: Task lease race condition - use FOR UPDATE SKIP LOCKED to prevent double-lease",
-                      "createdAt":  "2026-05-22T15:21:46.0697960-04:00",
-                      "priority":  "high",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "006",
-                      "description":  "Bug #8: Dispose uses Wait() on async - can deadlock in ASP.NET Core sync context",
-                      "createdAt":  "2026-05-22T15:22:46.2064690-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  },
-                  {
-                      "id":  "007",
-                      "description":  "Bug #9: RabbitMQ creates new channel per message - should use singleton channel",
-                      "createdAt":  "2026-05-22T15:23:14.3793807-04:00",
-                      "priority":  "medium",
-                      "assignedTo":  null,
-                      "status":  "pending"
-                  }
-              ],
-    "version":  "1.0"
+  "agents": [
+    {
+      "status": "active",
+      "currentTask": "001",
+      "name": "Agent 1",
+      "id": "agent-1",
+      "lastUpdated": "2026-05-22T19:24:08.166Z"
+    },
+    {
+      "status": "inactive",
+      "currentTask": null,
+      "name": "Agent 2",
+      "id": "agent-2",
+      "lastUpdated": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "001",
+      "description": "Bug #3: RabbitMQ consumer only listens to one queue - fix BasicConsumeAsync to consume all queues",
+      "createdAt": "2026-05-22T15:20:52.1332630-04:00",
+      "priority": "high",
+      "assignedTo": "agent-1",
+      "status": "in_progress"
+    },
+    {
+      "id": "002",
+      "description": "Bug #4: Exchange name mismatch - publisher uses argus.integration.events but consumer binds to argus.events",
+      "createdAt": "2026-05-22T15:21:05.0281964-04:00",
+      "priority": "high",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "003",
+      "description": "Bug #5: Event handler dispatch - Payload.GetType() is JsonElement, never finds IIntegrationEventConsumer registrations",
+      "createdAt": "2026-05-22T15:21:23.2398012-04:00",
+      "priority": "high",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "004",
+      "description": "Bug #6: Outbox transactional guarantee - EnqueueAsync calls SaveChangesAsync separately from entity save",
+      "createdAt": "2026-05-22T15:21:32.5702439-04:00",
+      "priority": "high",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "005",
+      "description": "Bug #7: Task lease race condition - use FOR UPDATE SKIP LOCKED to prevent double-lease",
+      "createdAt": "2026-05-22T15:21:46.0697960-04:00",
+      "priority": "high",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "006",
+      "description": "Bug #8: Dispose uses Wait() on async - can deadlock in ASP.NET Core sync context",
+      "createdAt": "2026-05-22T15:22:46.2064690-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    },
+    {
+      "id": "007",
+      "description": "Bug #9: RabbitMQ creates new channel per message - should use singleton channel",
+      "createdAt": "2026-05-22T15:23:14.3793807-04:00",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending"
+    }
+  ],
+  "version": "1.0"
 }
