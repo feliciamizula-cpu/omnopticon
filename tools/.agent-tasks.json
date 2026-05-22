@@ -79,6 +79,14 @@
                       "priority":  "medium",
                       "assignedTo":  null,
                       "status":  "pending"
+                  },
+                  {
+                      "id":  "009",
+                      "description":  "Bug #11: AddArgusInboxConsumer never called - no event consumers wired up",
+                      "createdAt":  "2026-05-22T15:25:51.2631038-04:00",
+                      "priority":  "medium",
+                      "assignedTo":  null,
+                      "status":  "pending"
                   }
               ],
     "version":  "1.0"
