@@ -8,12 +8,14 @@ public sealed record IntegrationEventEnvelope<T>
     public required Guid CorrelationId { get; init; }
     public required Guid CausationId { get; init; }
     public required string SourceService { get; init; }
+    public required int SchemaVersion { get; init; } = 1;
     public required T Payload { get; init; }
 
     public static IntegrationEventEnvelope<T> Create(
         T payload,
         string eventType,
         string sourceService,
+        int schemaVersion = 1,
         Guid? correlationId = null,
         Guid? causationId = null)
     {
@@ -27,6 +29,7 @@ public sealed record IntegrationEventEnvelope<T>
             CorrelationId = correlationId ?? eventId,
             CausationId = causationId ?? eventId,
             SourceService = sourceService,
+            SchemaVersion = schemaVersion,
             Payload = payload
         };
     }

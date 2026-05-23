@@ -7,12 +7,16 @@ public interface IEventTypeRegistry
 {
     Type GetPayloadType(string eventType);
     string GetEventTypeName(Type payloadType);
+    string GetVersionedEventTypeName(Type payloadType, int version);
+    (string EventTypeName, int Version) ParseEventType(string versionedEventType);
 }
 
 public sealed class EventTypeRegistry : IEventTypeRegistry
 {
     private readonly Dictionary<string, Type> _eventTypeToPayload = new();
     private readonly Dictionary<Type, string> _payloadToEventType = new();
+    private readonly Dictionary<string, int> _eventTypeToVersion = new();
+    private readonly Dictionary<Type, int> _payloadToVersion = new();
 
     public EventTypeRegistry()
     {
@@ -35,21 +39,49 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
         Register<AssetPropertyChanged>();
     }
 
-    private void Register<T>() where T : notnull
+    private void Register<T>(int version = 1) where T : notnull
     {
         var type = typeof(T);
         var eventType = typeof(T).Name;
+        var versionedEventType = version == 1 ? eventType : $"{eventType}/v{version}";
         _eventTypeToPayload[eventType] = type;
         _payloadToEventType[type] = eventType;
+        if (version > 1)
+        {
+            _eventTypeToVersion[eventType] = version;
+            _payloadToVersion[type] = version;
+        }
     }
 
     public Type GetPayloadType(string eventType)
     {
-        return _eventTypeToPayload.TryGetValue(eventType, out var type) ? type : typeof(JsonElement);
+        var (baseEventType, _) = ParseEventType(eventType);
+        return _eventTypeToPayload.TryGetValue(baseEventType, out var type) ? type : typeof(JsonElement);
     }
 
     public string GetEventTypeName(Type payloadType)
     {
         return _payloadToEventType.TryGetValue(payloadType, out var name) ? name : throw new ArgumentException($"Unknown payload type: {payloadType}");
+    }
+
+    public string GetVersionedEventTypeName(Type payloadType, int version)
+    {
+        var baseEventType = GetEventTypeName(payloadType);
+        return version == 1 ? baseEventType : $"{baseEventType}/v{version}";
+    }
+
+    public (string EventTypeName, int Version) ParseEventType(string versionedEventType)
+    {
+        if (versionedEventType.Contains("/v"))
+        {
+            var lastSlash = versionedEventType.LastIndexOf('/');
+            var eventTypeName = versionedEventType[..lastSlash];
+            var versionStr = versionedEventType[(lastSlash + 2)..];
+            if (int.TryParse(versionStr, out var version))
+            {
+                return (eventTypeName, version);
+            }
+        }
+        return (versionedEventType, 1);
     }
 }
