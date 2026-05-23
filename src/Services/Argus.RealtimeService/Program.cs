@@ -280,8 +280,6 @@ internal sealed class RealtimeStore
     private readonly ConcurrentDictionary<string, WorkerStatusDto> _workers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, WorkerCapabilityDescriptor> _workerCapabilities = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<Guid, Channel<IntegrationEventEnvelope<JsonNode>>> _subscriptions = new();
-    private readonly ConcurrentQueue<EventRecord> _pendingEvents = new();
-    private readonly ConcurrentQueue<WorkerRecord> _pendingWorkers = new();
     private readonly IServiceProvider _services;
     private readonly ILogger<RealtimeStore> _logger;
 
@@ -344,85 +342,6 @@ internal sealed class RealtimeStore
                 SupportsCheckpoint: false,
                 cap.MaxConcurrency);
         }
-
-        _ = Task.Run(PersistWorkerLoop);
-    }
-
-    private async Task PersistWorkerLoop()
-    {
-        while (true)
-        {
-            try
-            {
-                await Task.Delay(1_000);
-
-                if (_pendingWorkers.IsEmpty && _pendingEvents.IsEmpty)
-                    continue;
-
-                var dbContextFactory = _services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
-                await using var dbContext = await dbContextFactory.CreateDbContextAsync();
-
-                var workersToSave = new List<WorkerRecord>();
-                while (_pendingWorkers.TryDequeue(out var worker))
-                {
-                    workersToSave.Add(worker);
-                }
-
-                if (workersToSave.Count != 0)
-                {
-                    foreach (var worker in workersToSave)
-                    {
-                        var existing = await dbContext.Workers.FindAsync(worker.WorkerId);
-                        if (existing is null)
-                        {
-                            dbContext.Workers.Add(worker);
-                        }
-                        else
-                        {
-                            existing.WorkerType = worker.WorkerType;
-                            existing.Version = worker.Version;
-                            existing.RunningTasks = worker.RunningTasks;
-                            existing.MaxConcurrency = worker.MaxConcurrency;
-                            existing.LastSeenAt = worker.LastSeenAt;
-                            existing.IsOnline = worker.IsOnline;
-                        }
-
-                        var existingCap = await dbContext.WorkerCapabilities.FindAsync(worker.WorkerId);
-                        if (existingCap is null && _workerCapabilities.TryGetValue(worker.WorkerId, out var cap))
-                        {
-                            dbContext.WorkerCapabilities.Add(new WorkerCapabilityRecord
-                            {
-                                WorkerId = worker.WorkerId,
-                                WorkerType = cap.WorkerType,
-                                MaxConcurrency = cap.MaxConcurrency,
-                                SubscribedAssetTypes = JsonSerializer.Serialize(cap.SubscribedAssetTypes)
-                            });
-                        }
-                    }
-                    await dbContext.SaveChangesAsync();
-                }
-
-                var eventsToSave = new List<EventRecord>();
-                while (_pendingEvents.TryDequeue(out var evt))
-                {
-                    eventsToSave.Add(evt);
-                }
-
-                if (eventsToSave.Count != 0)
-                {
-                    await dbContext.Events.AddRangeAsync(eventsToSave);
-                    await dbContext.SaveChangesAsync();
-                }
-
-                while (_events.Count > 5_000 && _events.TryDequeue(out _))
-                {
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in persist worker loop");
-            }
-        }
     }
 
     public IReadOnlyCollection<IntegrationEventEnvelope<JsonNode>> GetEvents(int take) =>
@@ -444,9 +363,7 @@ internal sealed class RealtimeStore
             correlationId: request.CorrelationId,
             causationId: request.CausationId);
 
-        _events.Enqueue(envelope);
-
-        _pendingEvents.Enqueue(new EventRecord
+        var record = new EventRecord
         {
             EventId = envelope.EventId,
             EventType = envelope.EventType,
@@ -455,7 +372,21 @@ internal sealed class RealtimeStore
             CorrelationId = envelope.CorrelationId,
             CausationId = envelope.CausationId,
             PayloadJson = request.PayloadJson
-        });
+        };
+
+        try
+        {
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+            dbContext.Events.Add(record);
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist event {EventId}", record.EventId);
+        }
+
+        _events.Enqueue(envelope);
 
         while (_events.Count > 5_000 && _events.TryDequeue(out _))
         {
@@ -506,16 +437,36 @@ internal sealed class RealtimeStore
         _workers[request.WorkerId] = worker;
         _workerCapabilities[request.WorkerId] = request.Capability;
 
-        _pendingWorkers.Enqueue(new WorkerRecord
+        try
         {
-            WorkerId = worker.WorkerId,
-            WorkerType = worker.WorkerType,
-            Version = worker.Version,
-            RunningTasks = worker.RunningTasks,
-            MaxConcurrency = worker.MaxConcurrency,
-            LastSeenAt = now,
-            IsOnline = true
-        });
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+
+            dbContext.Workers.Add(new WorkerRecord
+            {
+                WorkerId = worker.WorkerId,
+                WorkerType = worker.WorkerType,
+                Version = worker.Version,
+                RunningTasks = worker.RunningTasks,
+                MaxConcurrency = worker.MaxConcurrency,
+                LastSeenAt = now,
+                IsOnline = true
+            });
+
+            dbContext.WorkerCapabilities.Add(new WorkerCapabilityRecord
+            {
+                WorkerId = request.WorkerId,
+                WorkerType = request.Capability.WorkerType,
+                MaxConcurrency = request.Capability.MaxConcurrency,
+                SubscribedAssetTypes = JsonSerializer.Serialize(request.Capability.SubscribedAssetTypes)
+            });
+
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist worker {WorkerId}", request.WorkerId);
+        }
 
         return worker;
     }
@@ -547,16 +498,40 @@ internal sealed class RealtimeStore
             null,
             $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
 
-        _pendingWorkers.Enqueue(new WorkerRecord
+        try
         {
-            WorkerId = request.WorkerId,
-            WorkerType = request.WorkerType,
-            Version = null,
-            RunningTasks = request.RunningTasks,
-            MaxConcurrency = request.MaxConcurrency,
-            LastSeenAt = request.SeenAt,
-            IsOnline = true
-        });
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+
+            var existing = dbContext.Workers.Find(request.WorkerId);
+            if (existing is null)
+            {
+                dbContext.Workers.Add(new WorkerRecord
+                {
+                    WorkerId = request.WorkerId,
+                    WorkerType = request.WorkerType,
+                    Version = null,
+                    RunningTasks = request.RunningTasks,
+                    MaxConcurrency = request.MaxConcurrency,
+                    LastSeenAt = request.SeenAt,
+                    IsOnline = true
+                });
+            }
+            else
+            {
+                existing.WorkerType = request.WorkerType;
+                existing.RunningTasks = request.RunningTasks;
+                existing.MaxConcurrency = request.MaxConcurrency;
+                existing.LastSeenAt = request.SeenAt;
+                existing.IsOnline = true;
+            }
+
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist worker heartbeat {WorkerId}", request.WorkerId);
+        }
 
         return worker;
     }
@@ -594,8 +569,8 @@ internal sealed class RealtimeStore
 
     public async Task<IReadOnlyList<IntegrationEventEnvelope<JsonNode>>> GetEventsByCorrelationIdAsync(Guid correlationId)
     {
-        using var scope = _services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+        var dbContextFactory = _services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
 
         var events = await dbContext.Events
             .Where(e => e.CorrelationId == correlationId)

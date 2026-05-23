@@ -1,13 +1,13 @@
 {
   "agentId": "agent-5",
-  "currentTaskId": "055",
-  "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": null,
-  "status": "unresponsive",
-  "pid": 704161,
+  "status": "idle",
+  "pid": null,
   "startedAt": "2026-05-23T03:03:40.221Z",
   "lastRunAt": "2026-05-23T03:03:40.221Z",
-  "lastHeartbeatAt": "2026-05-23T04:46:42.127Z",
-  "lastError": "heartbeat timeout",
-  "updatedAt": "2026-05-23T04:46:42.127Z"
+  "lastHeartbeatAt": "2026-05-23T04:47:56.056Z",
+  "lastError": "Task 055 requeued during reconciliation",
+  "updatedAt": "2026-05-23T04:47:58.573Z"
 }

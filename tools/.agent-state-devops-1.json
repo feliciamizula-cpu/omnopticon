@@ -1,7 +1,7 @@
 {
   "agentId": "devops-1",
-  "currentTaskId": "056",
-  "currentTaskDescription": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": "Build failing - 34 errors in AssetService due to cross-agent conflicts; ScopeValidationReason fixed; BulkOperationResult public; reconcile done",
   "status": "idle",
   "pid": null,
@@ -9,6 +9,6 @@
   "lastRunAt": "2026-05-23T04:46:48.100Z",
   "lastHeartbeatAt": "2026-05-23T04:46:48.100Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:46:48.100Z",
+  "updatedAt": "2026-05-23T04:47:58.573Z",
   "workStatus": "idle"
 }
