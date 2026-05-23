@@ -2,12 +2,12 @@
   "agentId": "agent-5",
   "currentTaskId": "049",
   "currentTaskDescription": "Enhancement #13: FindingCandidate promotion workflow - When worker produces FindingCandidate (AssetType with interesting score 70), AssetService emits FindingCandidateCreated event. Build ValidationWorker or manual review: promote to Finding asset type with severity/CVSS fields, or dismiss with reason and Archived status. Add Finding to AssetType enum. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/, src/Workers/Argus.Workers.Validation/",
-  "context": null,
+  "context": "Completed: Added Finding to AssetType enum, FindingCandidateCreated event, event emission in AssetService, dispatch map in RabbitMqConsumerService, ExpectedScanIntervals/Scoring for Finding, created ValidationWorker project with promote/dismiss endpoints and event consumer, added to AppHost",
   "status": "working",
-  "pid": 420886,
+  "pid": 489465,
   "startedAt": "2026-05-23T02:47:01.257Z",
-  "lastRunAt": "2026-05-23T02:47:01.257Z",
-  "lastHeartbeatAt": "2026-05-23T02:49:16.480Z",
+  "lastRunAt": "2026-05-23T02:51:18.285Z",
+  "lastHeartbeatAt": "2026-05-23T02:51:53.204Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:49:52.476Z"
+  "updatedAt": "2026-05-23T02:51:53.204Z"
 }

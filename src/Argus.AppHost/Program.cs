@@ -152,6 +152,12 @@ builder.AddProject<Projects.Argus_Workers_Fingerprint>("fingerprint-worker")
     .WaitFor(asset)
     .WaitFor(realtime);
 
+builder.AddProject<Projects.Argus_Workers_Validation>("validation-worker")
+    .WithReference(asset)
+    .WithReference(realtime)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
 builder.AddProject<Projects.Argus_Workers_AssetScoring>("asset-scoring-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
     .WithReference(programScope)

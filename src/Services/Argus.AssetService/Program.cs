@@ -792,6 +792,7 @@ internal sealed class AssetRecord
         [AssetType.JsonDocument] = TimeSpan.FromDays(30),
         [AssetType.ApiEndpoint] = TimeSpan.FromDays(3),
         [AssetType.Technology] = TimeSpan.FromDays(14),
+        [AssetType.Finding] = TimeSpan.FromDays(30),
         [AssetType.Port] = TimeSpan.FromDays(7),
         [AssetType.DnsRecord] = TimeSpan.FromDays(7)
     };
@@ -941,6 +942,7 @@ internal static class AssetScoring
         {
             AssetType.ApiEndpoint => 40,
             AssetType.FindingCandidate => 70,
+            AssetType.Finding => 85,
             AssetType.Url when value.Contains("admin", StringComparison.OrdinalIgnoreCase) => 35,
             AssetType.Url when value.Contains("login", StringComparison.OrdinalIgnoreCase) => 25,
             AssetType.JavaScriptFile => 20,
