@@ -3,11 +3,14 @@ using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
+Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -117,6 +120,30 @@ app.MapGet("/assets/{assetId:guid}/relationships", (
     IAssetStore store,
     CancellationToken cancellationToken) =>
     store.GetRelationshipsAsync(assetId, cancellationToken));
+
+app.MapGet("/assets/{assetId:guid}/subgraph", async (
+    Guid assetId,
+    int? maxDepth,
+    string? assetTypes,
+    IAssetStore store,
+    CancellationToken cancellationToken) =>
+{
+    IReadOnlyCollection<AssetType>? types = null;
+    if (!string.IsNullOrWhiteSpace(assetTypes))
+    {
+        var parts = assetTypes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parsed = new List<AssetType>(parts.Length);
+        foreach (var part in parts)
+        {
+            if (!Enum.TryParse<AssetType>(part, ignoreCase: true, out var type))
+                return Results.BadRequest($"Invalid asset type: '{part}'.");
+            parsed.Add(type);
+        }
+        types = parsed;
+    }
+
+    return Results.Ok(await store.GetSubgraphAsync(assetId, maxDepth, types, cancellationToken));
+});
 
 app.MapPost("/assets/relationships", async (
     CreateAssetRelationshipRequest request,
@@ -301,6 +328,7 @@ internal interface IAssetStore
     Task<AssetDto> AddTagsAsync(Guid assetId, IReadOnlyCollection<string> tags, CancellationToken cancellationToken);
     Task<AssetDto> RemoveTagAsync(Guid assetId, string tag, CancellationToken cancellationToken);
     Task<AssetDto> UpdateConfidenceAsync(Guid assetId, decimal confidence, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<AssetDto>> GetSubgraphAsync(Guid assetId, int? maxDepth, IReadOnlyCollection<AssetType>? assetTypes, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryAssetStore : IAssetStore
@@ -521,6 +549,43 @@ internal sealed class InMemoryAssetStore : IAssetStore
         _assets[assetId] = updated;
         return Task.FromResult(updated);
     }
+
+    public Task<IReadOnlyCollection<AssetDto>> GetSubgraphAsync(Guid assetId, int? maxDepth, IReadOnlyCollection<AssetType>? assetTypes, CancellationToken cancellationToken)
+    {
+        var visited = new HashSet<Guid> { assetId };
+        var queue = new Queue<(Guid AssetId, int Depth)>();
+        queue.Enqueue((assetId, 0));
+
+        var resultIds = new HashSet<Guid>();
+
+        while (queue.TryDequeue(out var current))
+        {
+            if (maxDepth.HasValue && current.Depth >= maxDepth.Value)
+                continue;
+
+            var neighbors = _relationships.Values
+                .Where(r => r.FromAssetId == current.AssetId)
+                .Select(r => r.ToAssetId)
+                .Where(id => !visited.Contains(id));
+
+            foreach (var neighbor in neighbors)
+            {
+                visited.Add(neighbor);
+                resultIds.Add(neighbor);
+                queue.Enqueue((neighbor, current.Depth + 1));
+            }
+        }
+
+        var assets = _assets.Values.Where(a => resultIds.Contains(a.AssetId));
+
+        if (assetTypes is not null && assetTypes.Count > 0)
+        {
+            var typeSet = assetTypes.ToHashSet();
+            assets = assets.Where(a => typeSet.Contains(a.Type));
+        }
+
+        return Task.FromResult<IReadOnlyCollection<AssetDto>>(assets.ToArray());
+    }
 }
 
 internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
@@ -738,6 +803,38 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
         asset.Confidence = confidence;
         await dbContext.SaveChangesAsync(cancellationToken);
         return asset.ToDto();
+    }
+
+    public async Task<IReadOnlyCollection<AssetDto>> GetSubgraphAsync(Guid assetId, int? maxDepth, IReadOnlyCollection<AssetType>? assetTypes, CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+
+        var sql = new StringBuilder("""
+            WITH RECURSIVE reachable AS (
+                SELECT to_asset_id, 1 AS depth
+                FROM asset_edges
+                WHERE from_asset_id = @rootId
+                UNION ALL
+                SELECT r.to_asset_id, reachable.depth + 1
+                FROM asset_edges r
+                JOIN reachable ON r.from_asset_id = reachable.to_asset_id
+                WHERE @maxDepth IS NULL OR reachable.depth < @maxDepth
+            )
+            SELECT a.* FROM assets a
+            WHERE a.asset_id IN (SELECT to_asset_id FROM reachable)
+            """);
+
+        if (assetTypes is not null && assetTypes.Count > 0)
+        {
+            var typeNames = assetTypes.Select(t => t.ToString()).ToArray();
+            sql.Append(" AND a.type = ANY(@assetTypes)");
+        }
+
+        var records = await connection.QueryAsync<AssetRecord>(
+            sql.ToString(),
+            new { rootId = assetId, maxDepth, assetTypes = assetTypes?.Select(t => t.ToString()).ToArray() });
+
+        return records.Select(r => r.ToDto()).ToArray();
     }
 }
 

@@ -1,13 +1,13 @@
 {
   "agentId": "agent-5",
-  "currentTaskId": "049",
-  "currentTaskDescription": "Enhancement #13: FindingCandidate promotion workflow - When worker produces FindingCandidate (AssetType with interesting score 70), AssetService emits FindingCandidateCreated event. Build ValidationWorker or manual review: promote to Finding asset type with severity/CVSS fields, or dismiss with reason and Archived status. Add Finding to AssetType enum. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/, src/Workers/Argus.Workers.Validation/",
-  "context": "Fixed 3 gaps: added Register<FindingCandidateCreated>() to EventTypeRegistry, added FindingCandidate to ExpectedScanIntervals (30 days), added FindingCandidateCreated to RabbitMQ consumer eventTypes array",
+  "currentTaskId": "051",
+  "currentTaskDescription": "Enhancement #16: Asset graph traversal API - Add GET /assets/{assetId}/subgraph?maxDepth=3&assetTypes=Subdomain,Url to AssetService. PostgreSQL recursive CTE via Dapper: WITH RECURSIVE reachable AS (SELECT to_asset_id FROM asset_relationships WHERE from_asset_id = rootId UNION ALL SELECT r.to_asset_id FROM asset_relationships r JOIN reachable ON r.from_asset_id = reachable.to_asset_id) SELECT * FROM assets WHERE asset_id IN (SELECT to_asset_id FROM reachable). MaxDepth and assetTypes params. File: src/Services/Argus.AssetService/",
+  "context": "Added Dapper ref to csproj. Added GetSubgraphAsync to IAssetStore. Implemented BFS in InMemoryAssetStore and PostgreSQL recursive CTE via Dapper in EfAssetStore. Added GET /assets/{assetId}/subgraph?maxDepth&assetTypes endpoint. Build env unavailable but code follows existing patterns.",
   "status": "working",
   "pid": 505174,
   "startedAt": "2026-05-23T02:52:29.977Z",
   "lastRunAt": "2026-05-23T02:52:29.977Z",
-  "lastHeartbeatAt": "2026-05-23T02:53:19.155Z",
+  "lastHeartbeatAt": "2026-05-23T02:55:32.347Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:53:42.922Z"
+  "updatedAt": "2026-05-23T02:55:47.599Z"
 }
