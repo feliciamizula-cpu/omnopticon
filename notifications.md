@@ -462,7 +462,8 @@ Is the RECENT_LIMIT of 20 appropriate for the reviewer batch? If many commits ac
 
 ## FOLLOW-UP ITEMS
 
-1. **Build verification needed:** Run `dotnet build` on `Argus.BuildingBlocks.EventBus`, `Argus.BuildingBlocks.Workers`, `Argus.RealtimeService` to confirm conflict markers don't break CI.
+1. **Build verification completed:** `dotnet build Argus.AppHost.csproj --configuration Release` passes with 0 errors, 0 warnings. EfCoreOutboxStore.cs conflict markers are resolved.
+2. **Add secrets management documentation:** Document required environment variables (MinIO keys, webhook secrets, etc.) for deployment. Add a `SECRETS.md` or section in the deployment docs covering all secrets referenced across services.
 2. **Integration test for reconcile_state():** Simulate agent crash mid-task and verify task is correctly requeued.
 3. **Verify heartbeat accuracy under concurrent load:** Add integration test for `MaxConcurrency > 1` scenario.
 4. **Integration test for dead-letter replay:** Publish poison message, verify it appears in `/admin/dead-letters`, replay it, confirm it reaches DLQ consumer.
@@ -476,7 +477,7 @@ Is the RECENT_LIMIT of 20 appropriate for the reviewer batch? If many commits ac
 
 | Category | Risk Level | Primary Concerns |
 |----------|------------|------------------|
-| Build | HIGH | Unresolved conflict markers in EfCoreOutboxStore.cs |
+| Build | RESOLVED | Conflict markers resolved; `dotnet build` passes |
 | Security | HIGH | Password exposure in API, unauthenticated admin endpoints |
 | Concurrency | MEDIUM | SemaphoreSlim removal reverted Bug #14; heartbeat always 0 |
 | Coordination | MEDIUM | AGENT_COORD_AUTOCOMMIT=0 causes state drift |
