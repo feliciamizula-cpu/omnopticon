@@ -141,6 +141,17 @@ services:
     ports:
       - "${ARGUS_WEB_PORT:-8080}:8080"
 
+  review-report:
+    image: python:3-slim
+    container_name: argus-review-report
+    restart: unless-stopped
+    ports:
+      - "${ARGUS_REVIEW_PORT:-8083}:8080"
+    volumes:
+      - ../tools/reviews:/usr/share/reviews:ro
+    working_dir: /usr/share/reviews
+    command: python3 -m http.server 8080
+
   amass-worker:
     <<: *service-defaults
     stop_grace_period: 90s

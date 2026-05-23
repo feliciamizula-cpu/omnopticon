@@ -5,9 +5,9 @@
   "context": "Standing DevOps agent for application, deployed component, and release readiness health.",
   "status": "idle",
   "pid": null,
-  "startedAt": "2026-05-23T00:40:26.297Z",
-  "lastRunAt": "2026-05-23T00:40:26.297Z",
-  "lastHeartbeatAt": "2026-05-23T00:44:52.356Z",
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T00:00:00.000Z",
+  "lastHeartbeatAt": "2026-05-23T03:00:14.145Z",
   "lastError": "Task 044 requeued during reconciliation",
-  "updatedAt": "2026-05-23T02:55:47.599Z"
+  "updatedAt": "2026-05-23T03:02:45.109Z"
 }

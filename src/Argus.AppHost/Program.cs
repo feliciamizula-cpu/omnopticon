@@ -39,6 +39,7 @@ var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("s
     .WaitFor(task);
 
 var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-service")
+    .WithReference(argusDb)
     .WithReference(rabbitMq).WaitFor(rabbitMq)
     .WithHttpHealthCheck("/health");
 

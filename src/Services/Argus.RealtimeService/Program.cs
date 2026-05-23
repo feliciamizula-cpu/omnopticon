@@ -43,6 +43,18 @@ builder.Services.AddSingleton<RealtimeStore>(sp =>
     return new RealtimeStore(sp, logger);
 });
 
+builder.Services.AddHttpClient("webhook", client =>
+{
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Argus.WebhookService/1.0");
+    client.Timeout = TimeSpan.FromSeconds(60);
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    MaxConnectionsPerServer = 10
+});
+
+builder.Services.AddHostedService<WebhookService>();
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -165,6 +177,80 @@ if (deadLetterConnection is not null && deadLetterChannel is not null)
         return removed ? Results.Ok(new { removed = true }) : Results.NotFound();
     });
 }
+
+var webhooks = app.MapGroup("/webhooks").WithTags("Webhooks");
+
+webhooks.MapGet("/", async (RealtimeDbContext db) =>
+{
+    var configs = await db.WebhookConfigs.OrderBy(c => c.Name).ToListAsync();
+    return Results.Ok(configs.Select(c => c.ToDto()).ToArray());
+});
+
+webhooks.MapGet("/{id:guid}", async (Guid id, RealtimeDbContext db) =>
+{
+    var config = await db.WebhookConfigs.FindAsync(id);
+    return config is null ? Results.NotFound() : Results.Ok(config.ToDto());
+});
+
+webhooks.MapPost("/", async (CreateWebhookRequest request, RealtimeDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name))
+        return Results.BadRequest("Name is required.");
+    if (string.IsNullOrWhiteSpace(request.Url))
+        return Results.BadRequest("Url is required.");
+    if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
+        (uri.Scheme != "http" && uri.Scheme != "https"))
+        return Results.BadRequest("Url must be a valid HTTP or HTTPS URL.");
+
+    var config = request.ToEntity();
+    db.WebhookConfigs.Add(config);
+    await db.SaveChangesAsync();
+    return Results.Created($"/webhooks/{config.Id}", config.ToDto());
+});
+
+webhooks.MapPut("/{id:guid}", async (Guid id, UpdateWebhookRequest request, RealtimeDbContext db) =>
+{
+    var config = await db.WebhookConfigs.FindAsync(id);
+    if (config is null)
+        return Results.NotFound();
+
+    if (request.Url is not null && !Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
+        return Results.BadRequest("Url must be a valid HTTP or HTTPS URL.");
+
+    config.ApplyUpdate(request);
+    await db.SaveChangesAsync();
+    return Results.Ok(config.ToDto());
+});
+
+webhooks.MapDelete("/{id:guid}", async (Guid id, RealtimeDbContext db) =>
+{
+    var config = await db.WebhookConfigs.FindAsync(id);
+    if (config is null)
+        return Results.NotFound();
+
+    db.WebhookConfigs.Remove(config);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { deleted = true });
+});
+
+webhooks.MapGet("/{id:guid}/logs", async (Guid id, int? take, int? skip, RealtimeDbContext db) =>
+{
+    var query = db.WebhookDeliveryLogs
+        .Where(l => l.WebhookConfigId == id)
+        .OrderByDescending(l => l.AttemptedAt);
+
+    var total = await query.CountAsync();
+    var logs = await query
+        .Skip(skip ?? 0)
+        .Take(Math.Clamp(take ?? 50, 1, 500))
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        total,
+        logs = logs.Select(l => l.ToDto()).ToArray()
+    });
+});
 
 app.Run();
 
