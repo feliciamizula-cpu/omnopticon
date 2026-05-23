@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "044",
-  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
-  "context": "Reviewing DevOps health infrastructure. dotnet not available in environment. AppHost has proper health checks configured, compose.yaml has health checks for postgres/redis/rabbitmq/minio, CI workflows exist.",
-  "status": "working",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": null,
+  "status": "idle",
   "pid": null,
-  "startedAt": "2026-05-23T04:47:39.745Z",
-  "lastRunAt": "2026-05-23T04:48:00.296Z",
-  "lastHeartbeatAt": "2026-05-23T04:48:04.112Z",
-  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
-  "updatedAt": "2026-05-23T04:48:04.112Z"
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T04:48:15.392Z",
+  "lastHeartbeatAt": "2026-05-23T04:48:15.392Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T04:48:15.392Z"
 }

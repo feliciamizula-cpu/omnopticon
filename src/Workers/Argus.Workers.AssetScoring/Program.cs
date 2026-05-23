@@ -1,3 +1,4 @@
+using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
@@ -12,11 +13,11 @@ builder.AddArgusWorker<AssetScoringWorker>();
 
 await builder.Build().RunAsync();
 
-internal sealed class AssetScoringWorker : IReconWorker
+internal sealed class AssetScoringWorker : IReconWorker, IIntegrationEventConsumer<AssetDiscovered>
 {
     public WorkerCapabilityDescriptor Capability { get; } = new(
         "AssetScoringWorker",
-        ["Domain", "Subdomain", "Url", "ApiEndpoint", "JavaScriptFile", "FindingCandidate", "Technology"],
+        ["Domain", "Subdomain", "Url", "ApiEndpoint", "JavaScriptFile", "Technology"],
         ["Observation"],
         RequiresHttp: false,
         SupportsCheckpoint: false,
@@ -38,11 +39,12 @@ internal sealed class AssetScoringWorker : IReconWorker
 
         await context.ReportProgressAsync(20, $"Analyzing asset: {value}", null);
 
-        var observations = ComputeObservations(value, assetType, targetId, programId, task.TaskId);
+        var observations = ComputeObservations(value, assetType, targetId, programId, task.TaskId, task.InputAssetId);
 
         await context.ReportProgressAsync(80, $"Generated {observations.Length} observations", null);
 
         return new WorkerProcessResult(
+            PartiallySucceeded: false,
             HasMoreWork: false,
             NextTaskPayloadJson: null,
             ProducedAssets: observations.Select(o => new WorkerProducedAsset(
@@ -56,91 +58,36 @@ internal sealed class AssetScoringWorker : IReconWorker
             OutputSummaryJson: JsonSerializer.Serialize(new
             {
                 assetValue = value,
+                assetType,
                 observationCount = observations.Length,
-                highestScore = observations.Max(o => o.Score)
+                highestScore = observations.Length > 0 ? observations.Max(o => o.Score) : 0
             }));
     }
 
-    private static ScoringObservation[] ComputeObservations(string value, string assetType, Guid targetId, Guid programId, Guid taskId)
+    private static ScoringObservation[] ComputeObservations(string value, string assetType, Guid targetId, Guid programId, Guid taskId, Guid? parentAssetId)
     {
         var observations = new List<ScoringObservation>();
+        var signal = DetermineSignal(value, assetType);
 
-        var isHighValue = value.Contains("admin", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("internal", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("graphql", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("api", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("vpn", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("git", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("jenkins", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("ci", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("staging", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("dev", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("test", StringComparison.OrdinalIgnoreCase);
-
-        if (isHighValue)
+        if (signal.Score >= 50)
         {
             observations.Add(new ScoringObservation(
-                $"High-value endpoint detected: {value}",
-                "InterestingAsset",
-                75,
+                signal.Description,
+                signal.Subtype,
+                signal.Score,
                 new Dictionary<string, string>
                 {
                     ["source"] = "asset-scoring",
-                    ["signal"] = "high-value-endpoint",
-                    ["taskId"] = taskId.ToString()
+                    ["signal"] = signal.Name,
+                    ["taskId"] = taskId.ToString(),
+                    ["targetId"] = targetId.ToString(),
+                    ["programId"] = programId.ToString(),
+                    ["parentAssetId"] = parentAssetId?.ToString() ?? ""
                 },
-                ["high-value", "scored", "interesting-asset"]));
+                signal.Tags));
         }
 
-        if (value.Contains("graphql", StringComparison.OrdinalIgnoreCase))
-        {
-            observations.Add(new ScoringObservation(
-                $"GraphQL endpoint found: {value}",
-                "GraphQLEndpoint",
-                85,
-                new Dictionary<string, string>
-                {
-                    ["source"] = "asset-scoring",
-                    ["signal"] = "graphql-detected",
-                    ["taskId"] = taskId.ToString()
-                },
-                ["graphql", "api", "scored", "interesting-asset"]));
-        }
-
-        if (value.Contains("swagger", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("openapi", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("api-docs", StringComparison.OrdinalIgnoreCase))
-        {
-            observations.Add(new ScoringObservation(
-                $"API documentation endpoint: {value}",
-                "ApiDocumentation",
-                70,
-                new Dictionary<string, string>
-                {
-                    ["source"] = "asset-scoring",
-                    ["signal"] = "api-docs-detected",
-                    ["taskId"] = taskId.ToString()
-                },
-                ["api-docs", "swagger", "scored", "interesting-asset"]));
-        }
-
-        if (assetType.Equals("JavaScriptFile", StringComparison.OrdinalIgnoreCase))
-        {
-            observations.Add(new ScoringObservation(
-                $"JavaScript file analyzed: {value}",
-                "JsFile",
-                30 + (value.Contains(".min.", StringComparison.OrdinalIgnoreCase) ? 0 : 20),
-                new Dictionary<string, string>
-                {
-                    ["source"] = "asset-scoring",
-                    ["signal"] = "js-file",
-                    ["minified"] = value.Contains(".min.", StringComparison.OrdinalIgnoreCase).ToString(),
-                    ["taskId"] = taskId.ToString()
-                },
-                ["javascript", "scored"]));
-        }
-
-        if (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        if (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && signal.Score < 70)
         {
             observations.Add(new ScoringObservation(
                 $"HTTPS endpoint: {value}",
@@ -155,24 +102,77 @@ internal sealed class AssetScoringWorker : IReconWorker
                 ["https", "scored"]));
         }
 
-        if (value.Contains("debug", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("trace", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("env", StringComparison.OrdinalIgnoreCase))
+        return observations.ToArray();
+    }
+
+    private static SignalInfo DetermineSignal(string value, string assetType)
+    {
+        if (value.Contains("graphql", StringComparison.OrdinalIgnoreCase) || value.Contains("/graphql", StringComparison.OrdinalIgnoreCase))
         {
-            observations.Add(new ScoringObservation(
-                $"Potential debug/misconfiguration: {value}",
-                "PotentialMisconfiguration",
-                80,
-                new Dictionary<string, string>
-                {
-                    ["source"] = "asset-scoring",
-                    ["signal"] = "debug-detected",
-                    ["taskId"] = taskId.ToString()
-                },
-                ["debug", "misconfiguration", "scored", "interesting-asset"]));
+            return new SignalInfo("graphql-detected", "GraphQLEndpoint", $"GraphQL endpoint found: {value}", 85,
+                ["graphql", "api", "scored", "interesting-asset"]);
         }
 
-        return observations.ToArray();
+        if (value.Contains("swagger", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("openapi", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("api-docs", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("/v2/api-docs", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SignalInfo("api-docs-detected", "ApiDocumentation", $"API documentation endpoint: {value}", 70,
+                ["api-docs", "swagger", "scored", "interesting-asset"]);
+        }
+
+        if (value.Contains("admin", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("/admin", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("dashboard", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SignalInfo("admin-panel-detected", "AdminPanel", $"Potential admin panel: {value}", 80,
+                ["admin", "scored", "interesting-asset"]);
+        }
+
+        if (value.Contains("jenkins", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("ci", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("gitlab", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("github", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SignalInfo("dev-tool-detected", "DevTool", $"Development tool endpoint: {value}", 75,
+                ["dev-tool", "scored", "interesting-asset"]);
+        }
+
+        if (value.Contains("internal", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("intranet", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("corp", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SignalInfo("internal-endpoint-detected", "InternalEndpoint", $"Potential internal endpoint: {value}", 78,
+                ["internal", "scored", "interesting-asset"]);
+        }
+
+        if (value.Contains("debug", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("trace", StringComparison.OrdinalIgnoreCase)
+            || value.Contains(".env", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("phpinfo", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SignalInfo("debug-info-detected", "DebugEndpoint", $"Potential debug/misconfiguration: {value}", 88,
+                ["debug", "misconfiguration", "scored", "interesting-asset"]);
+        }
+
+        if (value.Contains("password", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("reset", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("login", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("signin", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SignalInfo("auth-endpoint-detected", "AuthEndpoint", $"Authentication endpoint: {value}", 60,
+                ["auth", "scored", "interesting-asset"]);
+        }
+
+        if (assetType.Equals("JavaScriptFile", StringComparison.OrdinalIgnoreCase))
+        {
+            var score = 30 + (value.Contains(".min.", StringComparison.OrdinalIgnoreCase) ? 0 : 20);
+            return new SignalInfo("js-file-detected", "JsFile", $"JavaScript file analyzed: {value}", score,
+                ["javascript", "scored"]);
+        }
+
+        return new SignalInfo("generic-asset", "GenericObservation", $"Asset observed: {value}", 20, ["scored"]);
     }
 
     private static string? GetPayloadString(string? payloadJson, string propertyName)
@@ -208,5 +208,12 @@ internal sealed class AssetScoringWorker : IReconWorker
         string Subtype,
         int Score,
         Dictionary<string, string> Metadata,
+        string[] Tags);
+
+    private record SignalInfo(
+        string Name,
+        string Subtype,
+        string Description,
+        int Score,
         string[] Tags);
 }

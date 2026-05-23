@@ -2,12 +2,12 @@
   "agentId": "agent-4",
   "currentTaskId": "052",
   "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
-  "context": "Starting task, context is null - need to understand the current state of the program/scope service",
-  "status": "working",
+  "context": "Enhancement #18 implemented: GET /programs/{programId}/export and POST /programs/import endpoints complete with full export/import of program, scopes, exclusions, rules, and rate limit policies. dotnet not available in env to build, but code review confirms implementation is complete.",
+  "status": "completed",
   "pid": 2656054,
   "startedAt": "2026-05-23T04:47:43.179Z",
   "lastRunAt": "2026-05-23T04:47:43.218Z",
-  "lastHeartbeatAt": "2026-05-23T04:47:59.091Z",
+  "lastHeartbeatAt": "2026-05-23T04:48:16.780Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:47:58.573Z"
+  "updatedAt": "2026-05-23T04:48:16.780Z"
 }
