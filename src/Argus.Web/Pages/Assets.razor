@@ -1,0 +1,320 @@
+@page "/assets"
+@inject HttpClient Http
+
+<PageHeader Title="Assets" Subtitle="@($" {(_assets?.Count ?? 0):N0} total")" />
+
+<div class="page-body">
+    @if (_loading)
+    {
+        <div class="empty-state">
+            <div class="app-loading-spinner"></div>
+            <p>Loading assets...</p>
+        </div>
+    }
+    else if (_assets == null || _assets.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-state-icon">📦</div>
+            <div class="empty-state-title">No assets yet</div>
+            <div class="empty-state-description">Assets discovered by workers will appear here.</div>
+        </div>
+    }
+    else
+    {
+        <div class="card" style="padding: 0;">
+            @if (_selectedIds.Count > 0)
+            {
+                <div class="bulk-toolbar">
+                    <span class="bulk-toolbar-count">@_selectedIds.Count selected</span>
+                    <button class="btn btn-sm" @onclick="OpenBulkTagModal">Tag Selected</button>
+                    <button class="btn btn-sm" @onclick="OpenBulkEnqueueModal">Enqueue Tasks</button>
+                    <button class="btn btn-sm btn-ghost" @onclick="ClearSelection">Clear</button>
+                </div>
+            }
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="col-checkbox">
+                                <input type="checkbox"
+                                       checked="@(_selectedIds.Count == _assets.Count && _assets.Count > 0)"
+                                       indeterminate="@(_selectedIds.Count > 0 && _selectedIds.Count < _assets.Count)"
+                                       @onchange="ToggleSelectAll" />
+                            </th>
+                            <th>Type</th>
+                            <th>Value</th>
+                            <th>Status</th>
+                            <th>Risk</th>
+                            <th>Interesting</th>
+                            <th>Tags</th>
+                            <th>Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var asset in _assets)
+                        {
+                            <tr class="@(_selectedIds.Contains(asset.AssetId) ? "selected" : "")"
+                                @onclick="() => ToggleSelect(asset.AssetId)">
+                                <td class="col-checkbox" @onclick:stopPropagation>
+                                    <input type="checkbox"
+                                           checked="@_selectedIds.Contains(asset.AssetId)"
+                                           @onchange="() => ToggleSelect(asset.AssetId)" />
+                                </td>
+                                <td>
+                                    <span class="asset-type">@asset.Type</span>
+                                    @if (!string.IsNullOrEmpty(asset.Subtype))
+                                    {
+                                        <span class="asset-subtype">@asset.Subtype</span>
+                                    }
+                                </td>
+                                <td class="mono">@asset.Value</td>
+                                <td>
+                                    <span class="status-badge status-@asset.Status.ToString().ToLower()">@asset.Status</span>
+                                </td>
+                                <td>
+                                    <span class="risk-score risk-@(asset.RiskScore >= 70 ? "high" : asset.RiskScore >= 40 ? "medium" : "low")">@asset.RiskScore</span>
+                                </td>
+                                <td>@asset.InterestingScore</td>
+                                <td>
+                                    <div class="tags-cell">
+                                        @if (asset.Tags != null)
+                                        {
+                                            @foreach (var tag in asset.Tags.Take(3))
+                                            {
+                                                <span class="tag">@tag</span>
+                                            }
+                                            @if (asset.Tags.Count > 3)
+                                            {
+                                                <span class="tag tag-more">+@(asset.Tags.Count - 3)</span>
+                                            }
+                                        }
+                                    </div>
+                                </td>
+                                <td class="text-muted">@asset.LastSeenAt.ToLocalTime().ToString("MMM d, HH:mm")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@if (_showBulkTagModal)
+{
+    <div class="modal-overlay" @onclick="CloseBulkTagModal">
+        <div class="modal" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Tag @_selectedIds.Count Assets</h3>
+                <button class="btn btn-icon btn-ghost" @onclick="CloseBulkTagModal">×</button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">Tags (comma-separated)</label>
+                <input type="text" class="input" style="width: 100%;"
+                       placeholder="e.g. reviewed, important"
+                       @bind="_bulkTagInput" @bind:event="oninput" />
+            </div>
+            <div class="modal-footer">
+                <button class="btn" @onclick="CloseBulkTagModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="ExecuteBulkTag"
+                        disabled="@(string.IsNullOrWhiteSpace(_bulkTagInput))">
+                    Apply Tags
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showBulkEnqueueModal)
+{
+    <div class="modal-overlay" @onclick="CloseBulkEnqueueModal">
+        <div class="modal" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Enqueue Tasks for @_selectedIds.Count Assets</h3>
+                <button class="btn btn-icon btn-ghost" @onclick="CloseBulkEnqueueModal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Task Type</label>
+                    <input type="text" class="input" style="width: 100%;"
+                           placeholder="e.g. fingerprint, screenshot"
+                           @bind="_bulkEnqueueTaskType" @bind:event="oninput" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Worker Capability</label>
+                    <input type="text" class="input" style="width: 100%;"
+                           placeholder="e.g. http-probe, screenshot-worker"
+                           @bind="_bulkEnqueueCapability" @bind:event="oninput" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Program ID</label>
+                    <input type="text" class="input" style="width: 100%;"
+                           placeholder="Enter program GUID"
+                           @bind="_bulkEnqueueProgramId" @bind:event="oninput" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" @onclick="CloseBulkEnqueueModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="ExecuteBulkEnqueue"
+                        disabled="@(string.IsNullOrWhiteSpace(_bulkEnqueueTaskType) || string.IsNullOrWhiteSpace(_bulkEnqueueCapability) || string.IsNullOrWhiteSpace(_bulkEnqueueProgramId))">
+                    Enqueue Tasks
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AssetDto>? _assets;
+    private HashSet<Guid> _selectedIds = new();
+    private bool _loading = true;
+    private bool _showBulkTagModal;
+    private bool _showBulkEnqueueModal;
+    private string _bulkTagInput = "";
+    private string _bulkEnqueueTaskType = "";
+    private string _bulkEnqueueCapability = "";
+    private string _bulkEnqueueProgramId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAssets();
+    }
+
+    private async Task LoadAssets()
+    {
+        _loading = true;
+        try
+        {
+            var state = await Http.GetFromJsonAsync<UiState>("/ui/state");
+            _assets = state?.Assets?.AsObject()?.GetValue("_embedded")?.AsArray()?.Select(n => n.Deserialize<AssetDto>()).Where(a => a != null).Cast<AssetDto>().ToList()
+                ?? state?.Assets?.AsArray()?.Select(n => n.Deserialize<AssetDto>()).Where(a => a != null).Cast<AssetDto>().ToList()
+                ?? new List<AssetDto>();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading assets: {ex.Message}");
+            _assets = new List<AssetDto>();
+        }
+        _loading = false;
+    }
+
+    private void ToggleSelect(Guid assetId)
+    {
+        if (_selectedIds.Contains(assetId))
+            _selectedIds.Remove(assetId);
+        else
+            _selectedIds.Add(assetId);
+        StateHasChanged();
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        if (e.Value is bool checked2 && checked2)
+            _selectedIds = _assets?.Select(a => a.AssetId).ToHashSet() ?? new HashSet<Guid>();
+        else
+            _selectedIds.Clear();
+        StateHasChanged();
+    }
+
+    private void ClearSelection()
+    {
+        _selectedIds.Clear();
+        StateHasChanged();
+    }
+
+    private void OpenBulkTagModal()
+    {
+        _bulkTagInput = "";
+        _showBulkTagModal = true;
+    }
+
+    private void CloseBulkTagModal()
+    {
+        _showBulkTagModal = false;
+    }
+
+    private async Task ExecuteBulkTag()
+    {
+        if (_selectedIds.Count == 0 || string.IsNullOrWhiteSpace(_bulkTagInput)) return;
+
+        var tags = _bulkTagInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var request = new { assetIds = _selectedIds.ToArray(), tags = tags.ToArray() };
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("/ui/assets/bulk/tag", request);
+            if (response.IsSuccessStatusCode)
+            {
+                _showBulkTagModal = false;
+                await LoadAssets();
+                ClearSelection();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error tagging assets: {ex.Message}");
+        }
+    }
+
+    private void OpenBulkEnqueueModal()
+    {
+        _bulkEnqueueTaskType = "";
+        _bulkEnqueueCapability = "";
+        _bulkEnqueueProgramId = "";
+        _showBulkEnqueueModal = true;
+    }
+
+    private void CloseBulkEnqueueModal()
+    {
+        _showBulkEnqueueModal = false;
+    }
+
+    private async Task ExecuteBulkEnqueue()
+    {
+        if (_selectedIds.Count == 0 || string.IsNullOrWhiteSpace(_bulkEnqueueTaskType) ||
+            string.IsNullOrWhiteSpace(_bulkEnqueueCapability) || !Guid.TryParse(_bulkEnqueueProgramId, out var programId))
+            return;
+
+        var request = new
+        {
+            assetIds = _selectedIds.ToArray(),
+            taskType = _bulkEnqueueTaskType,
+            workerCapability = _bulkEnqueueCapability,
+            programId
+        };
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("/ui/assets/bulk/enqueue", request);
+            if (response.IsSuccessStatusCode)
+            {
+                _showBulkEnqueueModal = false;
+                ClearSelection();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error enqueuing tasks: {ex.Message}");
+        }
+    }
+
+    private class UiState
+    {
+        public JsonNode? Assets { get; set; }
+    }
+
+    private class AssetDto
+    {
+        public Guid AssetId { get; set; }
+        public Guid ProgramId { get; set; }
+        public Guid? ScopeId { get; set; }
+        public string Type { get; set; } = "";
+        public string? Subtype { get; set; }
+        public string Value { get; set; } = "";
+        public string Status { get; set; } = "";
+        public int RiskScore { get; set; }
+        public int InterestingScore { get; set; }
+        public DateTimeOffset LastSeenAt { get; set; }
+        public List<string>? Tags { get; set; }
+    }
+}

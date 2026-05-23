@@ -6,6 +6,28 @@ public enum ScopeRuleAction
     Exclude
 }
 
+public enum ScopeAssetType
+{
+    Domain,
+    WildcardDomain,
+    Url,
+    Cidr,
+    IpRange
+}
+
+public enum ScopeValidationReason
+{
+    IncludedByRule,
+    ExcludedByRule,
+    NoMatchingInclude,
+    InvalidAssetType,
+    UnsupportedProtocol,
+    PortNotAllowed,
+    PathExcluded,
+    SchemeNotAllowed,
+    CidrMismatch
+}
+
 public sealed record ProgramDto(
     Guid ProgramId,
     string Name,
@@ -46,7 +68,8 @@ public sealed record ScopeValidationResult(
     string Target,
     bool IsAllowed,
     Guid? MatchedScopeId,
-    string Reason);
+    ScopeValidationReason Reason,
+    string? RulePattern);
 
 public sealed record ProgramRuleRevisionDto(
     Guid RevisionId,
@@ -99,3 +122,21 @@ public sealed record ScopeSnapshot(
     IReadOnlyCollection<ProgramScopeDto> Scopes,
     IReadOnlyCollection<ScopeExclusionDto> Exclusions,
     string Signature);
+
+public sealed record ProgramExportDto(
+    Guid ProgramId,
+    string Name,
+    string Source,
+    string? ExternalUrl,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyCollection<ProgramScopeDto> Scopes,
+    IReadOnlyCollection<ScopeExclusionDto> Exclusions,
+    IReadOnlyCollection<ProgramRuleRevisionDto> RuleRevisions,
+    IReadOnlyCollection<RateLimitPolicyDto> RateLimitPolicies,
+    string ExportedAt,
+    string? Signature);
+
+public sealed record ProgramImportRequest(
+    ProgramExportDto Export,
+    bool ForceOverwrite);

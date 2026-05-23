@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "046",
-  "currentTaskDescription": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
-  "context": "Argus.AgentCoordinator implemented with all 12 requirements: configurable pool via env vars, JSON task board, per-agent state files, heartbeat monitoring, crash detection, task assignment, prompt writing, opencode invocation, devops sweep, reviewer cycle, watchdog, graceful shutdown",
-  "status": "completed",
-  "pid": 2524505,
-  "startedAt": "2026-05-23T04:40:31.368Z",
-  "lastRunAt": "2026-05-23T04:40:32.261Z",
-  "lastHeartbeatAt": "2026-05-23T04:40:45.901Z",
+  "currentTaskId": "052",
+  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
+  "context": "Adding export/import endpoints and implementations",
+  "status": "working",
+  "pid": 2540560,
+  "startedAt": "2026-05-23T04:41:32.923Z",
+  "lastRunAt": "2026-05-23T04:41:32.975Z",
+  "lastHeartbeatAt": "2026-05-23T04:42:06.649Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:40:45.901Z"
+  "updatedAt": "2026-05-23T04:42:06.649Z"
 }

@@ -6,35 +6,70 @@ builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpForwarder();
 
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
 var app = builder.Build();
 var endpoints = ArgusServiceEndpoints.From(app.Configuration);
 
+app.UseCors();
+
 app.MapDefaultEndpoints();
 
+var allowedOrigins = new[] { "http://localhost:5173", "http://localhost:3000" };
 app.MapGet("/", () => Results.Ok(new
 {
     Name = "Argus API Gateway",
+    Version = "1.0",
     Routes = new[]
     {
-        new { Name = "program-scope", BasePath = "/programs, /scopes, /scope-validation/check" },
-        new { Name = "assets", BasePath = "/assets" },
-        new { Name = "tasks", BasePath = "/tasks" },
-        new { Name = "rate-limits", BasePath = "/rate-limits" },
-        new { Name = "scan-orchestrator", BasePath = "/scan-plans, /workflow-types" },
-        new { Name = "realtime", BasePath = "/events, /workers" }
+        new { Name = "programs", Path = "/programs", Service = "program-scope", Description = "Bug bounty programs" },
+        new { Name = "scopes", Path = "/scopes", Service = "program-scope", Description = "Program scope management" },
+        new { Name = "scope-validation", Path = "/scope-validation", Service = "program-scope", Description = "Scope validation endpoints" },
+        new { Name = "targets", Path = "/targets", Service = "program-scope", Description = "Target management" },
+        new { Name = "assets", Path = "/assets", Service = "asset", Description = "Asset discovery and management" },
+        new { Name = "asset-types", Path = "/asset-types", Service = "asset", Description = "Asset type definitions" },
+        new { Name = "findings", Path = "/findings", Service = "asset", Description = "Vulnerability findings" },
+        new { Name = "artifacts", Path = "/artifacts", Service = "asset", Description = "Scan artifacts" },
+        new { Name = "tasks", Path = "/tasks", Service = "task", Description = "Task orchestration" },
+        new { Name = "workers", Path = "/workers", Service = "realtime", Description = "Worker management" },
+        new { Name = "worker-types", Path = "/worker-types", Service = "realtime", Description = "Worker type definitions" },
+        new { Name = "worker-subscriptions", Path = "/worker-subscriptions", Service = "realtime", Description = "Worker subscription management" },
+        new { Name = "events", Path = "/events", Service = "realtime", Description = "Event stream and subscriptions" },
+        new { Name = "event-router", Path = "/event-router", Service = "realtime", Description = "Event routing configuration" },
+        new { Name = "event-routes", Path = "/event-routes", Service = "realtime", Description = "Event route management" },
+        new { Name = "rate-limits", Path = "/rate-limits", Service = "rate-limit", Description = "Rate limit configuration" },
+        new { Name = "settings", Path = "/settings", Service = "program-scope", Description = "System settings" }
     }
-}));
+})).RequireCors("AllowLocalUI");
+
+app.MapForwarder("/health", "https+http://apisix-health");
+app.MapForwarder("/healthz", "https+http://apisix-health");
 
 MapService(app, "/programs", endpoints.ProgramScope);
 MapService(app, "/scopes", endpoints.ProgramScope);
 MapService(app, "/scope-validation", endpoints.ProgramScope);
+MapService(app, "/targets", endpoints.ProgramScope);
 MapService(app, "/assets", endpoints.Asset);
+MapService(app, "/asset-types", endpoints.Asset);
+MapService(app, "/findings", endpoints.Asset);
+MapService(app, "/artifacts", endpoints.Asset);
 MapService(app, "/tasks", endpoints.Task);
-MapService(app, "/rate-limits", endpoints.RateLimit);
-MapService(app, "/scan-plans", endpoints.ScanOrchestrator);
-MapService(app, "/workflow-types", endpoints.ScanOrchestrator);
-MapService(app, "/events", endpoints.Realtime);
 MapService(app, "/workers", endpoints.Realtime);
+MapService(app, "/worker-types", endpoints.Realtime);
+MapService(app, "/worker-subscriptions", endpoints.Realtime);
+MapService(app, "/events", endpoints.Realtime);
+MapService(app, "/event-router", endpoints.Realtime);
+MapService(app, "/event-routes", endpoints.Realtime);
+MapService(app, "/rate-limits", endpoints.RateLimit);
+MapService(app, "/settings", endpoints.ProgramScope);
 
 app.Run();
 
@@ -49,7 +84,6 @@ internal sealed record ArgusServiceEndpoints(
     string Asset,
     string Task,
     string RateLimit,
-    string ScanOrchestrator,
     string Realtime)
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) =>
@@ -58,6 +92,5 @@ internal sealed record ArgusServiceEndpoints(
             configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
             configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
             configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
-            configuration["ARGUS_SCAN_ORCHESTRATOR_SERVICE"] ?? "https+http://scan-orchestrator-service",
             configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service");
 }

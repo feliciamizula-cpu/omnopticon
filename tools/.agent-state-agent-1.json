@@ -1,14 +1,14 @@
 {
   "agentId": "agent-1",
-  "status": "idle",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "status": "working",
+  "currentTaskId": "042",
+  "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
   "workStatus": "idle",
-  "pid": null,
-  "lastError": "agent exited with code 0 before task completion (task status: )",
-  "lastHeartbeatAt": "2026-05-23T04:40:47.376Z",
-  "updatedAt": "2026-05-23T04:40:47.376Z",
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T04:40:18.929Z",
-  "context": "Task complete - agents commit changes when complete via check_and_commit_changes() in auto-run-agents.sh, and agent prompts include commit step"
+  "pid": 2551812,
+  "lastError": null,
+  "lastHeartbeatAt": "2026-05-23T04:42:07.545Z",
+  "updatedAt": "2026-05-23T04:42:09.368Z",
+  "startedAt": "2026-05-23T04:42:04.711Z",
+  "lastRunAt": "2026-05-23T04:42:04.711Z",
+  "context": "Fixed EventTypeRegistry missing proxy event registrations (ProxyAdded, ProxyRemoved, ProxyStatusChanged, ProxyRateLimitExceeded). Suppressed NU1510 NuGet warning in Directory.Build.props. Both changes compile successfully."
 }

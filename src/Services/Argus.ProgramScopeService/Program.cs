@@ -175,6 +175,29 @@ app.MapPost("/programs/{programId:guid}/rate-limit-policies", async (
     return Results.Created($"/programs/{programId}/rate-limit-policies/{policy.PolicyId}", policy);
 });
 
+app.MapGet("/programs/{programId:guid}/export", async (
+    Guid programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var export = await store.ExportProgramAsync(programId, cancellationToken);
+    return export is not null ? Results.Ok(export) : Results.NotFound();
+});
+
+app.MapPost("/programs/import", async (
+    ProgramImportRequest request,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    if (request.Export is null)
+    {
+        return Results.BadRequest("Export data is required.");
+    }
+
+    var program = await store.ImportProgramAsync(request, cancellationToken);
+    return Results.Created($"/programs/{program.ProgramId}", program);
+});
+
 app.MapGet("/programs/{programId:guid}/snapshot", async (
     Guid programId,
     IProgramScopeStore store,
@@ -195,6 +218,29 @@ app.MapGet("/programs/{programId:guid}/snapshot", async (
         return Results.Ok(signedSnapshot);
     }
     return Results.Ok(snapshot);
+});
+
+app.MapGet("/programs/{programId:guid}/export", async (
+    Guid programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var export = await store.ExportProgramAsync(programId, cancellationToken);
+    return export is not null ? Results.Ok(export) : Results.NotFound();
+});
+
+app.MapPost("/programs/import", async (
+    ProgramImportRequest request,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    if (request.Export is null)
+    {
+        return Results.BadRequest("Export data is required.");
+    }
+
+    var program = await store.ImportProgramAsync(request, cancellationToken);
+    return Results.Created($"/programs/{program.ProgramId}", program);
 });
 
 app.MapPost("/scope-validation/check-batch", async (
@@ -227,6 +273,8 @@ internal interface IProgramScopeStore
     Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken);
     Task<RateLimitPolicyDto> CreateRateLimitPolicyAsync(Guid programId, Guid? scopeId, string bucketKey, int capacity, int refillRate, string source, CancellationToken cancellationToken);
     Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken);
+    Task<ProgramExportDto?> ExportProgramAsync(Guid programId, CancellationToken cancellationToken);
+    Task<ProgramDto> ImportProgramAsync(ProgramImportRequest request, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
@@ -427,6 +475,157 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
             string.Empty);
 
         return Task.FromResult<ScopeSnapshot?>(snapshot);
+    }
+
+    public Task<ProgramExportDto?> ExportProgramAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            return Task.FromResult<ProgramExportDto?>(null);
+        }
+
+        var export = new ProgramExportDto(
+            program.ProgramId,
+            program.Name,
+            program.Source,
+            program.ExternalUrl,
+            program.CreatedAt,
+            program.UpdatedAt,
+            program.Scopes.ToArray(),
+            program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToArray(),
+            program.RuleRevisions.Select(r => new ProgramRuleRevisionDto(r.RevisionId, r.ProgramId, r.Version, r.ChangeType, r.OldValue, r.NewValue, r.ChangedBy, r.CreatedAt)).ToArray(),
+            program.RateLimitPolicies.Select(p => new RateLimitPolicyDto(p.PolicyId, p.ProgramId, p.ScopeId, p.BucketKey, p.Capacity, p.RefillRate, p.Source)).ToArray(),
+            DateTimeOffset.UtcNow.ToString("O"),
+            null);
+
+        return Task.FromResult<ProgramExportDto?>(export);
+    }
+
+    public Task<ProgramDto> ImportProgramAsync(ProgramImportRequest request, CancellationToken cancellationToken)
+    {
+        var export = request.Export;
+        var existingProgram = _programs.TryGetValue(export.ProgramId, out var existing) && request.ForceOverwrite;
+
+        if (existingProgram)
+        {
+            existing.Name = export.Name;
+            existing.Source = export.Source;
+            existing.ExternalUrl = export.ExternalUrl;
+            existing.UpdatedAt = DateTimeOffset.UtcNow;
+            existing.Scopes.Clear();
+            existing.RuleRevisions.Clear();
+            existing.ScopeExclusions.Clear();
+            existing.RateLimitPolicies.Clear();
+
+            foreach (var scope in export.Scopes)
+            {
+                existing.Scopes.Add(scope);
+            }
+
+            foreach (var revision in export.RuleRevisions)
+            {
+                existing.RuleRevisions.Add(new ProgramRuleRevisionRecord
+                {
+                    RevisionId = revision.RevisionId,
+                    ProgramId = revision.ProgramId,
+                    Version = revision.Version,
+                    ChangeType = revision.ChangeType,
+                    OldValue = revision.OldValue,
+                    NewValue = revision.NewValue,
+                    ChangedBy = revision.ChangedBy,
+                    CreatedAt = revision.CreatedAt
+                });
+            }
+
+            foreach (var exclusion in export.Exclusions)
+            {
+                existing.ScopeExclusions.Add(new ScopeExclusionRecord
+                {
+                    ExclusionId = exclusion.ExclusionId,
+                    ProgramId = exclusion.ProgramId,
+                    Pattern = exclusion.Pattern,
+                    Reason = exclusion.Reason,
+                    CreatedAt = exclusion.CreatedAt,
+                    ExpiresAt = exclusion.ExpiresAt
+                });
+            }
+
+            foreach (var policy in export.RateLimitPolicies)
+            {
+                existing.RateLimitPolicies.Add(new RateLimitPolicyRecord
+                {
+                    PolicyId = policy.PolicyId,
+                    ProgramId = policy.ProgramId,
+                    ScopeId = policy.ScopeId,
+                    BucketKey = policy.BucketKey,
+                    Capacity = policy.Capacity,
+                    RefillRate = policy.RefillRate,
+                    Source = policy.Source
+                });
+            }
+
+            return Task.FromResult(existing.ToDto());
+        }
+
+        var newProgram = new InMemoryProgramRecord
+        {
+            ProgramId = export.ProgramId != Guid.Empty ? export.ProgramId : Guid.NewGuid(),
+            Name = export.Name,
+            Source = export.Source,
+            ExternalUrl = export.ExternalUrl,
+            CreatedAt = DateTimeOffset.TryParse(export.ExportedAt, out var parsed) ? parsed : DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        foreach (var scope in export.Scopes)
+        {
+            newProgram.Scopes.Add(scope);
+        }
+
+        foreach (var revision in export.RuleRevisions)
+        {
+            newProgram.RuleRevisions.Add(new ProgramRuleRevisionRecord
+            {
+                RevisionId = revision.RevisionId,
+                ProgramId = revision.ProgramId,
+                Version = revision.Version,
+                ChangeType = revision.ChangeType,
+                OldValue = revision.OldValue,
+                NewValue = revision.NewValue,
+                ChangedBy = revision.ChangedBy,
+                CreatedAt = revision.CreatedAt
+            });
+        }
+
+        foreach (var exclusion in export.Exclusions)
+        {
+            newProgram.ScopeExclusions.Add(new ScopeExclusionRecord
+            {
+                ExclusionId = exclusion.ExclusionId,
+                ProgramId = exclusion.ProgramId,
+                Pattern = exclusion.Pattern,
+                Reason = exclusion.Reason,
+                CreatedAt = exclusion.CreatedAt,
+                ExpiresAt = exclusion.ExpiresAt
+            });
+        }
+
+        foreach (var policy in export.RateLimitPolicies)
+        {
+            newProgram.RateLimitPolicies.Add(new RateLimitPolicyRecord
+            {
+                PolicyId = policy.PolicyId,
+                ProgramId = policy.ProgramId,
+                ScopeId = policy.ScopeId,
+                BucketKey = policy.BucketKey,
+                Capacity = policy.Capacity,
+                RefillRate = policy.RefillRate,
+                Source = policy.Source
+            });
+        }
+
+        _programs[newProgram.ProgramId] = newProgram;
+        return Task.FromResult(newProgram.ToDto());
     }
 
     private static string NormalizeScopeType(string scopeType) =>
