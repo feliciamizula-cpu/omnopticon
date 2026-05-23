@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "context": "Starting exploration of polling architecture to understand event-driven migration needs",
-  "status": "idle",
-  "lastError": "Task 010 requeued during reconciliation",
-  "pid": null,
-  "startedAt": null,
-  "lastHeartbeatAt": "2026-05-23T01:30:05.495Z",
-  "lastRunAt": "2026-05-23T01:25:28.862Z",
-  "updatedAt": "2026-05-23T01:30:16.389Z"
+  "currentTaskId": "017",
+  "currentTaskDescription": "Design #19: Confidence field not propagatable from workers",
+  "context": null,
+  "status": "working",
+  "lastError": null,
+  "pid": 58539,
+  "startedAt": "2026-05-23T02:10:28.191Z",
+  "lastHeartbeatAt": "2026-05-23T02:15:02.683Z",
+  "lastRunAt": "2026-05-23T02:14:17.587Z",
+  "updatedAt": "2026-05-23T02:15:13.996Z"
 }

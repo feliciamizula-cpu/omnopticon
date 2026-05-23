@@ -60,6 +60,7 @@ public sealed record CreateAssetRequest(
     AssetType Type,
     string Value,
     string? Subtype,
+    decimal? Confidence,
     string? DiscoveredByTaskId,
     IReadOnlyDictionary<string, string>? Metadata,
     IReadOnlyCollection<string>? Tags);

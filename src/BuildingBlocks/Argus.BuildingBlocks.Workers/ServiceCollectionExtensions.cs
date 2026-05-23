@@ -1,6 +1,8 @@
 using Argus.Contracts.Workers;
+using Argus.ServiceDefaults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Argus.BuildingBlocks.Workers;
 
@@ -54,10 +56,34 @@ public static class ServiceCollectionExtensions
                     options.SnapshotSecretKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"]!;
                 }
 
+                if (!string.IsNullOrEmpty(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"]))
+                {
+                    options.EventDrivenMode = bool.TryParse(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"], out var eventDriven) && eventDriven;
+                }
+
                 configure?.Invoke(options);
             });
 
-        builder.Services.AddHostedService<ArgusWorkerBackgroundService>();
+        builder.Services.AddSingleton<TaskNotificationChannel>();
+
+        builder.Services.AddHostedService(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>().Value;
+            return opts.EventDrivenMode
+                ? new ArgusEventDrivenWorkerService(
+                    sp.GetRequiredService<IReconWorker>(),
+                    sp.GetRequiredService<IHttpClientFactory>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
+                    sp.GetRequiredService<ILogger<ArgusEventDrivenWorkerService>>(),
+                    sp.GetRequiredService<ArgusMetrics>(),
+                    sp.GetRequiredService<TaskNotificationChannel>().Reader)
+                : new ArgusWorkerBackgroundService(
+                    sp.GetRequiredService<IReconWorker>(),
+                    sp.GetRequiredService<IHttpClientFactory>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
+                    sp.GetRequiredService<ILogger<ArgusWorkerBackgroundService>>(),
+                    sp.GetRequiredService<ArgusMetrics>());
+        });
 
         return builder;
     }

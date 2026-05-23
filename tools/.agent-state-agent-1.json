@@ -1,13 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "016",
-  "currentTaskDescription": "Bug #18: HttpProbeWorker hardcodes HTTPS, no HTTP fallback",
-  "status": "unresponsive",
-  "lastRunAt": "2026-05-23T01:25:37.417Z",
-  "updatedAt": "2026-05-23T01:30:16.389Z",
-  "pid": 335694,
-  "lastError": "heartbeat timeout",
-  "lastHeartbeatAt": "2026-05-23T01:30:08.307Z",
+  "currentTaskId": "039",
+  "currentTaskDescription": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
+  "status": "working",
+  "lastRunAt": "2026-05-23T02:14:12.203Z",
+  "updatedAt": "2026-05-23T02:15:13.996Z",
+  "pid": 57398,
+  "lastError": null,
+  "lastHeartbeatAt": "2026-05-23T02:14:57.296Z",
   "startedAt": "2026-05-23T00:56:54.301Z",
   "context": null
 }

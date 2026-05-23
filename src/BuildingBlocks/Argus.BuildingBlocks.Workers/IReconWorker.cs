@@ -48,5 +48,6 @@ public sealed record WorkerProducedAsset(
     string AssetType,
     string Value,
     string? Subtype,
+    decimal? Confidence,
     IReadOnlyDictionary<string, string>? Metadata,
     IReadOnlyCollection<string>? Tags);

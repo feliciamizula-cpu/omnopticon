@@ -31,13 +31,7 @@ public sealed record TaskNotification(
     ReconTaskDto Task,
     CancellationTokenSource CompletionCts);
 
-public interface ITaskEventHandler
-{
-    string WorkerCapability { get; }
-    Task HandleAsync(IntegrationEventEnvelope<TaskRequested> envelope, CancellationToken cancellationToken = default);
-}
-
-public sealed class TaskRequestedHandler : ITaskEventHandler
+public sealed class TaskRequestedHandler : IIntegrationEventConsumer<TaskRequested>
 {
     private readonly TaskNotificationChannel _channel;
     private readonly ILogger<TaskRequestedHandler> _logger;

@@ -303,6 +303,7 @@ internal interface IAssetStore
     Task<AssetDto> UpdateStatusAsync(Guid assetId, AssetStatus status, CancellationToken cancellationToken);
     Task<AssetDto> AddTagsAsync(Guid assetId, IReadOnlyCollection<string> tags, CancellationToken cancellationToken);
     Task<AssetDto> RemoveTagAsync(Guid assetId, string tag, CancellationToken cancellationToken);
+    Task<AssetDto> UpdateConfidenceAsync(Guid assetId, decimal confidence, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryAssetStore : IAssetStore
