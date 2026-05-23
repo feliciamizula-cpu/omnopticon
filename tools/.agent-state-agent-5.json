@@ -4,10 +4,10 @@
   "currentTaskDescription": "Enhancement #12: Worker graceful draining on SIGTERM - In ArgusWorkerBackgroundService, override StopAsync to honour configurable drain timeout. Read ARGUS_WORKER_DRAIN_TIMEOUT env var (default 60s). On StopAsync: signal no new tasks, wait for in-flight tasks up to drain timeout. Support checkpoint writing before yielding to cancellation for resume support. Update deploy/compose.yaml workers with stop_grace_period: 90s. File: src/BuildingBlocks/Argus.BuildingBlocks.Workers/ArgusWorkerBackgroundService.cs",
   "context": "All edits done: DrainTimeout default 60s, env var ARGUS_WORKER_DRAIN_TIMEOUT, stop_grace_period:90s in compose. Build cannot be verified (no dotnet SDK). Ready to commit.",
   "status": "working",
-  "pid": 376784,
+  "pid": 407658,
   "startedAt": "2026-05-22T23:05:20.520Z",
-  "lastRunAt": "2026-05-23T02:44:27.077Z",
-  "lastHeartbeatAt": "2026-05-23T02:45:44.481Z",
+  "lastRunAt": "2026-05-23T02:46:14.578Z",
+  "lastHeartbeatAt": "2026-05-23T02:46:14.578Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:45:44.481Z"
+  "updatedAt": "2026-05-23T02:46:14.578Z"
 }
