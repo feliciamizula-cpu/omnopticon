@@ -118,6 +118,7 @@ internal sealed class HttpProbeWorker : IReconWorker
                     "Url",
                     probeUrl,
                     null,
+                    0.95m,
                     new Dictionary<string, string>
                     {
                         ["http.status_code"] = statusCode.ToString(),
@@ -131,6 +132,7 @@ internal sealed class HttpProbeWorker : IReconWorker
                     "HttpResponse",
                     $"{probeUrl} {statusCode} {contentType}",
                     contentType,
+                    0.95m,
                     new Dictionary<string, string>
                     {
                         ["status_code"] = statusCode.ToString(),

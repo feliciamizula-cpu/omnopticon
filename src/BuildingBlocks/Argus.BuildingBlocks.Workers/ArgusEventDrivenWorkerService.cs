@@ -257,6 +257,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             assetType,
             asset.Value,
             asset.Subtype,
+            asset.Confidence,
             task.TaskId.ToString(),
             asset.Metadata,
             asset.Tags);

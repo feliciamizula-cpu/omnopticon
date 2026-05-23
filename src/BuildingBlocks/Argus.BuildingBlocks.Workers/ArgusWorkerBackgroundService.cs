@@ -285,6 +285,7 @@ private readonly ArgusWorkerOptions _options = options.Value;
             assetType,
             asset.Value,
             asset.Subtype,
+            asset.Confidence,
             task.TaskId.ToString(),
             asset.Metadata,
             asset.Tags);

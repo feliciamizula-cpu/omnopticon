@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "010",
-  "currentTaskDescription": "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
-  "context": "Fixed TaskRequestedHandler to implement IIntegrationEventConsumer<TaskRequested> instead of custom ITaskEventHandler - now properly integrates with RabbitMqConsumerService event dispatch",
+  "currentTaskId": "017",
+  "currentTaskDescription": "Design #19: Confidence field not propagatable from workers",
+  "context": null,
   "status": "working",
-  "pid": 58150,
-  "startedAt": "2026-05-23T00:55:45.557Z",
-  "lastRunAt": "2026-05-23T02:14:14.836Z",
-  "lastHeartbeatAt": "2026-05-23T02:15:29.743Z",
+  "pid": 75717,
+  "startedAt": "2026-05-23T02:15:57.404Z",
+  "lastRunAt": "2026-05-23T02:17:17.085Z",
+  "lastHeartbeatAt": "2026-05-23T02:17:17.085Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:15:29.743Z"
+  "updatedAt": "2026-05-23T02:17:17.085Z"
 }

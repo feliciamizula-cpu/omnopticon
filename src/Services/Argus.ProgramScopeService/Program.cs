@@ -1,4 +1,5 @@
 using Argus.BuildingBlocks.EventBus;
+using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
 using Argus.ServiceDefaults;
@@ -23,6 +24,8 @@ else
 {
     builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
 }
+
+var snapshotSigningKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"] ?? string.Empty;
 
 var app = builder.Build();
 
@@ -145,7 +148,20 @@ app.MapGet("/programs/{programId:guid}/snapshot", async (
     CancellationToken cancellationToken) =>
 {
     var snapshot = await store.GetSnapshotAsync(programId, cancellationToken);
-    return snapshot is not null ? Results.Ok(snapshot) : Results.NotFound();
+    if (snapshot is null)
+    {
+        return Results.NotFound();
+    }
+    if (!string.IsNullOrEmpty(snapshotSigningKey))
+    {
+        var signedSnapshot = SnapshotSigner.CreateSignedSnapshot(
+            snapshot.ProgramId,
+            snapshot.Scopes,
+            snapshot.Exclusions,
+            snapshotSigningKey);
+        return Results.Ok(signedSnapshot);
+    }
+    return Results.Ok(snapshot);
 });
 
 app.MapPost("/scope-validation/check-batch", async (
@@ -358,31 +374,6 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
             string.Empty);
 
         return Task.FromResult<ScopeSnapshot?>(snapshot);
-    }
-
-    private static ProgramDto ToDto(ProgramRecord record) =>
-        new(
-            record.ProgramId,
-            record.Name,
-            record.Source,
-            record.ExternalUrl,
-            record.CreatedAt,
-            record.UpdatedAt,
-            record.Scopes.ToArray());
-
-    private sealed record ProgramRecord(
-        Guid ProgramId,
-        string Name,
-        string Source,
-        string? ExternalUrl,
-        DateTimeOffset CreatedAt,
-        DateTimeOffset UpdatedAt,
-        List<ProgramScopeDto> Scopes,
-        List<ProgramRuleRevisionRecord> RuleRevisions,
-        List<ScopeExclusionRecord> ScopeExclusions,
-        List<RateLimitPolicyRecord> RateLimitPolicies)
-    {
-        public DateTimeOffset UpdatedAt { get; set; } = UpdatedAt;
     }
 
     private static string NormalizeScopeType(string scopeType) =>

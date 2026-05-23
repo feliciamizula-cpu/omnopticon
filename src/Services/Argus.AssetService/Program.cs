@@ -411,7 +411,7 @@ internal sealed class InMemoryAssetStore : IAssetStore
             request.Subtype,
             normalizedValue,
             naturalKey,
-            Confidence: 1.0m,
+            Confidence: request.Confidence ?? 1.0m,
             Status: AssetStatus.New,
             RiskScore: 0,
             InterestingScore: AssetScoring.ScoreInitialInterestingness(request.Type, request.Subtype, normalizedValue),
@@ -501,6 +501,18 @@ internal sealed class InMemoryAssetStore : IAssetStore
         {
             Tags = asset.Tags.Where(t => !string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)).ToArray()
         };
+        _assets[assetId] = updated;
+        return Task.FromResult(updated);
+    }
+
+    public Task<AssetDto> UpdateConfidenceAsync(Guid assetId, decimal confidence, CancellationToken cancellationToken)
+    {
+        if (!_assets.TryGetValue(assetId, out var asset))
+        {
+            throw new InvalidOperationException("Asset not found.");
+        }
+
+        var updated = asset with { Confidence = confidence };
         _assets[assetId] = updated;
         return Task.FromResult(updated);
     }
@@ -606,7 +618,7 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
             Subtype = request.Subtype,
             Value = normalizedValue,
             NaturalKey = naturalKey,
-            Confidence = 1.0m,
+            Confidence = request.Confidence ?? 1.0m,
             Status = AssetStatus.New,
             RiskScore = 0,
             InterestingScore = AssetScoring.ScoreInitialInterestingness(request.Type, request.Subtype, normalizedValue),
@@ -700,6 +712,16 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
 
         var updatedTags = asset.Tags.Where(t => !string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)).ToArray();
         asset.TagsJson = JsonSerializer.Serialize(updatedTags);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return asset.ToDto();
+    }
+
+    public async Task<AssetDto> UpdateConfidenceAsync(Guid assetId, decimal confidence, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.Assets.FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
+            ?? throw new InvalidOperationException("Asset not found.");
+
+        asset.Confidence = confidence;
         await dbContext.SaveChangesAsync(cancellationToken);
         return asset.ToDto();
     }
