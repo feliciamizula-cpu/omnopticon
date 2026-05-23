@@ -10,8 +10,13 @@ internal sealed class HttpProbeWorkerFixture
 {
     public HttpProbeWorker CreateWorker(HttpClient httpClient)
     {
+        // Extracting handler from HttpClient is hard in modern .NET.
+        // We'll just assume it's a mock we can replicate or change the call sites.
+        // For now, let's just make it work for the existing call sites by using reflection.
+        var handler = (HttpMessageHandler)typeof(HttpMessageInvoker).GetField("_handler", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(httpClient)!;
+        
         var services = new ServiceCollection();
-        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(httpClient));
+        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(handler));
         var provider = services.BuildServiceProvider();
         return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>());
     }
@@ -19,7 +24,8 @@ internal sealed class HttpProbeWorkerFixture
     public HttpProbeWorker CreateWorker(Func<HttpRequestMessage, HttpResponseMessage> handler)
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(new HttpClient(new MockHttpMessageHandler(handler))));
+        // Use a handler that doesn't follow redirects
+        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(new MockHttpMessageHandler(handler)));
         var provider = services.BuildServiceProvider();
         return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>());
     }
@@ -28,11 +34,21 @@ internal sealed class HttpProbeWorkerFixture
 
     private sealed class StubHttpClientFactory : IHttpClientFactory
     {
-        private readonly HttpClient _client;
+        private readonly HttpMessageHandler _handler;
 
-        public StubHttpClientFactory(HttpClient client) => _client = client;
+        public StubHttpClientFactory(HttpMessageHandler handler)
+        {
+            _handler = handler;
+        }
 
-        public HttpClient CreateClient(string name) => _client;
+        public HttpClient CreateClient(string name)
+        {
+            // If we use a mock handler directly, HttpClient DOES NOT follow redirects.
+            // Wait, maybe I should use HttpClientHandler if I want to be sure?
+            // But we can't use HttpClientHandler with a mock.
+            // Actually, we can if we use a DelegatingHandler.
+            return new HttpClient(_handler, disposeHandler: false);
+        }
     }
 }
 
@@ -294,12 +310,13 @@ public sealed class HttpProbeWorkerTests
     [Fact]
     public async Task ProcessAsync_WithNoRedirectOption_SkipsRedirectFollowing()
     {
-        var redirected = false;
+        var callCount = 0;
         var worker = _fixture.CreateWorker(request =>
         {
+            callCount++;
+            System.Console.WriteLine($"DEBUG: Handler called #{callCount} for {request.RequestUri}");
             var response = new HttpResponseMessage(System.Net.HttpStatusCode.Found);
             response.Headers.Location = new Uri("https://example.com/final");
-            redirected = true;
             return response;
         });
 
@@ -311,7 +328,8 @@ public sealed class HttpProbeWorkerTests
             workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.False(redirected);
+        System.Console.WriteLine($"DEBUG: Total callCount: {callCount}");
+        Assert.Equal(1, callCount);
     }
 
     [Fact]
@@ -343,8 +361,8 @@ public sealed class HttpProbeWorkerTests
         var worker = _fixture.CreateWorker(request =>
         {
             var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
-            response.Content = new StringContent("<html><title>Test</title></html>", System.Text.Encoding.UTF8, "text/html; charset=utf-8");
-            response.Content.Headers.ContentLength = 50;
+            response.Content = new StringContent("<html><title>Test</title></html>", System.Text.Encoding.GetEncoding("iso-8859-1"), "text/html");
+            response.Content.Headers.ContentType!.CharSet = "iso-8859-1";
             return response;
         });
 
@@ -356,7 +374,7 @@ public sealed class HttpProbeWorkerTests
             workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Contains(result.ProducedAssets, a => a.AssetType == "HttpResponse");
+        Assert.Contains(result.ProducedAssets, a => a.Metadata?.GetValueOrDefault("charset") == "iso-8859-1");
     }
 
     [Fact]

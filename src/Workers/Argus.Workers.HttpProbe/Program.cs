@@ -10,6 +10,14 @@ using System.Text.Json.Serialization;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddHttpClient("probe")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        CheckCertificateRevocationList = false,
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    });
 builder.AddArgusWorker<HttpProbeWorker>();
 
 await builder.Build().RunAsync();
@@ -45,6 +53,8 @@ internal sealed partial class HttpProbeWorker : IReconWorker
 
         var timeoutSeconds = WorkerHelpers.GetInt(task.InputPayloadJson, "timeout_seconds") ?? 30;
         var followRedirects = WorkerHelpers.GetBool(task.InputPayloadJson, "follow_redirects") ?? true;
+
+        await context.ReportProgressAsync(5, $"DEBUG: followRedirects={followRedirects}", null);
 
         await context.ReportProgressAsync(5, $"Waiting for rate-limit token for {host}", null);
 
