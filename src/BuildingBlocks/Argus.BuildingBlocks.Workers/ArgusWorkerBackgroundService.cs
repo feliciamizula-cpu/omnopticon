@@ -29,6 +29,8 @@ public sealed class ArgusWorkerBackgroundService(
     };
     private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
+    private readonly ConcurrentDictionary<Guid, string?> _runningTasks = new();
+    private HttpClient? _artifactStore;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -468,7 +470,7 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var checkpoint = checkpointJson ?? (_runningTasks.TryGetValue(taskId, out var state) ? state.CheckpointJson : null);
+        var checkpoint = checkpointJson ?? (_runningTasks.TryGetValue(taskId, out var state) ? state : null);
         var retryable = ex is WorkerTimeoutException timeoutEx ? timeoutEx.IsRetryable : true;
         var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: retryable, CheckpointJson: checkpoint);
         var client = CreateClient(_options.TaskServiceBaseAddress);
@@ -541,10 +543,7 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task SaveCheckpointAsync(Guid taskId, string checkpointJson, CancellationToken cancellationToken)
     {
-        if (_runningTasks.TryGetValue(taskId, out var state))
-        {
-            state.CheckpointJson = checkpointJson;
-        }
+        _runningTasks[taskId] = checkpointJson;
 
         var client = CreateClient(_options.TaskServiceBaseAddress);
         var request = new SaveWorkerContextRequest(_options.WorkerId, worker.Capability.WorkerType, checkpointJson);
@@ -564,22 +563,19 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task PublishArtifactAsync(ReconTaskDto task, WorkerProducedArtifact artifact, CancellationToken cancellationToken)
     {
-        if (_artifactStore == null)
+        _artifactStore ??= httpClientFactory.CreateClient("artifact");
+        _artifactStore.BaseAddress = _options.ArtifactServiceBaseAddress;
+        var stream = new MemoryStream(artifact.Data);
+        var key = $"{task.ProgramId}/{task.TaskId}/{artifact.Name}";
+        try
         {
-            var store = httpClientFactory.CreateClient("artifact");
-            store.BaseAddress = _options.ArtifactServiceBaseAddress;
-            var stream = new MemoryStream(artifact.Data);
-            var key = $"{task.ProgramId}/{task.TaskId}/{artifact.Name}";
-            try
-            {
-                await store.PostAsync($"/artifacts/{Uri.EscapeDataString(key)}?contentType={Uri.EscapeDataString(artifact.ContentType)}",
-                    new StreamContent(stream), cancellationToken);
-                logger.LogDebug("Published artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to publish artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
-            }
+            await _artifactStore.PostAsync($"/artifacts/{Uri.EscapeDataString(key)}?contentType={Uri.EscapeDataString(artifact.ContentType)}",
+                new StreamContent(stream), cancellationToken);
+            logger.LogDebug("Published artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to publish artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
         }
     }
 
@@ -598,8 +594,8 @@ public sealed class ArgusWorkerBackgroundService(
         var request = new EventIngestRequest(
             "AssetRejected",
             "Argus.WorkerHost",
-            correlationId: task.TaskId,
-            causationId: null,
+            CorrelationId: task.TaskId,
+            CausationId: null,
             JsonSerializer.Serialize(payload, JsonOptions));
 
         var client = CreateClient(_options.RealtimeServiceBaseAddress);
@@ -662,3 +658,5 @@ internal static class ScopeValidationTarget
         return asset.Value;
     }
 }
+
+internal class WorkerTimeoutException(string Message, bool IsRetryable = true) : Exception(Message);

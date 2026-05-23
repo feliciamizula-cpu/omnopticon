@@ -278,7 +278,7 @@ public sealed class HtmlDomSpiderWorkerScenarios
     [Fact]
     public async Task Scenario_WithJsUrl_ExtractsJavaScriptFileAsset()
     {
-        var worker = new HtmlDomSpiderWorker();
+        var worker = CreateWorker();
         var scenarioBuilder = new WorkerScenarioBuilder<HtmlDomSpiderWorker>(worker);
 
         var result = await scenarioBuilder

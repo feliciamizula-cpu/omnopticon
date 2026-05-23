@@ -2,13 +2,13 @@
   "agentId": "devops-1",
   "currentTaskId": null,
   "currentTaskDescription": null,
-  "context": "Healthy: 7 agents active, 0 pending, 55 done. Compose.yaml valid. dotnet not in PATH (expected). Standing task #052 (export/import) in progress across 7 agents.",
+  "context": "compose valid, 7 agents active, no critical alerts, devops-1 and agent-1 and devops-2 all running task 052",
   "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T05:37:19.378Z",
-  "lastHeartbeatAt": "2026-05-23T05:37:19.378Z",
+  "lastRunAt": "2026-05-23T05:46:22.814Z",
+  "lastHeartbeatAt": "2026-05-23T05:46:22.814Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T05:38:40.887Z",
+  "updatedAt": "2026-05-23T05:47:56.430Z",
   "workStatus": "idle"
 }

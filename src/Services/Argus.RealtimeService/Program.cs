@@ -490,12 +490,12 @@ public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, Can
                 IsOnline = true
             });
 
-        await RecordEventAsync(new EventIngestRequest(
+        RecordEvent(new EventIngestRequest(
             "WorkerHeartbeat",
             "Argus.RealtimeService",
             null,
             null,
-            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"), cancellationToken);
+            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
 
         _pendingWorkers.Enqueue(new WorkerRecord
         {

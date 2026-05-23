@@ -1,14 +1,14 @@
 {
   "agentId": "agent-1",
+  "workStatus": "idle",
   "currentTaskId": "052",
   "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
-  "context": "7 agents active, 56 tasks completed. compose.yaml valid (config passes). dotnet not in env. No alerts.",
   "status": "working",
-  "pid": 3113808,
-  "startedAt": "2026-05-23T05:35:43.985Z",
-  "lastRunAt": "2026-05-23T05:35:44.022Z",
-  "lastHeartbeatAt": "2026-05-23T05:38:48.976Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T05:38:48.976Z",
-  "workStatus": "idle"
+  "pid": 3151928,
+  "updatedAt": "2026-05-23T05:48:04.755Z",
+  "context": null,
+  "startedAt": "2026-05-23T05:39:55.962Z",
+  "lastHeartbeatAt": "2026-05-23T05:48:04.755Z",
+  "lastRunAt": "2026-05-23T05:39:55.962Z",
+  "lastError": null
 }
