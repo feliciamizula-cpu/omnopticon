@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "011",
-  "currentTaskDescription": "Critical #2: Missing AssetConfirmed event - discovery vs confirmation not modelled",
-  "context": "Added AssetConfirmed event type with ConfirmedByTaskId field; registered in EventTypeRegistry and RabbitMqConsumerService",
-  "status": "working",
-  "pid": 242709,
-  "startedAt": "2026-05-23T00:50:40.495Z",
-  "lastRunAt": "2026-05-23T01:10:54.111Z",
-  "lastHeartbeatAt": "2026-05-23T01:25:10.710Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": null,
+  "status": "idle",
   "lastError": null,
-  "updatedAt": "2026-05-23T01:25:10.710Z"
+  "pid": null,
+  "startedAt": null,
+  "lastHeartbeatAt": "2026-05-23T01:25:55.860Z",
+  "lastRunAt": "2026-05-23T01:25:28.862Z",
+  "updatedAt": "2026-05-23T01:25:55.860Z"
 }
