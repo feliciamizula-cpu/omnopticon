@@ -507,6 +507,6 @@ public sealed class InMemoryAssetStore : IAssetStore
             results.Add(asset);
         }
 
-        return Task.FromResult(new BulkOperationResult(results, results.Count, request.AssetIds.Count - results.Count, errors));
+        return Task.FromResult(Program.BulkOperationResult(results, results.Count, request.AssetIds.Count - results.Count, errors));
     }
 }

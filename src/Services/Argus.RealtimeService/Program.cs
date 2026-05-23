@@ -20,7 +20,7 @@ var dbPath = builder.Configuration.GetConnectionString("realtimedb")
     ?? builder.Configuration.GetConnectionString("sqlite")
     ?? "realtime.db";
 
-builder.Services.AddDbContext<RealtimeDbContext>(options =>
+builder.Services.AddDbContextFactory<RealtimeDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
 var webhookDbConnStr = builder.Configuration.GetConnectionString("argusdb");
@@ -293,8 +293,8 @@ internal sealed class RealtimeStore
 
     public async Task InitializeAsync(IServiceProvider services)
     {
-        using var scope = services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+        var dbContextFactory = services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
 
         var recentEvents = await dbContext.Events
             .OrderByDescending(e => e.RecordedAt)
@@ -359,8 +359,8 @@ internal sealed class RealtimeStore
                 if (_pendingWorkers.IsEmpty && _pendingEvents.IsEmpty)
                     continue;
 
-                using var scope = _services.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+                var dbContextFactory = _services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+                await using var dbContext = await dbContextFactory.CreateDbContextAsync();
 
                 var workersToSave = new List<WorkerRecord>();
                 while (_pendingWorkers.TryDequeue(out var worker))

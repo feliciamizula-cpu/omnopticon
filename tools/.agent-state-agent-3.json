@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "034",
-  "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
-  "context": "Exploring codebase to understand poison message handling and required DLX implementation",
-  "status": "working",
-  "pid": 2587146,
-  "startedAt": "2026-05-23T04:43:40.345Z",
-  "lastRunAt": "2026-05-23T04:43:40.386Z",
-  "lastHeartbeatAt": "2026-05-23T04:45:11.115Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": null,
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T04:46:47.875Z",
+  "lastHeartbeatAt": "2026-05-23T04:46:47.875Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:45:21.192Z"
+  "updatedAt": "2026-05-23T04:46:47.875Z"
 }

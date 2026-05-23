@@ -13,7 +13,7 @@ public interface IReconWorker
         CancellationToken cancellationToken);
 }
 
-public sealed record WorkerExecutionContext(
+public sealed partial record WorkerExecutionContext(
     string WorkerId,
     Func<int, string, string?, Task> ReportProgressAsync,
     Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync,
@@ -50,4 +50,25 @@ public sealed record WorkerProducedAsset(
     string? Subtype,
     decimal? Confidence,
     IReadOnlyDictionary<string, string>? Metadata,
-    IReadOnlyCollection<string>? Tags);
+    IReadOnlyCollection<string>? Tags,
+    IReadOnlyCollection<ArtifactReference>? ArtifactReferences = null);
+
+public sealed record WorkerProducedArtifact(
+    string ArtifactType,
+    string Name,
+    string ContentType,
+    byte[] Data,
+    IReadOnlyDictionary<string, string>? Metadata = null)
+{
+    public string ComputeHash()
+    {
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hash = sha256.ComputeHash(Data);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+}
+
+public sealed record ArtifactReference(
+    string ArtifactType,
+    string Name,
+    string Hash);

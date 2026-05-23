@@ -621,7 +621,7 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         if (results.Count > 0)
             await dbContext.SaveChangesAsync(cancellationToken);
 
-        return new BulkOperationResult(results, successCount, failureCount, errors);
+        return new Program.BulkOperationResult(results, successCount, failureCount, errors);
     }
 
     private static string? ExtractHost(string value)
@@ -669,7 +669,7 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
     }
 }
 
-internal sealed record BulkOperationResult(
+public sealed record BulkOperationResult(
     IReadOnlyCollection<AssetDto> Results,
     int SuccessCount,
     int FailureCount,

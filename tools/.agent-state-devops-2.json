@@ -1,14 +1,14 @@
 {
   "agentId": "devops-2",
-  "currentTaskId": "044",
-  "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": "7 agents healthy; compose.yaml valid; dotnet N/A in container env; reconcile done; standing task running",
-  "status": "crashed",
+  "status": "idle",
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T04:42:45.293Z",
-  "lastHeartbeatAt": "2026-05-23T04:44:56.171Z",
-  "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T04:44:56.171Z",
+  "lastHeartbeatAt": "2026-05-23T04:46:26.682Z",
+  "lastError": "Task 044 requeued during reconciliation",
+  "updatedAt": "2026-05-23T04:46:26.682Z",
   "workStatus": "idle"
 }

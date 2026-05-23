@@ -1,1 +1,2 @@
 2026-05-23T04:38Z devops-1: agent-1 pid=2248741 crashed (reconciled to idle); devops-2 pid=2030773 unresponsive heartbeat; dotnet not in PATH
+2026-05-23 04:42: UTC | devops-1 | Build failure: 34 errors in AssetService from cross-agent conflicts (BulkOperationResult, ScopeValidationReason, AssetObservationRecord, AssetDbContext references, AssetNormalizer, AssetScoringService). Also WorkerTestHarness sealed class issue. AssetService.csproj not buildable. Multiple services depend on ArtifactService and FindingService which are missing from build.

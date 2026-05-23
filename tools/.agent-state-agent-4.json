@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "currentTaskId": "018",
+  "currentTaskDescription": "Design #20: RealtimeService fully in-memory - needs durability",
   "context": null,
-  "status": "idle",
+  "status": "stalled",
   "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T04:44:47.310Z",
-  "lastHeartbeatAt": "2026-05-23T04:45:31.213Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T04:45:31.213Z"
+  "startedAt": "2026-05-23T04:46:38.688Z",
+  "lastRunAt": "2026-05-23T04:46:47.683Z",
+  "lastHeartbeatAt": "2026-05-23T04:46:47.683Z",
+  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
+  "updatedAt": "2026-05-23T04:46:47.683Z"
 }
