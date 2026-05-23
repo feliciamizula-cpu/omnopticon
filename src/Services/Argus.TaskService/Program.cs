@@ -797,6 +797,7 @@ internal sealed class TaskRecord
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
     public string? DedupeHash { get; set; }
+    public string? ScopeSnapshotJson { get; set; }
     public WorkerPriority Priority { get; set; } = WorkerPriority.Normal;
 
     public ReconTaskDto ToDto() =>
@@ -823,6 +824,7 @@ internal sealed class TaskRecord
             ErrorCode: ErrorCode,
             ErrorMessage: ErrorMessage,
             DedupeHash: DedupeHash,
+            ScopeSnapshotJson: ScopeSnapshotJson,
             Priority: Priority);
 }
 

@@ -416,6 +416,24 @@ private readonly ArgusWorkerOptions _options = options.Value;
         client.BaseAddress = baseAddress;
         return client;
     }
+
+    private bool VerifyScopeSnapshot(string snapshotJson)
+    {
+        if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
+        {
+            logger.LogWarning("SnapshotSecretKey not configured, skipping snapshot verification");
+            return true;
+        }
+
+        var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
+        if (snapshot is null)
+        {
+            logger.LogError("Failed to deserialize scope snapshot");
+            return false;
+        }
+
+        return SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey);
+    }
 }
 
 internal static class ScopeValidationTarget
@@ -440,22 +458,4 @@ internal static class ScopeValidationTarget
 
         return asset.Value;
     }
-}
-
-private bool VerifyScopeSnapshot(string snapshotJson)
-{
-    if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
-    {
-        logger.LogWarning("SnapshotSecretKey not configured, skipping snapshot verification");
-        return true;
-    }
-
-    var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
-    if (snapshot is null)
-    {
-        logger.LogError("Failed to deserialize scope snapshot");
-        return false;
-    }
-
-    return SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey);
 }

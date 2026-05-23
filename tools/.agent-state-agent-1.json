@@ -1,13 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "010",
-  "currentTaskDescription": "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
+  "currentTaskId": "039",
+  "currentTaskDescription": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
   "status": "working",
-  "lastRunAt": "2026-05-23T00:56:54.301Z",
-  "updatedAt": "2026-05-23T00:58:30.081Z",
-  "pid": 139320,
+  "lastRunAt": "2026-05-23T01:05:27.923Z",
+  "updatedAt": "2026-05-23T01:07:24.866Z",
+  "pid": 204262,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T00:58:24.360Z",
+  "lastHeartbeatAt": "2026-05-23T01:07:24.866Z",
   "startedAt": "2026-05-23T00:56:54.301Z",
   "context": null
 }
