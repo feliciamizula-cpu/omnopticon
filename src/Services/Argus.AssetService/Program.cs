@@ -219,25 +219,10 @@ app.MapPost("/assets/bulk/enqueue", async (
     taskClient.BaseAddress = new Uri(ServiceUriHelper.GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
 
     var createdCount = 0;
-    var skippedCount = 0;
     var results = new List<ReconTaskDto>();
 
     foreach (var assetId in request.AssetIds)
     {
-        var dedupeHash = TaskDedupeHash.Compute(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability);
-
-        var checkResponse = await taskClient.GetAsync($"/tasks/dedupe/{dedupeHash}", cancellationToken);
-        if (checkResponse.IsSuccessStatusCode)
-        {
-            var existingTask = await checkResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
-            if (existingTask is not null)
-            {
-                skippedCount++;
-                results.Add(existingTask);
-                continue;
-            }
-        }
-
         var createRequest = new CreateReconTaskRequest(
             TaskType: request.TaskType,
             ProgramId: request.ProgramId,
@@ -248,7 +233,7 @@ app.MapPost("/assets/bulk/enqueue", async (
             RequiredAssetType: null,
             MaxAttempts: request.MaxAttempts,
             Priority: request.Priority,
-            DedupeHash: dedupeHash);
+            DedupeHash: null);
 
         using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions, cancellationToken);
         if (createResponse.IsSuccessStatusCode)
@@ -260,13 +245,9 @@ app.MapPost("/assets/bulk/enqueue", async (
                 results.Add(createdTask);
             }
         }
-        else
-        {
-            skippedCount++;
-        }
     }
 
-    return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, skippedCount));
+    return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, 0));
 });
 
 app.Run();

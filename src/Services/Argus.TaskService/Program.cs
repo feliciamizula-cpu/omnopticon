@@ -82,19 +82,9 @@ app.MapPost("/tasks/bulk/enqueue", async (
     }
 
     var createdTasks = new List<ReconTaskDto>();
-    var skippedCount = 0;
 
     foreach (var assetId in request.AssetIds)
     {
-        var dedupeHash = TaskDedupeHash.Compute(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability);
-        var existingTask = await store.FindByDedupeAsync(dedupeHash, cancellationToken);
-
-        if (existingTask is not null)
-        {
-            skippedCount++;
-            continue;
-        }
-
         var createRequest = new CreateReconTaskRequest(
             TaskType: request.TaskType,
             ProgramId: request.ProgramId,
@@ -105,7 +95,7 @@ app.MapPost("/tasks/bulk/enqueue", async (
             RequiredAssetType: null,
             MaxAttempts: request.MaxAttempts,
             Priority: request.Priority,
-            DedupeHash: dedupeHash);
+            DedupeHash: null);
 
         var task = await store.CreateAsync(createRequest, cancellationToken);
         createdTasks.Add(task);
@@ -120,7 +110,7 @@ app.MapPost("/tasks/bulk/enqueue", async (
             cancellationToken: cancellationToken);
     }
 
-    var response = new BulkEnqueueResponse(createdTasks, createdTasks.Count, skippedCount);
+    var response = new BulkEnqueueResponse(createdTasks, createdTasks.Count, 0);
     return Results.Created("/tasks/bulk/enqueue", response);
 });
 
