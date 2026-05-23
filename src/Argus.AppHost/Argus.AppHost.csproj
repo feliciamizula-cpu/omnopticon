@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Argus.ApiGateway\Argus.ApiGateway.csproj" />
     <ProjectReference Include="..\Argus.Web\Argus.Web.csproj" />
+    <ProjectReference Include="..\Services\Argus.AgentService\Argus.AgentService.csproj" />
     <ProjectReference Include="..\Services\Argus.AssetService\Argus.AssetService.csproj" />
     <ProjectReference Include="..\Services\Argus.ProgramScopeService\Argus.ProgramScopeService.csproj" />
     <ProjectReference Include="..\Services\Argus.RateLimitService\Argus.RateLimitService.csproj" />

@@ -5,10 +5,10 @@
   "context": null,
   "status": "idle",
   "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T17:35:12.700Z",
-  "lastHeartbeatAt": "2026-05-23T17:35:36.158Z",
-  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
-  "updatedAt": "2026-05-23T17:35:51.005Z",
+  "startedAt": "2026-05-23T18:26:07.812Z",
+  "lastRunAt": "2026-05-23T18:26:10.854Z",
+  "lastHeartbeatAt": "2026-05-23T18:26:26.895Z",
+  "lastError": "Task 052 requeued during reconciliation",
+  "updatedAt": "2026-05-23T18:26:26.895Z",
   "workStatus": "idle"
 }

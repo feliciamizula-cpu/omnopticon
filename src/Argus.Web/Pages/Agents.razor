@@ -1,0 +1,420 @@
+@page "/agents"
+@rendermode @(new InteractiveServerRenderMode())
+@using Argus.Contracts.Agents
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using Microsoft.AspNetCore.Components.Web
+
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageHeader Title="Agent Team" Subtitle="@($"{_agents?.Count ?? 0:N0} agents, {_tasks?.Count ?? 0:N0} tasks")" />
+
+<div class="page-body">
+    @if (_loading)
+    {
+        <div class="empty-state">
+            <div class="app-loading-spinner"></div>
+            <p>Loading agents...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Agents Section -->
+        <div class="card" style="margin-bottom: var(--space-4); padding: 0;">
+            <div style="padding: var(--space-4); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; font-size: 14px; color: var(--text-secondary);">Agents (@(_agents?.Count ?? 0))</h2>
+                <button class="btn btn-sm btn-primary" @onclick="ShowAddAgentModal">+ Add Agent</button>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Current Task</th>
+                            <th>Tool</th>
+                            <th>Model</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var agent in _agents ?? [])
+                        {
+                            <tr>
+                                <td>@agent.Name</td>
+                                <td>
+                                    <span class="tag">@agent.Role</span>
+                                </td>
+                                <td>
+                                    <span class="status-badge status-@(agent.Status == "active" ? "active" : "archived")">
+                                        @agent.Status
+                                    </span>
+                                </td>
+                                <td>@(agent.CurrentTaskId ?? "-")</td>
+                                <td><span class="mono" style="font-size: 12px;">@agent.Tool</span></td>
+                                <td><span class="mono" style="font-size: 12px;">@agent.Model</span></td>
+                                <td>
+                                    @if (agent.Status == "active")
+                                    {
+                                        <button class="btn btn-sm btn-ghost" @onclick="() => PauseAgent(agent.AgentId)" title="Pause">⏸</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-ghost" @onclick="() => ResumeAgent(agent.AgentId)" title="Resume">▶</button>
+                                    }
+                                    <button class="btn btn-sm btn-ghost" @onclick="() => ShowEditAgentModal(agent)" title="Edit">✎</button>
+                                    <button class="btn btn-sm btn-ghost" @onclick="() => DeleteAgent(agent.AgentId)" title="Delete">✕</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tasks Section -->
+        <div class="card" style="margin-bottom: var(--space-4); padding: 0;">
+            <div style="padding: var(--space-4); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; font-size: 14px; color: var(--text-secondary);">Tasks (@(_tasks?.Count ?? 0))</h2>
+                <button class="btn btn-sm btn-primary" @onclick="ShowAddTaskModal">+ Create Task</button>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Description</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                            <th>Assigned To</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var task in _tasks ?? [])
+                        {
+                            <tr>
+                                <td>@task.TaskId</td>
+                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">@task.Description</td>
+                                <td>
+                                    <span class="tag">@task.Priority</span>
+                                </td>
+                                <td>
+                                    <span class="status-badge status-@(task.Status == "completed" ? "active" : task.Status == "in_progress" ? "active" : "archived")">
+                                        @task.Status
+                                    </span>
+                                </td>
+                                <td>@(task.AssignedTo ?? "-")</td>
+                                <td style="font-size: 12px;">@task.CreatedAt.ToString("MMM dd, HH:mm")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-ghost" @onclick="() => DeleteTask(task.TaskId)" title="Delete">✕</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="card" style="padding: 0; display: flex; flex-direction: column; height: 600px;">
+            <div style="padding: var(--space-4); border-bottom: 1px solid var(--border-subtle);">
+                <h2 style="margin: 0 0 var(--space-3); font-size: 14px; color: var(--text-secondary);">AI Agent Chat</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+                    <div>
+                        <label class="form-label">Tool</label>
+                        <select class="input" @bind="_chatTool" style="width: 100%;">
+                            <option value="claude">Claude</option>
+                            <option value="opencode">Opencode</option>
+                            <option value="codex">Codex</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label">Model</label>
+                        <select class="input" @bind="_chatModel" style="width: 100%;">
+                            @if (_chatTool == "claude")
+                            {
+                                <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+                                <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                                <option value="claude-opus-4-7">Opus 4.7</option>
+                            }
+                            else if (_chatTool == "opencode")
+                            {
+                                <option value="max-2.5">Max 2.5</option>
+                                <option value="max-2.7">Max 2.7</option>
+                            }
+                            else
+                            {
+                                <option value="codex-5.3">Codex 5.3</option>
+                                <option value="codex-5.5">Codex 5.5</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div style="flex: 1; overflow-y: auto; padding: var(--space-4); border-bottom: 1px solid var(--border-subtle); background-color: var(--bg-panel);">
+                @foreach (var msg in _chatHistory ?? [])
+                {
+                    @if (msg.Role == "user")
+                    {
+                        <div style="margin-bottom: var(--space-3); text-align: right;">
+                            <div style="display: inline-block; background-color: var(--accent-muted); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); max-width: 80%;">
+                                @msg.Content
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="margin-bottom: var(--space-3); text-align: left;">
+                            <div style="display: inline-block; background-color: var(--bg-elevated); border: 1px solid var(--border-subtle); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); max-width: 80%;">
+                                @msg.Content
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div style="padding: var(--space-4); display: flex; gap: var(--space-3);">
+                <textarea class="input" @bind="_chatInput" style="flex: 1; resize: none; height: 60px;" placeholder="Type your message..."></textarea>
+                <button class="btn btn-primary" @onclick="SendChat" style="height: 60px;">Send</button>
+            </div>
+        </div>
+    }
+
+    <!-- Add Agent Modal -->
+    @if (_showAddAgentModal)
+    {
+        <div class="modal-overlay" @onclick="() => _showAddAgentModal = false">
+            <div class="modal" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h3>Add Agent</h3>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="input" @bind="_newAgentName" placeholder="Agent name" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Role</label>
+                        <select class="input" @bind="_newAgentRole">
+                            <option value="development">Development</option>
+                            <option value="devops">DevOps</option>
+                            <option value="review">Review</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Tool</label>
+                        <select class="input" @bind="_newAgentTool">
+                            <option value="opencode">Opencode</option>
+                            <option value="claude">Claude</option>
+                            <option value="codex">Codex</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Model</label>
+                        <input type="text" class="input" @bind="_newAgentModel" placeholder="e.g., claude-sonnet-4-6" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" @onclick="() => _showAddAgentModal = false">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SaveAgent">Create</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Add Task Modal -->
+    @if (_showAddTaskModal)
+    {
+        <div class="modal-overlay" @onclick="() => _showAddTaskModal = false">
+            <div class="modal" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h3>Create Task</h3>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea class="input" @bind="_newTaskDescription" placeholder="Task description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Priority</label>
+                        <select class="input" @bind="_newTaskPriority">
+                            <option value="low">Low</option>
+                            <option value="normal">Normal</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" @onclick="() => _showAddTaskModal = false">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SaveTask">Create</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<AgentDto>? _agents;
+    private List<AgentTaskDto>? _tasks;
+    private List<ChatMessageDto>? _chatHistory;
+    private bool _loading = true;
+    private bool _showAddAgentModal;
+    private bool _showAddTaskModal;
+
+    private string _chatInput = "";
+    private string _chatTool = "claude";
+    private string _chatModel = "claude-sonnet-4-6";
+
+    // Form inputs for agent modal
+    private string _newAgentName = "";
+    private string _newAgentRole = "development";
+    private string _newAgentTool = "opencode";
+    private string _newAgentModel = "claude-sonnet-4-6";
+
+    // Form inputs for task modal
+    private string _newTaskDescription = "";
+    private string _newTaskPriority = "normal";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            using var agentsResponse = await Http.GetAsync("/ui/agents");
+            if (agentsResponse.IsSuccessStatusCode)
+            {
+                var content = await agentsResponse.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(content);
+                if (doc.RootElement.TryGetProperty("items", out var itemsElement))
+                {
+                    _agents = JsonSerializer.Deserialize<List<AgentDto>>(itemsElement.GetRawText(), options) ?? [];
+                }
+            }
+
+            using var tasksResponse = await Http.GetAsync("/ui/agent-tasks");
+            if (tasksResponse.IsSuccessStatusCode)
+            {
+                var content = await tasksResponse.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(content);
+                if (doc.RootElement.TryGetProperty("items", out var itemsElement))
+                {
+                    _tasks = JsonSerializer.Deserialize<List<AgentTaskDto>>(itemsElement.GetRawText(), options) ?? [];
+                }
+            }
+
+            using var chatResponse = await Http.GetAsync("/ui/agent-chat/history");
+            if (chatResponse.IsSuccessStatusCode)
+            {
+                var content = await chatResponse.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(content);
+                if (doc.RootElement.TryGetProperty("items", out var itemsElement))
+                {
+                    _chatHistory = JsonSerializer.Deserialize<List<ChatMessageDto>>(itemsElement.GetRawText(), options) ?? [];
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error loading data: {ex}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ShowAddAgentModal()
+    {
+        _newAgentName = "";
+        _newAgentRole = "development";
+        _newAgentTool = "opencode";
+        _newAgentModel = "claude-sonnet-4-6";
+        _showAddAgentModal = true;
+    }
+
+    private void ShowEditAgentModal(AgentDto agent)
+    {
+        _newAgentName = agent.Name;
+        _newAgentRole = agent.Role;
+        _newAgentTool = agent.Tool;
+        _newAgentModel = agent.Model;
+        _showAddAgentModal = true;
+    }
+
+    private async Task SaveAgent()
+    {
+        var request = new CreateAgentRequest(_newAgentName, _newAgentRole, ["implementation"], _newAgentTool, _newAgentModel);
+        await Http.PostAsJsonAsync("/ui/agents", request);
+        _showAddAgentModal = false;
+        await LoadData();
+    }
+
+    private async Task PauseAgent(Guid agentId)
+    {
+        await Http.PatchAsync($"/ui/agents/{agentId}/pause", null);
+        await LoadData();
+    }
+
+    private async Task ResumeAgent(Guid agentId)
+    {
+        await Http.PatchAsync($"/ui/agents/{agentId}/resume", null);
+        await LoadData();
+    }
+
+    private async Task DeleteAgent(Guid agentId)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Delete this agent?"))
+        {
+            await Http.DeleteAsync($"/ui/agents/{agentId}");
+            await LoadData();
+        }
+    }
+
+    private void ShowAddTaskModal()
+    {
+        _newTaskDescription = "";
+        _newTaskPriority = "normal";
+        _showAddTaskModal = true;
+    }
+
+    private async Task SaveTask()
+    {
+        var request = new CreateAgentTaskRequest(_newTaskDescription, _newTaskPriority);
+        await Http.PostAsJsonAsync("/ui/agent-tasks", request);
+        _showAddTaskModal = false;
+        await LoadData();
+    }
+
+    private async Task DeleteTask(string taskId)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Delete this task?"))
+        {
+            await Http.DeleteAsync($"/ui/agent-tasks/{taskId}");
+            await LoadData();
+        }
+    }
+
+    private async Task SendChat()
+    {
+        if (string.IsNullOrWhiteSpace(_chatInput))
+            return;
+
+        var request = new SendChatRequest(_chatInput, _chatTool, _chatModel);
+        var response = await Http.PostAsJsonAsync("/ui/agent-chat", request);
+        _chatInput = "";
+        await LoadData();
+    }
+}

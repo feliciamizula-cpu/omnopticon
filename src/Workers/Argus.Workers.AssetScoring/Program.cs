@@ -24,6 +24,11 @@ internal sealed class AssetScoringWorker : IReconWorker, IIntegrationEventConsum
         SupportsCheckpoint: false,
         MaxConcurrency: 100);
 
+    public Task HandleAsync(IntegrationEventEnvelope<AssetDiscovered> eventEnvelope, CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
+    }
+
     public async Task<WorkerProcessResult> ProcessAsync(
         ReconTaskDto task,
         WorkerExecutionContext context,
@@ -46,23 +51,22 @@ internal sealed class AssetScoringWorker : IReconWorker, IIntegrationEventConsum
 
         return new WorkerProcessResult(
             PartiallySucceeded: false,
-            HasMoreWork: false,
-            NextTaskPayloadJson: null,
-            ProducedAssets: observations.Select(o => new WorkerProducedAsset(
-                AssetType: "Observation",
-                Value: o.Value,
-                Subtype: o.Subtype,
-                ParentAssetId: task.InputAssetId,
-                Metadata: o.Metadata,
-                Tags: o.Tags
-            )).ToArray(),
             OutputSummaryJson: JsonSerializer.Serialize(new
             {
                 assetValue = value,
                 assetType,
                 observationCount = observations.Length,
                 highestScore = observations.Length > 0 ? observations.Max(o => o.Score) : 0
-            }));
+            }),
+            ProducedAssets: observations.Select(o => new WorkerProducedAsset(
+                AssetType: "Observation",
+                Value: o.Value,
+                Subtype: o.Subtype,
+                Confidence: null,
+                Metadata: o.Metadata,
+                Tags: o.Tags,
+                ArtifactReferences: null
+            )).ToArray());
     }
 
     private static ScoringObservation[] ComputeObservations(string value, string assetType, Guid targetId, Guid programId, Guid taskId, Guid? parentAssetId)

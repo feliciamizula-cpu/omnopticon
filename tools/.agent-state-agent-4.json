@@ -1,14 +1,14 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "052",
-  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": null,
-  "status": "crashed",
+  "status": "idle",
   "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T17:35:18.485Z",
-  "lastHeartbeatAt": "2026-05-23T17:35:55.071Z",
-  "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T17:35:55.071Z",
+  "startedAt": "2026-05-23T18:26:13.106Z",
+  "lastRunAt": "2026-05-23T18:26:15.968Z",
+  "lastHeartbeatAt": "2026-05-23T18:26:26.895Z",
+  "lastError": "Task 052 requeued during reconciliation",
+  "updatedAt": "2026-05-23T18:26:26.895Z",
   "workStatus": "idle"
 }

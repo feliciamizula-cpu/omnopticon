@@ -70,6 +70,9 @@ MapService(app, "/event-router", endpoints.Realtime);
 MapService(app, "/event-routes", endpoints.Realtime);
 MapService(app, "/rate-limits", endpoints.RateLimit);
 MapService(app, "/settings", endpoints.ProgramScope);
+MapService(app, "/agents", endpoints.Agent);
+MapService(app, "/agent-tasks", endpoints.Agent);
+MapService(app, "/agent-chat", endpoints.Agent);
 
 app.Run();
 
@@ -80,6 +83,7 @@ static void MapService(WebApplication app, string pathPrefix, string destination
 }
 
 internal sealed record ArgusServiceEndpoints(
+    string Agent,
     string ProgramScope,
     string Asset,
     string Artifact,
@@ -90,6 +94,7 @@ internal sealed record ArgusServiceEndpoints(
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) =>
         new(
+            configuration["ARGUS_AGENT_SERVICE"] ?? "https+http://agent-service",
             configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
             configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
             configuration["ARGUS_ARTIFACT_SERVICE"] ?? "https+http://artifact-service",

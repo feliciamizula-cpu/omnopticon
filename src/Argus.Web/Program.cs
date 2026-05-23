@@ -7,13 +7,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
-builder.Services.AddRazorComponents();
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
-app.MapRazorComponents<Argus.Web.Components.Routes>();
+app.MapRazorComponents<Argus.Web.Components.Routes>()
+    .AddInteractiveServerRenderMode();
 
 app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
 {
@@ -201,7 +202,151 @@ app.MapGet("/ui/events/stream", async (
     }
 });
 
+// Agent management endpoints (BFF proxy)
+app.MapGet("/ui/agents", ProxyGetAgent);
+app.MapPost("/ui/agents", ProxyPostAgent);
+app.MapGet("/ui/agents/{agentId:guid}", ProxyGetAgentById);
+app.MapPut("/ui/agents/{agentId:guid}", ProxyPutAgent);
+app.MapDelete("/ui/agents/{agentId:guid}", ProxyDeleteAgent);
+app.MapPatch("/ui/agents/{agentId:guid}/pause", ProxyPauseAgent);
+app.MapPatch("/ui/agents/{agentId:guid}/resume", ProxyResumeAgent);
+app.MapPost("/ui/agents/{agentId:guid}/assign/{taskId}", ProxyAssignTask);
+
+app.MapGet("/ui/agent-tasks", ProxyGetTasks);
+app.MapPost("/ui/agent-tasks", ProxyPostTask);
+app.MapGet("/ui/agent-tasks/{taskId}", ProxyGetTaskById);
+app.MapPut("/ui/agent-tasks/{taskId}", ProxyPutTask);
+app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
+
+app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
+app.MapPost("/ui/agent-chat", ProxyPostChat);
+
 app.Run();
+
+// Agent proxy handlers
+async Task<IResult> ProxyGetAgent(IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, "/agents", ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostAgent(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/agents", payload, ct);
+}
+
+async Task<IResult> ProxyGetAgentById(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/agents/{agentId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyPutAgent(Guid agentId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}", payload, ct);
+}
+
+async Task<IResult> ProxyDeleteAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = httpClientFactory.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Agent);
+    var response = await client.DeleteAsync($"/agents/{agentId}", ct);
+    return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
+}
+
+async Task<IResult> ProxyPauseAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/pause", new JsonObject(), ct);
+}
+
+async Task<IResult> ProxyResumeAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/resume", new JsonObject(), ct);
+}
+
+async Task<IResult> ProxyAssignTask(Guid agentId, string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/assign/{taskId}", new JsonObject(), ct);
+}
+
+async Task<IResult> ProxyGetTasks(string? status, string? priority, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = "/agent-tasks";
+    if (!string.IsNullOrWhiteSpace(status) || !string.IsNullOrWhiteSpace(priority))
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={status}");
+        if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={priority}");
+        path += "?" + string.Join("&", query);
+    }
+    var result = await gateway.GetJsonAsync(endpoints.Agent, path, ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostTask(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/agent-tasks", payload, ct);
+}
+
+async Task<IResult> ProxyGetTaskById(string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/agent-tasks/{taskId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyPutTask(string taskId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/agent-tasks/{taskId}", payload, ct);
+}
+
+async Task<IResult> ProxyDeleteTask(string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = httpClientFactory.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Agent);
+    var response = await client.DeleteAsync($"/agent-tasks/{taskId}", ct);
+    return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
+}
+
+async Task<IResult> ProxyGetChatHistory(IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, "/agent-chat/history", ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
+}
 
 internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 {
@@ -241,6 +386,7 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 }
 
 internal sealed record ArgusServiceEndpoints(
+    string Agent,
     string ProgramScope,
     string Asset,
     string Task,
@@ -250,6 +396,7 @@ internal sealed record ArgusServiceEndpoints(
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) =>
         new(
+            configuration["ARGUS_AGENT_SERVICE"] ?? "https+http://agent-service",
             configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
             configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
             configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",

@@ -68,7 +68,6 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         var schemes = new[] { "https", "http" };
         bool httpsSucceeded = false;
         string? httpsError = null;
-        string? httpsRedirectUrl = null;
         var redirectChain = new List<string>();
         string outputSummary = "";
 
