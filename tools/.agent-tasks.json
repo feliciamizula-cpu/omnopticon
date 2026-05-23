@@ -660,7 +660,7 @@
       "recoveryContext": "Build has 5 errors in Workers and AssetService. Key issues: 1) WorkerProducedArtifact reference in ArgusWorkerBackgroundService.cs line 565 (likely missing using/namespace), 2) AssetService BulkOperationResult accessibility mismatch, 3) JsonNode/GetValue issue in Assets.razor line 189. Deployment compose.yaml exists and is valid. AgentCoordinator tool builds successfully.",
       "claimedAt": "2026-05-23T04:47:05.156Z",
       "attempts": 14,
-      "completedAt": "2026-05-23T04:47:38.131Z"
+      "completedAt": "2026-05-23T04:48:23.942Z"
     },
     {
       "id": "045",

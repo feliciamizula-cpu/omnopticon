@@ -13,11 +13,11 @@ builder.AddArgusWorker<FindingDeduperWorker>();
 
 await builder.Build().RunAsync();
 
-internal sealed class FindingDeduperWorker : IReconWorker
+internal sealed class FindingDeduperWorker : IReconWorker, IIntegrationEventConsumer<ObservationCreated>
 {
     public WorkerCapabilityDescriptor Capability { get; } = new(
         "FindingDeduperWorker",
-        ["Observation", "FindingCandidate", "Domain", "Subdomain", "Url", "ApiEndpoint"],
+        ["Observation", "Domain", "Subdomain", "Url", "ApiEndpoint"],
         ["FindingCandidate"],
         RequiresHttp: false,
         SupportsCheckpoint: false,
@@ -32,6 +32,9 @@ internal sealed class FindingDeduperWorker : IReconWorker
         var observationSubtype = GetPayloadString(task.InputPayloadJson, "subtype") ?? "GenericObservation";
         var signal = GetPayloadString(task.InputPayloadJson, "signal") ?? "unknown";
         var score = GetPayloadInt(task.InputPayloadJson, "score") ?? 0;
+        var targetId = GetPayloadGuid(task.InputPayloadJson, "targetId");
+        var programId = task.ProgramId;
+        var sourceTaskId = task.TaskId;
 
         await context.ReportProgressAsync(20, $"Analyzing observation: {observationValue}", null);
 
@@ -40,14 +43,12 @@ internal sealed class FindingDeduperWorker : IReconWorker
         if (!isHighConfidence)
         {
             await context.ReportProgressAsync(100, $"Low confidence observation ({score}), skipping finding creation", null);
-            return new WorkerProcessResult(
-                HasMoreWork: false,
-                NextTaskPayloadJson: null,
-                ProducedAssets: [],
-                OutputSummaryJson: JsonSerializer.Serialize(new { skipped = true, reason = "low-confidence", score }));
+            return WorkerProcessResult.Empty(JsonSerializer.Serialize(new { skipped = true, reason = "low-confidence", score }));
         }
 
         await context.ReportProgressAsync(50, $"High confidence observation passed dedup checks", null);
+
+        var dedupeKey = ComputeDedupeKey(signal, observationValue);
 
         var findingCandidate = new WorkerProducedAsset(
             AssetType: "FindingCandidate",
@@ -57,16 +58,19 @@ internal sealed class FindingDeduperWorker : IReconWorker
             Metadata: new Dictionary<string, string>
             {
                 ["signal"] = signal,
-                ["sourceTaskId"] = task.TaskId.ToString(),
+                ["sourceTaskId"] = sourceTaskId.ToString(),
+                ["targetId"] = targetId?.ToString() ?? "",
+                ["programId"] = programId.ToString(),
                 ["confidence"] = score.ToString(),
-                ["dedupKey"] = ComputeDedupeKey(signal, observationValue),
-                ["programId"] = task.ProgramId.ToString()
+                ["dedupKey"] = dedupeKey,
+                ["observationType"] = observationSubtype
             },
             Tags: ["finding-candidate", "deduped", signal]);
 
         await context.ReportProgressAsync(80, $"Produced finding candidate: {observationValue}", null);
 
         return new WorkerProcessResult(
+            PartiallySucceeded: false,
             HasMoreWork: false,
             NextTaskPayloadJson: null,
             ProducedAssets: [findingCandidate],
@@ -76,8 +80,22 @@ internal sealed class FindingDeduperWorker : IReconWorker
                 value = observationValue,
                 signal,
                 score,
-                dedupeKey = ComputeDedupeKey(signal, observationValue)
+                dedupeKey
             }));
+    }
+
+    public async Task HandleAsync(IntegrationEventEnvelope<ObservationCreated> envelope, CancellationToken cancellationToken)
+    {
+        var observation = envelope.Payload;
+        if (observation.Score >= 60)
+        {
+            await ProcessHighValueObservationAsync(observation, cancellationToken);
+        }
+    }
+
+    private Task ProcessHighValueObservationAsync(ObservationCreated observation, CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 
     private static string ComputeDedupeKey(string signal, string value)
@@ -112,22 +130,19 @@ internal sealed class FindingDeduperWorker : IReconWorker
         catch { }
         return null;
     }
-}
 
-internal sealed class ObservationToFindingConsumer : IIntegrationEventConsumer<ObservationCreated>
-{
-    private readonly ILogger<ObservationToFindingConsumer> _logger;
-
-    public ObservationToFindingConsumer(ILogger<ObservationToFindingConsumer> logger)
+    private static Guid? GetPayloadGuid(string? payloadJson, string propertyName)
     {
-        _logger = logger;
-    }
-
-    public async Task HandleAsync(IntegrationEventEnvelope<ObservationCreated> envelope, CancellationToken cancellationToken)
-    {
-        _logger.LogDebug("Received observation event {EventId} for asset {AssetId}",
-            envelope.Payload.ObservationId, envelope.Payload.AssetId);
+        if (string.IsNullOrWhiteSpace(payloadJson)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            if (document.RootElement.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+                return Guid.TryParse(value.GetString(), out var guid) ? guid : null;
+        }
+        catch { }
+        return null;
     }
 }
 
-public sealed record ObservationCreated(Guid ObservationId, Guid AssetId, string ObservationType, string Value, int Score);
+public sealed record ObservationCreated(Guid ObservationId, Guid AssetId, Guid TargetId, Guid ProgramId, string ObservationType, string Value, string Signal, int Score, Guid? SourceTaskId);
