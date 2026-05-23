@@ -449,7 +449,7 @@ public sealed class ArgusWorkerBackgroundService(
             worker.Capability.WorkerType,
             asset.AssetType,
             asset.Value,
-            result?.Reason ?? "scope validation failed");
+            result?.Reason.ToString() ?? "scope validation failed");
 
         return false;
     }
