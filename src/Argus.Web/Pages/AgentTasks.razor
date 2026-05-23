@@ -1,0 +1,829 @@
+@page "/agent-tasks"
+@page "/development/agent-tasks"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Argus.Contracts.Agents
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageHeader Title="Agent Tasks" Subtitle="@($"{Rows.Count:N0} visible · {_tasks.Count:N0} total")" />
+
+<div class="page-body dev-page">
+    <div class="dev-main">
+        <div class="page-tabs">
+            @foreach (var tab in QueueTabs)
+            {
+                <button class="page-tab @(_filter == tab.Id ? "active" : "")" @onclick="() => SetFilter(tab.Id)">
+                    <span>@tab.Label</span>
+                    <span class="tab-count">@tab.Count</span>
+                </button>
+            }
+            <div class="page-tab-spacer"></div>
+            <div class="page-tab-actions">
+                <button class="btn primary tiny" @onclick="OpenCreateModal">+ New Task</button>
+                <button class="btn ghost tiny" @onclick="LoadData">Refresh</button>
+                <button class="btn ghost tiny" @onclick="ClearAgentFilter">All Agents</button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="dev-alert">@_error</div>
+        }
+
+        @if (_loading)
+        {
+            <div class="dev-empty">
+                <div>
+                    <div class="app-loading-spinner" style="margin: 0 auto 12px;"></div>
+                    <div>// loading agent task queue</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="dev-three-pane">
+                <div class="dev-facets">
+                    <div class="facet-head" style="border-bottom: 1px solid var(--line-1);">
+                        <span>Assigned</span>
+                        <span class="count">@(_agents.Count + 1)</span>
+                    </div>
+                    <div class="facet-row @(_agentFilter is null ? "active" : "")" @onclick="ClearAgentFilter">
+                        <div class="check"></div>
+                        <span class="label">All agents</span>
+                        <span class="n">@_tasks.Count</span>
+                    </div>
+                    <div class="facet-row @(_agentFilter == UnassignedFilter ? "active" : "")" @onclick="() => SetAgentFilter(UnassignedFilter)">
+                        <div class="check"></div>
+                        <span class="label" style="color: var(--fg-3);"><i>unassigned</i></span>
+                        <span class="n">@_tasks.Count(t => string.IsNullOrWhiteSpace(t.AssignedTo))</span>
+                    </div>
+
+                    @foreach (var agent in _agents.OrderBy(a => a.Name))
+                    {
+                        <div class="facet-row @(_agentFilter == agent.AgentId.ToString() ? "active" : "")" @onclick="() => SetAgentFilter(agent.AgentId.ToString())">
+                            <div class="check"></div>
+                            <span class="label">
+                                <span class="dot @AgentDot(agent)" style="margin-right: 5px;"></span>
+                                @agent.Name
+                            </span>
+                            <span class="n">@_tasks.Count(t => AssignedToAgent(t, agent))</span>
+                        </div>
+                    }
+
+                    <div class="facet-head" style="margin-top: 6px;">
+                        <span>Priority</span>
+                    </div>
+                    @foreach (var priority in Priorities)
+                    {
+                        <div class="facet-row @(_priorityFilter == priority ? "active" : "")" @onclick="() => TogglePriority(priority)">
+                            <div class="check"></div>
+                            <span class="label"><span class="dev-pill @PriorityTone(priority)">@priority</span></span>
+                            <span class="n">@_tasks.Count(t => PriorityKey(t.Priority) == priority)</span>
+                        </div>
+                    }
+
+                    <div class="facet-head" style="margin-top: 6px;">
+                        <span>Status</span>
+                    </div>
+                    @foreach (var status in Statuses)
+                    {
+                        <div class="facet-row">
+                            <div class="check"></div>
+                            <span class="label"><span class="dev-pill @TaskStatusTone(status)">@TaskStatusLabel(status)</span></span>
+                            <span class="n">@_tasks.Count(t => StatusKey(t.Status) == status)</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="dev-table-wrap">
+                    <table class="dev-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 22px;"></th>
+                                <th style="width: 100px;">Task</th>
+                                <th style="width: 90px;">Priority</th>
+                                <th style="width: 110px;">Status</th>
+                                <th>Description</th>
+                                <th style="width: 150px;">Assigned</th>
+                                <th style="width: 52px;">Att.</th>
+                                <th style="width: 90px;">Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var task in Rows)
+                            {
+                                <tr class="@(SelectedTask?.TaskId == task.TaskId ? "selected" : "")" @onclick="() => SelectTask(task)">
+                                    <td><span class="dot @TaskDot(task.Status)"></span></td>
+                                    <td style="color: var(--accent);">@task.TaskId</td>
+                                    <td><span class="dev-pill @PriorityTone(task.Priority)">@PriorityLabel(task.Priority)</span></td>
+                                    <td><span class="dev-pill @TaskStatusTone(task.Status)">@TaskStatusLabel(task.Status)</span></td>
+                                    <td class="primary-cell">@task.Description</td>
+                                    <td>@AgentChip(task.AssignedTo)</td>
+                                    <td class="tabular @(task.Attempts > 3 ? "tone-red" : "")">@task.Attempts</td>
+                                    <td class="tabular" style="color: var(--fg-3);">@Relative(task.CreatedAt)</td>
+                                </tr>
+                            }
+
+                            @if (Rows.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="8" style="padding: 30px; text-align: center; color: var(--fg-3);">// queue is empty</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="dev-inspector">
+                    @if (SelectedTask is null)
+                    {
+                        <div class="dev-empty">// select a task</div>
+                    }
+                    else
+                    {
+                        var selected = SelectedTask!;
+                        <div class="dev-inspector-head">
+                            <div class="type-row">
+                                <span class="dev-pill dim">Task</span>
+                                <span class="dev-pill @PriorityTone(selected.Priority)">@PriorityLabel(selected.Priority)</span>
+                                <span class="dev-pill @TaskStatusTone(selected.Status)">@TaskStatusLabel(selected.Status)</span>
+                                <span class="asset-id">@selected.TaskId</span>
+                            </div>
+
+                            @if (_editing)
+                            {
+                                <textarea class="dev-input" rows="3" style="margin-top: 8px;" @bind="_taskForm.Description" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <div class="value-big" style="font-size: 13.5px; font-weight: 500;">@selected.Description</div>
+                            }
+                        </div>
+
+                        <div class="dev-inspector-body">
+                            <div class="section-label">METADATA</div>
+                            <table class="kv-table">
+                                <tbody>
+                                    <tr><td>Task ID</td><td class="mono">@selected.TaskId</td></tr>
+                                    <tr>
+                                        <td>Priority</td>
+                                        <td>
+                                            @if (_editing)
+                                            {
+                                                <select class="dev-input" @bind="_taskForm.Priority">
+                                                    <option value="critical">critical</option>
+                                                    <option value="high">high</option>
+                                                    <option value="normal">normal</option>
+                                                    <option value="medium">medium</option>
+                                                    <option value="low">low</option>
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                <span class="dev-pill @PriorityTone(selected.Priority)">@PriorityLabel(selected.Priority)</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>Status</td>
+                                        <td>
+                                            @if (_editing)
+                                            {
+                                                <select class="dev-input" @bind="_taskForm.Status">
+                                                    @foreach (var status in Statuses)
+                                                    {
+                                                        <option value="@status">@TaskStatusLabel(status)</option>
+                                                    }
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                <span class="dev-pill @TaskStatusTone(selected.Status)">@TaskStatusLabel(selected.Status)</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>Assigned to</td>
+                                        <td>
+                                            @if (_editing)
+                                            {
+                                                <select class="dev-input" @bind="_taskForm.AssignedTo">
+                                                    <option value="">— unassigned —</option>
+                                                    @foreach (var agent in _agents.OrderBy(a => a.Name))
+                                                    {
+                                                        <option value="@agent.AgentId">@agent.Name (@agent.Tool/@agent.Role)</option>
+                                                    }
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                @AgentChip(selected.AssignedTo)
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr><td>Attempts</td><td class="tabular">@selected.Attempts / 5</td></tr>
+                                    <tr><td>Created</td><td class="tabular">@Relative(selected.CreatedAt)</td></tr>
+                                    @if (selected.ClaimedAt is not null)
+                                    {
+                                        <tr><td>Claimed</td><td class="tabular">@Relative(selected.ClaimedAt.Value)</td></tr>
+                                    }
+                                    @if (selected.CompletedAt is not null)
+                                    {
+                                        <tr><td>Completed</td><td class="tabular">@Relative(selected.CompletedAt.Value)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+
+                            @if (!string.IsNullOrWhiteSpace(selected.RecoveryContext))
+                            {
+                                <div class="section-label">RECOVERY CONTEXT</div>
+                                <div class="dev-note warn">@selected.RecoveryContext</div>
+                            }
+
+                            <div class="section-label">AGENT PROMPT / DESCRIPTION</div>
+                            @if (_editing)
+                            {
+                                <div style="padding: 0 12px 8px;">
+                                    <textarea class="dev-input" rows="7" @bind="_taskForm.Description" @bind:event="oninput"></textarea>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="dev-note">@selected.Description</div>
+                            }
+
+                            <div class="section-label">EVENT TRAIL</div>
+                            <div class="dev-event-row">
+                                <span class="t">@selected.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                                <span class="k cyan">CREATED</span>
+                                <span class="body">task added to development queue</span>
+                            </div>
+                            @if (selected.ClaimedAt is not null)
+                            {
+                                <div class="dev-event-row">
+                                    <span class="t">@selected.ClaimedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+                                    <span class="k amber">CLAIMED</span>
+                                    <span class="body">by @(selected.AssignedTo ?? "pool")</span>
+                                </div>
+                            }
+                            @if (selected.CompletedAt is not null)
+                            {
+                                <div class="dev-event-row">
+                                    <span class="t">@selected.CompletedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+                                    <span class="k green">DONE</span>
+                                    <span class="body">task reached @selected.Status</span>
+                                </div>
+                            }
+
+                            <div class="section-label">ACTIONS</div>
+                            <div class="dev-action-row">
+                                @if (_editing)
+                                {
+                                    <button class="btn primary tiny" @onclick="SaveTask">Save</button>
+                                    <button class="btn ghost tiny" @onclick="CancelEdit">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button class="btn primary tiny" @onclick="BeginEdit">Edit</button>
+                                    <button class="btn ghost tiny" @onclick='() => QuickStatus(selected, "pending")'>Requeue</button>
+                                    <button class="btn ghost tiny" @onclick='() => QuickStatus(selected, "blocked")'>Block</button>
+                                    <button class="btn ghost tiny" @onclick='() => QuickStatus(selected, "completed")'>Complete</button>
+                                    <button class="btn danger tiny" @onclick="() => DeleteTask(selected)">Delete</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (_showTaskModal)
+{
+    <div class="dev-page">
+        <div class="dev-modal-overlay" @onclick="CloseTaskModal">
+            <div class="dev-modal" @onclick:stopPropagation="true">
+                <div class="dev-modal-head">
+                    <span class="dot amber"></span>
+                    New Agent Task
+                    <button class="dev-icon-btn" @onclick="CloseTaskModal">×</button>
+                </div>
+                <div class="dev-modal-body">
+                    <div class="dev-form-grid">
+                        <div class="dev-form-field full">
+                            <label>Short description / prompt</label>
+                            <textarea class="dev-input" rows="6" @bind="_newTask.Description" @bind:event="oninput" placeholder="Implement the new worker status panel and add tests."></textarea>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Priority</label>
+                            <select class="dev-input" @bind="_newTask.Priority">
+                                <option value="critical">critical</option>
+                                <option value="high">high</option>
+                                <option value="normal">normal</option>
+                                <option value="medium">medium</option>
+                                <option value="low">low</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Assign to</label>
+                            <select class="dev-input" @bind="_newTask.AssignedTo">
+                                <option value="">— pool · any agent —</option>
+                                @foreach (var agent in _agents.OrderBy(a => a.Name))
+                                {
+                                    <option value="@agent.AgentId">@agent.Name · @agent.Tool/@agent.Role</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="dev-modal-foot">
+                    <button class="btn ghost" @onclick="CloseTaskModal">Cancel</button>
+                    <button class="btn primary" @onclick="CreateTask" disabled="@(!CanCreateTask)">Add Task</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string UnassignedFilter = "_unassigned";
+
+    private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private List<AgentDto> _agents = new();
+    private List<AgentTaskDto> _tasks = new();
+    private bool _loading = true;
+    private string _filter = "queue";
+    private string? _agentFilter;
+    private string? _priorityFilter;
+    private string? _selectedTaskId;
+    private string? _error;
+
+    private bool _editing;
+    private bool _showTaskModal;
+    private TaskForm _taskForm = new();
+    private TaskForm _newTask = new() { Priority = "normal" };
+
+    private static readonly string[] Priorities = ["critical", "high", "medium", "normal", "low"];
+    private static readonly string[] Statuses = ["pending", "claimed", "in_progress", "blocked", "completed", "failed"];
+
+    private AgentTaskDto? SelectedTask =>
+        _tasks.FirstOrDefault(t => t.TaskId == _selectedTaskId) ?? _tasks.FirstOrDefault();
+
+    private List<QueueTab> QueueTabs =>
+    [
+        new("queue", "Queue", _tasks.Count(IsQueueTask)),
+        new("pending", "Pending", _tasks.Count(t => StatusKey(t.Status) == "pending")),
+        new("active", "Active", _tasks.Count(t => StatusKey(t.Status) is "claimed" or "in_progress")),
+        new("done", "Completed", _tasks.Count(t => StatusKey(t.Status) == "completed")),
+        new("failed", "Failed", _tasks.Count(t => StatusKey(t.Status) == "failed")),
+        new("all", "All", _tasks.Count)
+    ];
+
+    private List<AgentTaskDto> Rows
+    {
+        get
+        {
+            var rows = _tasks.AsEnumerable();
+
+            rows = _filter switch
+            {
+                "queue" => rows.Where(IsQueueTask),
+                "pending" => rows.Where(t => StatusKey(t.Status) == "pending"),
+                "active" => rows.Where(t => StatusKey(t.Status) is "claimed" or "in_progress"),
+                "done" => rows.Where(t => StatusKey(t.Status) == "completed"),
+                "failed" => rows.Where(t => StatusKey(t.Status) == "failed"),
+                _ => rows
+            };
+
+            if (_agentFilter == UnassignedFilter)
+            {
+                rows = rows.Where(t => string.IsNullOrWhiteSpace(t.AssignedTo));
+            }
+            else if (!string.IsNullOrWhiteSpace(_agentFilter))
+            {
+                rows = rows.Where(t => string.Equals(t.AssignedTo, _agentFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_priorityFilter))
+            {
+                rows = rows.Where(t => PriorityKey(t.Priority) == _priorityFilter);
+            }
+
+            return rows.OrderBy(t => PriorityRank(t.Priority))
+                .ThenByDescending(IsQueueTask)
+                .ThenByDescending(t => t.CreatedAt)
+                .ToList();
+        }
+    }
+
+    private bool CanCreateTask => !string.IsNullOrWhiteSpace(_newTask.Description);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            var agentsResponse = await Http.GetAsync(Ui("/ui/agents"));
+            _agents = await ReadItemsAsync<AgentDto>(agentsResponse);
+
+            var tasksResponse = await Http.GetAsync(Ui("/ui/agent-tasks"));
+            _tasks = await ReadItemsAsync<AgentTaskDto>(tasksResponse);
+
+            if (_selectedTaskId is null || !_tasks.Any(t => t.TaskId == _selectedTaskId))
+            {
+                _selectedTaskId = _tasks.FirstOrDefault()?.TaskId;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to load agent tasks: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
+
+    private async Task<List<T>> ReadItemsAsync<T>(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            _error = $"Backend returned {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+            return new List<T>();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var document = await JsonDocument.ParseAsync(stream);
+
+        if (document.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            return JsonSerializer.Deserialize<List<T>>(document.RootElement.GetRawText(), _jsonOptions) ?? new List<T>();
+        }
+
+        if (document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty("items", out var items)
+            && items.ValueKind == JsonValueKind.Array)
+        {
+            return JsonSerializer.Deserialize<List<T>>(items.GetRawText(), _jsonOptions) ?? new List<T>();
+        }
+
+        return new List<T>();
+    }
+
+    private void SetFilter(string filter)
+    {
+        _filter = filter;
+        _selectedTaskId = Rows.FirstOrDefault()?.TaskId ?? _selectedTaskId;
+    }
+
+    private void SetAgentFilter(string filter)
+    {
+        _agentFilter = filter;
+        _selectedTaskId = Rows.FirstOrDefault()?.TaskId ?? _selectedTaskId;
+    }
+
+    private void ClearAgentFilter()
+    {
+        _agentFilter = null;
+        _selectedTaskId = Rows.FirstOrDefault()?.TaskId ?? _selectedTaskId;
+    }
+
+    private void TogglePriority(string priority)
+    {
+        _priorityFilter = _priorityFilter == priority ? null : priority;
+        _selectedTaskId = Rows.FirstOrDefault()?.TaskId ?? _selectedTaskId;
+    }
+
+    private void SelectTask(AgentTaskDto task)
+    {
+        _selectedTaskId = task.TaskId;
+        CancelEdit();
+    }
+
+    private void BeginEdit()
+    {
+        var task = SelectedTask;
+        if (task is null)
+        {
+            return;
+        }
+
+        _taskForm = new TaskForm
+        {
+            Description = task.Description,
+            Priority = PriorityKey(task.Priority),
+            Status = StatusKey(task.Status),
+            AssignedTo = task.AssignedTo ?? ""
+        };
+        _editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        _editing = false;
+        _taskForm = new TaskForm();
+    }
+
+    private async Task SaveTask()
+    {
+        var task = SelectedTask;
+        if (task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var request = new UpdateAgentTaskRequest(
+                Description: _taskForm.Description,
+                Priority: _taskForm.Priority,
+                Status: _taskForm.Status,
+                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? null : _taskForm.AssignedTo);
+
+            var response = await Http.PutAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(task.TaskId)}"), request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Save failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
+
+            _editing = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to save task: {ex.Message}";
+        }
+    }
+
+    private async Task QuickStatus(AgentTaskDto task, string status)
+    {
+        try
+        {
+            var request = new UpdateAgentTaskRequest(Status: status);
+            var response = await Http.PutAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(task.TaskId)}"), request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Status update failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
+
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to update task: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteTask(AgentTaskDto task)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete task {task.TaskId}?"))
+        {
+            return;
+        }
+
+        try
+        {
+            var response = await Http.DeleteAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(task.TaskId)}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Delete failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
+
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to delete task: {ex.Message}";
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        _newTask = new TaskForm { Priority = "normal", Status = "pending" };
+        _showTaskModal = true;
+    }
+
+    private void CloseTaskModal()
+    {
+        _showTaskModal = false;
+    }
+
+    private async Task CreateTask()
+    {
+        if (!CanCreateTask)
+        {
+            return;
+        }
+
+        try
+        {
+            var request = new CreateAgentTaskRequest(
+                _newTask.Description.Trim(),
+                _newTask.Priority,
+                string.IsNullOrWhiteSpace(_newTask.AssignedTo) ? null : _newTask.AssignedTo);
+
+            var response = await Http.PostAsJsonAsync(Ui("/ui/agent-tasks"), request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Create failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
+
+            _showTaskModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to create task: {ex.Message}";
+        }
+    }
+
+    private MarkupString AgentChip(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return new MarkupString("""<span class="mono" style="color: var(--fg-3);">—</span>""");
+        }
+
+        var agent = _agents.FirstOrDefault(a => string.Equals(a.AgentId.ToString(), id, StringComparison.OrdinalIgnoreCase)
+                                                || string.Equals(a.Name, id, StringComparison.OrdinalIgnoreCase));
+        if (agent is null)
+        {
+            return new MarkupString($"""<span class="mono" style="font-size: 10.5px;">{Escape(id)}</span>""");
+        }
+
+        var dot = AgentDot(agent);
+        return new MarkupString($"""
+<span class="agent-chip">
+  <span class="dot {dot}"></span>
+  <span class="name">{Escape(agent.Name)}</span>
+  <span class="meta">{Escape(ToolLabel(agent.Tool))}</span>
+</span>
+""");
+    }
+
+    private static bool IsQueueTask(AgentTaskDto task) =>
+        StatusKey(task.Status) is "pending" or "claimed" or "in_progress" or "blocked";
+
+    private static bool AssignedToAgent(AgentTaskDto task, AgentDto agent) =>
+        string.Equals(task.AssignedTo, agent.AgentId.ToString(), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(task.AssignedTo, agent.Name, StringComparison.OrdinalIgnoreCase);
+
+    private static string StatusKey(string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return "pending";
+        }
+
+        var key = status.Trim().ToLowerInvariant();
+        return key switch
+        {
+            "active" or "running" => "in_progress",
+            "succeeded" or "success" or "done" => "completed",
+            "queued" => "pending",
+            _ => key
+        };
+    }
+
+    private static string PriorityKey(string priority)
+    {
+        if (string.IsNullOrWhiteSpace(priority))
+        {
+            return "normal";
+        }
+
+        var key = priority.Trim().ToLowerInvariant();
+        return key == "medium" ? "normal" : key;
+    }
+
+    private static int PriorityRank(string priority) => PriorityKey(priority) switch
+    {
+        "critical" => 0,
+        "high" => 1,
+        "normal" or "medium" => 2,
+        "low" => 3,
+        _ => 4
+    };
+
+    private static string PriorityLabel(string priority) => PriorityKey(priority) == "normal" ? "normal" : PriorityKey(priority);
+
+    private static string PriorityTone(string priority) => PriorityKey(priority) switch
+    {
+        "critical" => "red",
+        "high" => "amber",
+        "normal" or "medium" => "cyan",
+        _ => "dim"
+    };
+
+    private static string TaskStatusTone(string status) => StatusKey(status) switch
+    {
+        "completed" => "green",
+        "failed" => "red",
+        "blocked" => "amber",
+        "claimed" or "in_progress" => "cyan",
+        _ => "dim"
+    };
+
+    private static string TaskDot(string status) => StatusKey(status) switch
+    {
+        "completed" => "green",
+        "failed" => "red",
+        "blocked" => "amber",
+        "claimed" or "in_progress" => "cyan",
+        _ => ""
+    };
+
+    private static string TaskStatusLabel(string status) => StatusKey(status).Replace("_", " ");
+
+    private static string AgentDot(AgentDto agent)
+    {
+        if (!agent.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(agent.Status))
+        {
+            return "";
+        }
+
+        if (!string.IsNullOrWhiteSpace(agent.LastError))
+        {
+            return "red";
+        }
+
+        if (agent.WorkStatus.Equals("working", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(agent.CurrentTaskId))
+        {
+            return "cyan pulse";
+        }
+
+        return "green";
+    }
+
+    private static string ToolLabel(string tool) => tool.ToLowerInvariant() switch
+    {
+        "claude" => "Claude",
+        "codex" => "Codex",
+        "opencode" => "Opencode",
+        _ => string.IsNullOrWhiteSpace(tool) ? "CLI" : tool
+    };
+
+    private static string Relative(DateTimeOffset? value) => value is null ? "never" : Relative(value.Value);
+
+    private static string Relative(DateTimeOffset value)
+    {
+        var span = DateTimeOffset.UtcNow - value.ToUniversalTime();
+        if (span < TimeSpan.Zero)
+        {
+            span = TimeSpan.Zero;
+        }
+
+        if (span.TotalSeconds < 60)
+        {
+            return $"{Math.Max(1, (int)span.TotalSeconds)}s ago";
+        }
+
+        if (span.TotalMinutes < 60)
+        {
+            return $"{(int)span.TotalMinutes}m ago";
+        }
+
+        if (span.TotalHours < 24)
+        {
+            return $"{(int)span.TotalHours}h ago";
+        }
+
+        return $"{(int)span.TotalDays}d ago";
+    }
+
+    private static string Escape(string value) =>
+        value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+
+    private sealed record QueueTab(string Id, string Label, int Count);
+
+    private sealed class TaskForm
+    {
+        public string Description { get; set; } = "";
+        public string Priority { get; set; } = "normal";
+        public string Status { get; set; } = "pending";
+        public string AssignedTo { get; set; } = "";
+    }
+}
