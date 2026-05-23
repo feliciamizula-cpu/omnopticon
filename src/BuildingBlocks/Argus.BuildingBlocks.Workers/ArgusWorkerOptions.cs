@@ -8,6 +8,7 @@ public sealed class ArgusWorkerOptions
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(3);
     public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(5);
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(10);
+    public TimeSpan TaskTimeout { get; set; } = TimeSpan.FromMinutes(10);
     public Uri TaskServiceBaseAddress { get; set; } = new("http://task-service");
     public Uri AssetServiceBaseAddress { get; set; } = new("http://asset-service");
     public Uri ScopeServiceBaseAddress { get; set; } = new("http://program-scope-service");
@@ -17,4 +18,7 @@ public sealed class ArgusWorkerOptions
     public string SnapshotSecretKey { get; set; } = string.Empty;
     public TimeSpan DrainTimeout { get; set; } = TimeSpan.FromSeconds(60);
     public bool SaveCheckpointOnShutdown { get; set; } = true;
+    public int MaxConcurrencyOverride { get; set; }
+    public int SubscriptionConcurrencyLimit { get; set; }
+    public static int GlobalMaxConcurrency { get; set; }
 }

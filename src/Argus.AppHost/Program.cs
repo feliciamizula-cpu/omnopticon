@@ -20,6 +20,16 @@ var asset = builder.AddProject<Projects.Argus_AssetService>("asset-service")
     .WithReference(rabbitMq).WaitFor(rabbitMq)
     .WithHttpHealthCheck("/health");
 
+var artifact = builder.AddProject<Projects.Argus_ArtifactService>("artifact-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
+var finding = builder.AddProject<Projects.Argus_FindingService>("finding-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
+
 var task = builder.AddProject<Projects.Argus_TaskService>("task-service")
     .WithReference(argusDb)
     .WithReference(redis)
@@ -52,6 +62,8 @@ task.WithReference(realtime);
 rateLimit.WithReference(realtime);
 orchestrator.WithReference(realtime);
 proxyRegistry.WithReference(realtime);
+artifact.WithReference(realtime);
+finding.WithReference(realtime);
 
 builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")

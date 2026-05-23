@@ -304,6 +304,119 @@ app.MapGet("/tasks/dedupe/{dedupeHash}", async (
     return task is not null ? Results.Ok(task) : Results.NotFound();
 });
 
+app.MapGet("/tasks/retry-queue", async (
+    Guid? programId,
+    ReconTaskState? state,
+    string? capability,
+    int? take,
+    TaskDbContext dbContext,
+    CancellationToken cancellationToken) =>
+{
+    var query = dbContext.Tasks.AsNoTracking();
+
+    if (state.HasValue)
+    {
+        query = query.Where(t => t.State == state.Value);
+    }
+    else
+    {
+        query = query.Where(t => t.State == ReconTaskState.RetryPending);
+    }
+
+    if (programId.HasValue)
+    {
+        query = query.Where(t => t.ProgramId == programId.Value);
+    }
+
+    if (!string.IsNullOrWhiteSpace(capability))
+    {
+        query = query.Where(t => t.WorkerCapability == capability);
+    }
+
+    var tasks = await query
+        .OrderBy(t => t.Attempt)
+        .ThenBy(t => t.Priority)
+        .Take(Math.Clamp(take ?? 100, 1, 1000))
+        .ToListAsync(cancellationToken);
+
+    return Results.Ok(tasks.Select(t => t.ToDto()).ToArray());
+});
+
+app.MapPost("/tasks/retry-queue/dispatch", async (
+    Guid? taskId,
+    int? dispatchCount,
+    TaskDbContext dbContext,
+    IIntegrationEventPublisher events,
+    ILogger<Program> logger,
+    CancellationToken cancellationToken) =>
+{
+    var now = DateTimeOffset.UtcNow;
+    int dispatched = 0;
+
+    if (taskId.HasValue)
+    {
+        var task = await dbContext.Tasks.FindAsync([taskId.Value], cancellationToken);
+        if (task is null || task.State != ReconTaskState.RetryPending)
+        {
+            return Results.NotFound();
+        }
+
+        task.State = ReconTaskState.Requested;
+        dbContext.TaskHistory.Add(new TaskHistoryRecord
+        {
+            HistoryId = Guid.NewGuid(),
+            TaskId = task.TaskId,
+            State = ReconTaskState.RetryPending,
+            Timestamp = now,
+            Message = $"Manual dispatch (attempt {task.Attempt}/{task.MaxAttempts})"
+        });
+
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { taskId, dispatched = 1 });
+    }
+
+    var count = Math.Clamp(dispatchCount ?? 50, 1, 500);
+    var pending = await dbContext.Tasks
+        .Where(t => t.State == ReconTaskState.RetryPending && t.Attempt < t.MaxAttempts)
+        .OrderBy(t => t.Attempt)
+        .Take(count)
+        .ToListAsync(cancellationToken);
+
+    foreach (var task in pending)
+    {
+        task.State = ReconTaskState.Requested;
+        dbContext.TaskHistory.Add(new TaskHistoryRecord
+        {
+            HistoryId = Guid.NewGuid(),
+            TaskId = task.TaskId,
+            State = ReconTaskState.RetryPending,
+            Timestamp = now,
+            Message = $"Bulk dispatch (attempt {task.Attempt}/{task.MaxAttempts})"
+        });
+
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+
+        dispatched++;
+    }
+
+    if (dispatched > 0)
+    {
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    return Results.Ok(new { dispatched });
+});
+
 app.Run();
 
 internal interface ITaskStore
@@ -830,7 +943,7 @@ internal sealed class TaskHistoryRecord
     public string? CheckpointSummary { get; set; }
 }
 
-internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, ILogger<TaskMaintenanceService> logger) : BackgroundService
+internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, ILogger<TaskMaintenanceService> logger, IIntegrationEventPublisher events) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -903,6 +1016,37 @@ internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, 
         }
 
         if (expiredLeases.Count > 0 || orphanedRunning.Count > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        var retryPending = await dbContext.Tasks
+            .Where(t => t.State == ReconTaskState.RetryPending && t.Attempt < t.MaxAttempts)
+            .ToListAsync(cancellationToken);
+
+        foreach (var task in retryPending)
+        {
+            task.State = ReconTaskState.Requested;
+
+            dbContext.TaskHistory.Add(new TaskHistoryRecord
+            {
+                HistoryId = Guid.NewGuid(),
+                TaskId = task.TaskId,
+                State = ReconTaskState.RetryPending,
+                Timestamp = now,
+                Message = $"Retry dispatch (attempt {task.Attempt}/{task.MaxAttempts})"
+            });
+
+            await events.PublishAsync(
+                new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+                nameof(TaskRequested),
+                "Argus.TaskService",
+                cancellationToken: cancellationToken);
+
+            logger.LogInformation("Task {TaskId} dispatched for retry (attempt {Attempt}/{MaxAttempts})", task.TaskId, task.Attempt, task.MaxAttempts);
+        }
+
+        if (retryPending.Count > 0)
         {
             await dbContext.SaveChangesAsync(cancellationToken);
         }

@@ -379,6 +379,6 @@ internal static class AssetStoreInitialization
     }
 }
 
-internal sealed record AssetUpsertResult(AssetDto Asset, bool WasCreated);
+public sealed record AssetUpsertResult(AssetDto Asset, bool WasCreated);
 
-internal sealed record BulkOperationResult(int SuccessCount, int FailureCount, IReadOnlyList<string> Errors);
+public sealed record BulkOperationResult(int SuccessCount, int FailureCount, IReadOnlyList<string> Errors);

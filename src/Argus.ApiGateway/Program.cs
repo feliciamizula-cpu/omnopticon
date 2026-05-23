@@ -59,8 +59,8 @@ MapService(app, "/scope-validation", endpoints.ProgramScope);
 MapService(app, "/targets", endpoints.ProgramScope);
 MapService(app, "/assets", endpoints.Asset);
 MapService(app, "/asset-types", endpoints.Asset);
-MapService(app, "/findings", endpoints.Asset);
-MapService(app, "/artifacts", endpoints.Asset);
+MapService(app, "/artifacts", endpoints.Artifact);
+MapService(app, "/findings", endpoints.Finding);
 MapService(app, "/tasks", endpoints.Task);
 MapService(app, "/workers", endpoints.Realtime);
 MapService(app, "/worker-types", endpoints.Realtime);
@@ -82,6 +82,8 @@ static void MapService(WebApplication app, string pathPrefix, string destination
 internal sealed record ArgusServiceEndpoints(
     string ProgramScope,
     string Asset,
+    string Artifact,
+    string Finding,
     string Task,
     string RateLimit,
     string Realtime)
@@ -90,6 +92,8 @@ internal sealed record ArgusServiceEndpoints(
         new(
             configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
             configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
+            configuration["ARGUS_ARTIFACT_SERVICE"] ?? "https+http://artifact-service",
+            configuration["ARGUS_FINDING_SERVICE"] ?? "https+http://finding-service",
             configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
             configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
             configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service");

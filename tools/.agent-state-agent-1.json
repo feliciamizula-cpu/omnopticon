@@ -1,14 +1,14 @@
 {
   "agentId": "agent-1",
+  "status": "idle",
   "currentTaskId": null,
   "currentTaskDescription": null,
-  "context": null,
-  "status": "idle",
   "workStatus": "idle",
   "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T04:42:40.192Z",
-  "lastHeartbeatAt": "2026-05-23T04:43:02.664Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:43:02.664Z"
+  "lastHeartbeatAt": "2026-05-23T04:44:13.119Z",
+  "updatedAt": "2026-05-23T04:44:13.119Z",
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T04:44:12.188Z",
+  "context": null
 }

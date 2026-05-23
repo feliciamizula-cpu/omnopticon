@@ -1,3 +1,4 @@
+using Argus.AssetService.Data;
 using Argus.Contracts.Assets;
 
 namespace Argus.AssetService.Stores;

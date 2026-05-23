@@ -1,14 +1,14 @@
 {
   "agentId": "devops-2",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "currentTaskId": "044",
+  "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
   "context": "7 agents healthy; compose.yaml valid; dotnet N/A in container env; reconcile done; standing task running",
-  "status": "idle",
+  "status": "crashed",
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T04:42:45.293Z",
-  "lastHeartbeatAt": "2026-05-23T04:42:45.293Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T04:43:01.752Z",
+  "lastHeartbeatAt": "2026-05-23T04:44:12.876Z",
+  "lastError": "agent process exited unexpectedly",
+  "updatedAt": "2026-05-23T04:44:12.876Z",
   "workStatus": "idle"
 }

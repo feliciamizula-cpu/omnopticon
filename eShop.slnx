@@ -13,7 +13,9 @@
     <Project Path="src/Contracts/Argus.Contracts/Argus.Contracts.csproj" />
   </Folder>
   <Folder Name="/src/Services/">
+    <Project Path="src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj" />
     <Project Path="src/Services/Argus.AssetService/Argus.AssetService.csproj" />
+    <Project Path="src/Services/Argus.FindingService/Argus.FindingService.csproj" />
     <Project Path="src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj" />
     <Project Path="src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj" />
     <Project Path="src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj" />

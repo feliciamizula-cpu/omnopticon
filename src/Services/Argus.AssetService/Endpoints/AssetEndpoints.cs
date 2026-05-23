@@ -5,6 +5,7 @@ using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
+using Argus.BuildingBlocks.EventBus;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 

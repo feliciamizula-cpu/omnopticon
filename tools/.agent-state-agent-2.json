@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "052",
-  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
-  "context": null,
-  "status": "Implementing export/import endpoints: ExportProgramAsync and ImportProgramAsync in IProgramScopeStore, InMemoryProgramScopeStore, EfProgramScopeStore, plus API routes",
+  "currentTaskId": "018",
+  "currentTaskDescription": "Design #20: RealtimeService fully in-memory - needs durability",
+  "context": "Enhancement #18 complete: Added GET /programs/{programId}/export (returns ProgramExportDto with program, scopes, exclusions, rule revisions, rate limit policies) and POST /programs/import (reconstructs full config). SnapshotSigner updated for export signing. Build not verifiable (dotnet not in PATH).",
+  "status": "done",
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T04:41:46.547Z",
-  "lastHeartbeatAt": "2026-05-23T04:43:03.950Z",
+  "lastHeartbeatAt": "2026-05-23T04:43:49.038Z",
   "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T04:43:03.950Z"
+  "updatedAt": "2026-05-23T04:43:56.767Z"
 }
