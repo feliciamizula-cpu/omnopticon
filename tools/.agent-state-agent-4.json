@@ -2,12 +2,12 @@
   "agentId": "agent-4",
   "currentTaskId": "T05230228",
   "currentTaskDescription": "This script that shows menu options has malformed text (bad encoding?) that appears in the menu options",
-  "context": null,
+  "context": "Replaced → (right arrow) Unicode chars with ASCII -> in team-control.sh menu options",
   "status": "working",
   "pid": 389205,
   "startedAt": "2026-05-23T02:45:12.579Z",
   "lastRunAt": "2026-05-23T02:45:12.579Z",
-  "lastHeartbeatAt": "2026-05-23T02:45:57.676Z",
+  "lastHeartbeatAt": "2026-05-23T02:47:18.692Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:46:01.904Z"
+  "updatedAt": "2026-05-23T02:47:18.692Z"
 }

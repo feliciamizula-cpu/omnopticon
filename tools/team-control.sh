@@ -306,10 +306,10 @@ fix_failed_agents() {
         local needs_reset=false
         
         if [ "$status" = "crashed" ] || [ "$status" = "stalled" ]; then
-            echo "  $agent: $status → resetting"
+            echo "  $agent: $status -> resetting"
             needs_reset=true
         elif [ -n "$pid" ] && [ "$pid" != "null" ] && ! kill -0 "$pid" 2>/dev/null; then
-            echo "  $agent: pid $pid dead → resetting"
+            echo "  $agent: pid $pid dead -> resetting"
             needs_reset=true
         fi
         
@@ -529,7 +529,7 @@ spawn_idle_agents() {
                 
                 if [ -n "$task_id" ]; then
                     AGENT_ID="$agent" "$SCRIPT_DIR/agent-coord.sh" take -t "$task_id" -a "$agent"
-                    echo "  $agent → task $task_id"
+                    echo "  $agent -> task $task_id"
                 else
                     echo "  $agent: no pending tasks"
                 fi
@@ -811,14 +811,14 @@ show_menu() {
     echo "  ${GREEN}[2]${NC} Assign task to idle agent"
     echo "  ${GREEN}[3]${NC} Fix failed/unresponsive agents"
     echo "  ${GREEN}[4]${NC} Force restart specific agent"
-    echo "  ${GREEN}[5]${NC} Check devops error logs → create tasks"
+    echo "  ${GREEN}[5]${NC} Check devops error logs -> create tasks"
     echo "  ${GREEN}[6]${NC} Add todo item"
     echo "  ${GREEN}[7]${NC} Create devops task"
-    echo "  ${GREEN}[8]${NC} Fix build errors → create task if needed"
+    echo "  ${GREEN}[8]${NC} Fix build errors -> create task if needed"
     echo "  ${GREEN}[9]${NC} Reconcile task board"
     echo "  ${GREEN}[0]${NC} Restart supervisor"
     echo "  ${GREEN}[R]${NC} Force code review (unreviewed commits in last hour)"
-    echo "  ${GREEN}[L]${NC} Scan logs for bugs → create todo items"
+    echo "  ${GREEN}[L]${NC} Scan logs for bugs -> create todo items"
     echo "  ${GREEN}[A]${NC} Spawn all idle agents"
     echo "  ${GREEN}[C]${NC} Show agent context"
     echo "  ${GREEN}[K]${NC} Kill all agents (reset)"
