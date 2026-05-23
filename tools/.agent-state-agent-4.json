@@ -3,11 +3,11 @@
   "currentTaskId": "043",
   "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
   "context": null,
-  "status": "working",
+  "status": "unresponsive",
   "pid": 756359,
   "startedAt": "2026-05-23T03:05:47.674Z",
   "lastRunAt": "2026-05-23T03:05:48.152Z",
-  "lastHeartbeatAt": "2026-05-23T04:33:05.489Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T04:33:08.452Z"
+  "lastHeartbeatAt": "2026-05-23T04:38:21.024Z",
+  "lastError": "heartbeat timeout",
+  "updatedAt": "2026-05-23T04:38:21.024Z"
 }

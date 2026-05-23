@@ -11,7 +11,7 @@ x-common-env: &common-env
   ARGUS_ASSET_SERVICE: http://asset-service:8080
   ARGUS_TASK_SERVICE: http://task-service:8080
   ARGUS_RATE_LIMIT_SERVICE: http://rate-limit-service:8080
-  ARGUS_SCAN_ORCHESTRATOR_SERVICE: http://scan-orchestrator-service:8080
+  ARGUS_EVENT_ROUTER_SERVICE: http://event-router-service:8080
   ARGUS_REALTIME_SERVICE: http://realtime-service:8080
   ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
   ConnectionStrings__redis: redis:6379
@@ -103,13 +103,13 @@ services:
         PROJECT_PATH: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
         ASSEMBLY_NAME: Argus.RateLimitService
 
-  scan-orchestrator-service:
+  event-router-service:
     <<: *service-defaults
     build:
       <<: *service-build
       args:
-        PROJECT_PATH: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
-        ASSEMBLY_NAME: Argus.ScanOrchestratorService
+        PROJECT_PATH: src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj
+        ASSEMBLY_NAME: Argus.EventRouterService
 
   realtime-service:
     <<: *service-defaults
