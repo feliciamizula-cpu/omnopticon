@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "currentTaskId": "056",
+  "currentTaskDescription": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
   "context": null,
-  "status": "idle",
-  "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T04:39:46.616Z",
-  "lastHeartbeatAt": "2026-05-23T04:39:52.900Z",
+  "status": "working",
+  "pid": 2515777,
+  "startedAt": "2026-05-23T04:40:00.700Z",
+  "lastRunAt": "2026-05-23T04:40:01.568Z",
+  "lastHeartbeatAt": "2026-05-23T04:40:01.568Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:39:52.900Z"
+  "updatedAt": "2026-05-23T04:40:01.568Z"
 }

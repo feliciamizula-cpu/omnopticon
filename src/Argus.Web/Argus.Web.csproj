@@ -6,10 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
   </ItemGroup>
 

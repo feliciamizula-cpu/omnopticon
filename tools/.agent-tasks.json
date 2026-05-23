@@ -21,14 +21,14 @@
     },
     {
       "status": "active",
-      "currentTask": null,
+      "currentTask": "056",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T04:39:38.062Z",
-      "workStatus": "idle",
-      "currentTaskDescription": null,
-      "lastRunAt": "2026-05-23T04:39:38.062Z",
-      "lastHeartbeatAt": "2026-05-23T04:39:38.062Z",
+      "lastUpdated": "2026-05-23T04:40:01.522Z",
+      "workStatus": "working",
+      "currentTaskDescription": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+      "lastRunAt": "2026-05-23T04:40:01.522Z",
+      "lastHeartbeatAt": "2026-05-23T04:40:01.522Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -626,7 +626,7 @@
       "requeuedAt": "2026-05-23T04:38:40.666Z",
       "requeueReason": "assigned agent is not currently working this task",
       "recoveryContext": "Task completed",
-      "completedAt": "2026-05-23T04:38:56.960Z"
+      "completedAt": "2026-05-23T04:40:02.321Z"
     },
     {
       "id": "043",
@@ -708,12 +708,14 @@
       "id": "046",
       "description": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
       "priority": "critical",
-      "assignedTo": null,
-      "status": "pending",
+      "assignedTo": "agent-2",
+      "status": "in_progress",
       "createdAt": "2026-05-23T02:38:11.290740841Z",
       "requeuedAt": "2026-05-23T04:39:00.073Z",
       "requeueReason": "assigned agent is not currently working this task",
-      "recoveryContext": "task 046 complete: Argus.AgentCoordinator implemented at src/Tools/Argus.AgentCoordinator/; csproj targets net10.0; Program.cs 854 lines with all 12 requirements: configurable pool, JSON task board, per-agent state files, 45s heartbeat, PID crash detection, priority-sorted task assignment, agent prompt files, opencode invocation, devops 120s sweep, reviewer git-cycle, watchdog restart, SIGTERM/SIGINT shutdown; no critical alerts"
+      "recoveryContext": "task 046 complete: Argus.AgentCoordinator implemented at src/Tools/Argus.AgentCoordinator/; csproj targets net10.0; Program.cs 854 lines with all 12 requirements: configurable pool, JSON task board, per-agent state files, 45s heartbeat, PID crash detection, priority-sorted task assignment, agent prompt files, opencode invocation, devops 120s sweep, reviewer git-cycle, watchdog restart, SIGTERM/SIGINT shutdown; no critical alerts",
+      "claimedAt": "2026-05-23T04:40:00.648Z",
+      "attempts": 1
     },
     {
       "id": "047",
@@ -783,9 +785,11 @@
       "id": "052",
       "description": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending",
-      "createdAt": "2026-05-23T02:38:11.290740841Z"
+      "assignedTo": "agent-2",
+      "status": "in_progress",
+      "createdAt": "2026-05-23T02:38:11.290740841Z",
+      "claimedAt": "2026-05-23T04:40:00.958Z",
+      "attempts": 1
     },
     {
       "id": "053",
@@ -813,7 +817,7 @@
       "requeuedAt": "2026-05-23T04:38:40.666Z",
       "requeueReason": "released from agent-1 after crashed",
       "recoveryContext": "Implementation complete - IScopeProvider interface, HackerOneScopeProvider, BugcrowdScopeProvider, ScopeSyncService (6h sync), ProgramScopeChanged events all in place",
-      "completedAt": "2026-05-23T04:39:38.062Z"
+      "completedAt": "2026-05-23T04:40:01.276Z"
     },
     {
       "id": "055",
@@ -832,9 +836,11 @@
       "id": "056",
       "description": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending",
-      "createdAt": "2026-05-23T02:38:11.290740841Z"
+      "assignedTo": "agent-2",
+      "status": "in_progress",
+      "createdAt": "2026-05-23T02:38:11.290740841Z",
+      "claimedAt": "2026-05-23T04:40:01.522Z",
+      "attempts": 1
     },
     {
       "id": "057",
