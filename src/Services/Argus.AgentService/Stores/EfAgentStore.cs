@@ -2,6 +2,7 @@ namespace Argus.AgentService.Stores;
 
 using System.Text.Json;
 using Argus.AgentService.Data;
+using Argus.AgentService.ProviderUsage;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Agents;
 using Microsoft.EntityFrameworkCore;
@@ -12,23 +13,19 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        try
+        for (int i = 0; i < 5; i++)
         {
-            await _dbContext.Database.MigrateAsync(cancellationToken);
-        }
-        catch
-        {
-            // Migration might fail if outbox tables already exist, continue anyway
-        }
-
-        try
-        {
-            await _dbContext.Database.EnsureArgusOutboxCreatedAsync(cancellationToken);
-            await _dbContext.Database.EnsureArgusInboxCreatedAsync(cancellationToken);
-        }
-        catch
-        {
-            // Tables might already exist from another service
+            try
+            {
+                await _dbContext.Database.MigrateAsync(cancellationToken);
+                await _dbContext.Database.EnsureArgusOutboxCreatedAsync(cancellationToken);
+                await _dbContext.Database.EnsureArgusInboxCreatedAsync(cancellationToken);
+                break;
+            }
+            catch
+            {
+                await Task.Delay(2000, cancellationToken);
+            }
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -44,7 +41,13 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
             _dbContext.AgentTasks.AddRange(AgentDevelopmentSeedData.CreateTasks(now));
         }
 
-        if (!hasAgents || !hasTasks)
+        var hasProviderAccounts = await _dbContext.ProviderAccounts.AnyAsync(cancellationToken);
+        if (!hasProviderAccounts)
+        {
+            _dbContext.ProviderAccounts.AddRange(ProviderUsageSeedData.CreateAccounts(now));
+        }
+
+        if (!hasAgents || !hasTasks || !hasProviderAccounts)
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
         }

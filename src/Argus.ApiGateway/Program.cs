@@ -58,7 +58,8 @@ app.MapGet("/", () => Results.Ok(new
         new { Name = "event-router", Path = "/event-router", Service = "event-router", Description = "Event routing configuration" },
         new { Name = "event-routes", Path = "/event-routes", Service = "event-router", Description = "Event route management" },
         new { Name = "rate-limits", Path = "/rate-limits", Service = "rate-limit", Description = "Rate limit configuration" },
-        new { Name = "settings", Path = "/settings", Service = "program-scope", Description = "System settings" }
+        new { Name = "settings", Path = "/settings", Service = "program-scope", Description = "System settings" },
+        new { Name = "provider-usage", Path = "/provider-usage", Service = "agent", Description = "Development provider usage monitoring" }
     }
 })).RequireCors(CorsPolicyName);
 
@@ -82,6 +83,7 @@ MapService(app, "/event-router", endpoints.EventRouter);
 MapService(app, "/event-routes", endpoints.EventRouter);
 MapService(app, "/rate-limits", endpoints.RateLimit);
 MapService(app, "/settings", endpoints.ProgramScope);
+MapService(app, "/provider-usage", endpoints.Agent);
 
 app.Run();
 

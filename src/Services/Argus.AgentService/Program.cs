@@ -1,5 +1,7 @@
 using Argus.AgentService;
 using Argus.AgentService.Data;
+using Argus.AgentService.ProviderUsage;
+using Argus.AgentService.ProviderUsage.Adapters;
 using Argus.AgentService.Stores;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Agents;
@@ -22,6 +24,17 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddHealthChecks()
         .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<IAgentStore, EfAgentStore>();
+    builder.Services.AddScoped<ProviderUsageService>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, OpenAiUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, AnthropicUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, OpenRouterUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, DeepSeekUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, GeminiUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, QwenDashScopeUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, CodexCliUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, ClaudeCodeUsageAdapter>();
+    builder.Services.AddSingleton<IProviderUsageAdapter, ManualUsageAdapter>();
+    builder.Services.AddHostedService<ProviderUsageMonitor>();
 }
 else
 {
@@ -38,6 +51,7 @@ await app.InitializeAgentStoreAsync();
 app.MapDefaultEndpoints();
 
 AgentEndpoints.MapRoutes(app);
+ProviderUsageEndpoints.MapRoutes(app);
 
 app.Run();
 
@@ -167,8 +181,10 @@ internal static class AgentEndpoints
         return Results.Ok(new { items = history, count = history.Count });
     }
 
-    private static async Task<IResult> SendChat(SendChatRequest request, IAgentStore store, CancellationToken ct)
+    private static async Task<IResult> SendChat(SendChatRequest request, IAgentStore store, IServiceProvider sp, CancellationToken ct)
     {
+        var usageService = sp.GetService<ProviderUsageService>();
+
         // Persist user message
         await store.SaveChatMessageAsync("user", request.Message, ct);
 
@@ -180,14 +196,21 @@ internal static class AgentEndpoints
         var systemPrompt = BuildSystemPrompt(agents, tasks);
         var contextPrompt = $"{systemPrompt}\n\nCurrent request: {request.Message}";
 
+        if (usageService is not null)
+            await usageService.RecordInvocationStartedAsync(request.Tool, request.Model, null, null, ct);
+
         // Invoke CLI tool
         string aiReply;
         try
         {
             aiReply = await InvokeCliTool(request.Tool, request.Model, contextPrompt, ct);
+            if (usageService is not null)
+                await usageService.RecordInvocationCompletedAsync(request.Tool, request.Model, 0, aiReply, null, ct);
         }
         catch (Exception ex)
         {
+            if (usageService is not null)
+                await usageService.RecordInvocationCompletedAsync(request.Tool, request.Model, 1, null, ex.Message, ct);
             return Results.Problem($"CLI tool '{request.Tool}' error: {ex.Message}", statusCode: StatusCodes.Status503ServiceUnavailable);
         }
 

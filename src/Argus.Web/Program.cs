@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Argus.ServiceDefaults;
+using Argus.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -341,6 +342,16 @@ app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
 app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
 app.MapPost("/ui/agent-chat", ProxyPostChat);
 
+// Provider usage BFF proxy endpoints
+app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
+app.MapPost("/ui/provider-usage/refresh", ProxyRefreshAllProviderUsage);
+app.MapPost("/ui/provider-usage/{accountId:guid}/refresh", ProxyRefreshProviderUsage);
+app.MapGet("/ui/provider-usage/{accountId:guid}/history", ProxyGetProviderUsageHistory);
+app.MapPost("/ui/provider-usage/{accountId:guid}/manual-snapshot", ProxyAddManualUsageSnapshot);
+app.MapPost("/ui/provider-usage/{accountId:guid}/pause-agents", ProxyPauseProviderAgents);
+app.MapPost("/ui/provider-usage/accounts", ProxyCreateProviderAccount);
+app.MapPut("/ui/provider-usage/accounts/{accountId:guid}", ProxyUpdateProviderAccount);
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
@@ -469,6 +480,65 @@ async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpCli
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
+}
+
+// Provider usage proxy handlers
+async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage", ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyRefreshAllProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/provider-usage/refresh", new JsonObject(), ct);
+}
+
+async Task<IResult> ProxyRefreshProviderUsage(Guid accountId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/refresh", new JsonObject(), ct);
+}
+
+async Task<IResult> ProxyGetProviderUsageHistory(Guid accountId, int take, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/history?take={take}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyAddManualUsageSnapshot(Guid accountId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/manual-snapshot", payload, ct);
+}
+
+async Task<IResult> ProxyPauseProviderAgents(Guid accountId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/pause-agents", new JsonObject(), ct);
+}
+
+async Task<IResult> ProxyCreateProviderAccount(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/provider-usage/accounts", payload, ct);
+}
+
+async Task<IResult> ProxyUpdateProviderAccount(Guid accountId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PutJsonAsync(endpoints.Agent, $"/provider-usage/accounts/{accountId}", payload, ct);
 }
 
 

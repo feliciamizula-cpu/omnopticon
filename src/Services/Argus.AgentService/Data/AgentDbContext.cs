@@ -8,6 +8,8 @@ public sealed class AgentDbContext(DbContextOptions<AgentDbContext> options) : D
     public DbSet<AgentRecord> Agents => Set<AgentRecord>();
     public DbSet<AgentTaskRecord> AgentTasks => Set<AgentTaskRecord>();
     public DbSet<ChatMessageRecord> ChatMessages => Set<ChatMessageRecord>();
+    public DbSet<ProviderAccountRecord> ProviderAccounts => Set<ProviderAccountRecord>();
+    public DbSet<ProviderUsageSnapshotRecord> ProviderUsageSnapshots => Set<ProviderUsageSnapshotRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -25,6 +27,21 @@ public sealed class AgentDbContext(DbContextOptions<AgentDbContext> options) : D
         modelBuilder.Entity<ChatMessageRecord>(e =>
         {
             e.HasKey(c => c.MessageId);
+        });
+
+        modelBuilder.Entity<ProviderAccountRecord>(e =>
+        {
+            e.HasKey(x => x.AccountId);
+            e.HasIndex(x => x.ProviderKey);
+            e.Property(x => x.RelatedToolsJson).HasColumnType("jsonb");
+            e.Property(x => x.RelatedModelsJson).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<ProviderUsageSnapshotRecord>(e =>
+        {
+            e.HasKey(x => x.SnapshotId);
+            e.HasIndex(x => new { x.AccountId, x.ObservedAt });
+            e.Property(x => x.RawJson).HasColumnType("jsonb");
         });
 
         modelBuilder.ConfigureArgusOutbox();

@@ -3,6 +3,7 @@ namespace Argus.AgentService.Stores;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Argus.AgentService.Data;
+using Argus.AgentService.ProviderUsage;
 using Argus.Contracts.Agents;
 
 public sealed class InMemoryAgentStore : IAgentStore
@@ -18,6 +19,9 @@ public sealed class InMemoryAgentStore : IAgentStore
         return Task.CompletedTask;
     }
 
+    internal readonly ConcurrentDictionary<Guid, ProviderAccountRecord> ProviderAccounts = new();
+    internal readonly ConcurrentDictionary<Guid, ProviderUsageSnapshotRecord> ProviderUsageSnapshots = new();
+
     private void SeedDefaultAgents()
     {
         var now = DateTimeOffset.UtcNow;
@@ -30,6 +34,11 @@ public sealed class InMemoryAgentStore : IAgentStore
         foreach (var task in AgentDevelopmentSeedData.CreateTasks(now))
         {
             _tasks.TryAdd(task.TaskId, task);
+        }
+
+        foreach (var account in ProviderUsageSeedData.CreateAccounts(now))
+        {
+            ProviderAccounts.TryAdd(account.AccountId, account);
         }
 
         _nextTaskId = AgentDevelopmentSeedData.NextNumericTaskId(_tasks.Keys);
