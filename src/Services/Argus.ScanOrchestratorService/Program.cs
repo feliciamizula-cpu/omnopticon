@@ -133,10 +133,49 @@ internal sealed class ScanSchedulerBackgroundService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            try { await ProcessRecurringScanPlansAsync(stoppingToken); }
+            catch (Exception ex) { _logger.LogError(ex, "Error processing recurring scan plans"); }
             try { await ProcessScheduledScansAsync(stoppingToken); }
             catch (Exception ex) { _logger.LogError(ex, "Error processing scheduled scans"); }
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
         }
+    }
+    private async Task ProcessRecurringScanPlansAsync(CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ScanOrchestratorDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var duePlans = await dbContext.ScanPlans
+            .Where(p => p.CronExpression != null && p.State == "Seeded" && (!p.NextRunAt.HasValue || p.NextRunAt <= now))
+            .ToListAsync(cancellationToken);
+        foreach (var plan in duePlans)
+        {
+            try { await ProcessRecurringScanPlanAsync(plan, dbContext, cancellationToken); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to process recurring scan plan {PlanId}", plan.ScanPlanId); }
+        }
+    }
+    private async Task ProcessRecurringScanPlanAsync(ScanPlanRecord plan, ScanOrchestratorDbContext dbContext, CancellationToken cancellationToken)
+    {
+        var cloned = new ScanPlanRecord
+        {
+            ScanPlanId = Guid.NewGuid(),
+            WorkflowType = plan.WorkflowType,
+            ProgramId = plan.ProgramId,
+            ScopeId = plan.ScopeId,
+            Target = plan.Target,
+            CreatedAt = DateTimeOffset.UtcNow,
+            State = "Planned",
+            PlannedTasksJson = plan.PlannedTasksJson,
+            CronExpression = plan.CronExpression,
+            LastRunAt = null,
+            NextRunAt = null,
+            RecurrencePolicyId = plan.RecurrencePolicyId
+        };
+        dbContext.ScanPlans.Add(cloned);
+        plan.LastRunAt = DateTimeOffset.UtcNow;
+        plan.NextRunAt = Cronos.CronExpression.Parse(plan.CronExpression!).GetNextOccurrence(DateTimeOffset.UtcNow, true);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Recurring scan plan {PlanId} spawned clone {CloneId}, next run at {NextRun}", plan.ScanPlanId, cloned.ScanPlanId, plan.NextRunAt);
     }
     private async Task ProcessScheduledScansAsync(CancellationToken cancellationToken)
     {
