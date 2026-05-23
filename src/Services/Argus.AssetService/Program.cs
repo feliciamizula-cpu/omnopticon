@@ -161,6 +161,40 @@ app.MapDelete("/assets/{assetId:guid}/tags/{tag}", async (
     return Results.Ok(asset);
 });
 
+app.MapPost("/assets/bulk/tag", async (
+    BulkTagRequest request,
+    IAssetStore store,
+    CancellationToken cancellationToken) =>
+{
+    if (request.AssetIds.Count == 0)
+    {
+        return Results.BadRequest("At least one asset ID is required.");
+    }
+
+    if (request.Tags.Count == 0)
+    {
+        return Results.BadRequest("At least one tag is required.");
+    }
+
+    var updatedAssets = new List<AssetDto>();
+    var errors = new List<string>();
+
+    foreach (var assetId in request.AssetIds)
+    {
+        try
+        {
+            var asset = await store.AddTagsAsync(assetId, request.Tags, cancellationToken);
+            updatedAssets.Add(asset);
+        }
+        catch (InvalidOperationException)
+        {
+            errors.Add($"Asset {assetId} not found.");
+        }
+    }
+
+    return Results.Ok(new { UpdatedAssets = updatedAssets, UpdatedCount = updatedAssets.Count, ErrorCount = errors.Count, Errors = errors });
+});
+
 app.MapPost("/assets/bulk/enqueue", async (
     BulkEnqueueRequest request,
     IHttpClientFactory httpClientFactory,

@@ -1,13 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "030",
-  "currentTaskDescription": "Enhancement #4: Re-scan scheduling based on LastScannedAt",
+  "currentTaskId": "033",
+  "currentTaskDescription": "Enhancement #7: Adaptive rate limiting on 429/503 feedback",
   "status": "working",
-  "lastRunAt": "2026-05-23T00:47:42.082Z",
-  "updatedAt": "2026-05-23T00:51:01.946Z",
-  "pid": 72313,
+  "lastRunAt": "2026-05-23T00:51:24.297Z",
+  "updatedAt": "2026-05-23T00:51:24.297Z",
+  "pid": 99387,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T00:51:01.946Z",
-  "startedAt": "2026-05-23T00:47:42.082Z",
-  "context": "Implemented re-scan scheduling: TaskCompleted event now carries InputAssetId; AssetService has UpdateLastScannedAtAsync and PATCH /assets/{id}/last-scanned; TaskCompletedConsumer updates LastScannedAt on task completion"
+  "lastHeartbeatAt": "2026-05-23T00:51:24.297Z",
+  "startedAt": "2026-05-23T00:51:24.297Z",
+  "context": null
 }
