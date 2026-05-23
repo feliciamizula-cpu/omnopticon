@@ -28,6 +28,13 @@ public static class WorkerHelpers
         {
             if (value.ValueKind == JsonValueKind.True) return true;
             if (value.ValueKind == JsonValueKind.False) return false;
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var s = value.GetString();
+                if (bool.TryParse(s, out var result)) return result;
+                if (string.Equals(s, "1")) return true;
+                if (string.Equals(s, "0")) return false;
+            }
         }
         return null;
     }
@@ -43,6 +50,10 @@ public static class WorkerHelpers
         if (document.RootElement.TryGetProperty(propertyName, out var value))
         {
             if (value.ValueKind == JsonValueKind.Number) return value.GetInt32();
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                if (int.TryParse(value.GetString(), out var result)) return result;
+            }
         }
         return null;
     }

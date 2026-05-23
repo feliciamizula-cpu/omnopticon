@@ -10,6 +10,14 @@ using System.Text.Json.Serialization;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddHttpClient("probe")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+        CheckCertificateRevocationList = false,
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    });
 builder.AddArgusWorker<HttpProbeWorker>();
 
 await builder.Build().RunAsync();
@@ -46,6 +54,8 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         var timeoutSeconds = WorkerHelpers.GetInt(task.InputPayloadJson, "timeout_seconds") ?? 30;
         var followRedirects = WorkerHelpers.GetBool(task.InputPayloadJson, "follow_redirects") ?? true;
 
+        await context.ReportProgressAsync(5, $"DEBUG: followRedirects={followRedirects}", null);
+
         await context.ReportProgressAsync(5, $"Waiting for rate-limit token for {host}", null);
 
         var allowed = await context.RequestRateLimitTokenAsync(new RateLimitRequest(
@@ -74,6 +84,7 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         foreach (var scheme in schemes)
         {
             var probeUrl = $"{scheme}://{host}/";
+            await context.ReportProgressAsync(10, $"Attempting {scheme} probe for {host}", null);
             var currentUri = new Uri(probeUrl);
             var redirectCount = 0;
             bool schemeSucceeded = false;
@@ -82,6 +93,7 @@ internal sealed partial class HttpProbeWorker : IReconWorker
             {
                 try
                 {
+                    await context.ReportProgressAsync(20, $"Requesting {currentUri} (redirect: {redirectCount})", null);
                     using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
                     request.Headers.Accept.ParseAdd("*/*");
                     request.Headers.UserAgent.ParseAdd("Argus-HttpProbe/1.0");

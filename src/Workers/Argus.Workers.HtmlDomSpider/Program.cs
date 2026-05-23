@@ -510,7 +510,12 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
         {
             if (Uri.TryCreate(href, UriKind.Absolute, out var absoluteUri))
             {
-                return absoluteUri.ToString();
+                // On Linux, /path is considered an absolute file:///path URI.
+                // We want to treat it as relative to the baseUri unless the scheme is a known web scheme.
+                if (absoluteUri.Scheme == Uri.UriSchemeHttp || absoluteUri.Scheme == Uri.UriSchemeHttps)
+                {
+                    return absoluteUri.ToString();
+                }
             }
 
             if (Uri.TryCreate(baseUri, href, out var resolvedUri))
