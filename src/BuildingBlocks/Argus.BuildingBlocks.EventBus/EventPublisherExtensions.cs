@@ -18,8 +18,8 @@ public static class EventPublisherExtensions
             payload,
             eventType,
             sourceService,
-            correlationId,
-            causationId);
+            correlationId: correlationId,
+            causationId: causationId);
 
         return publisher.PublishAsync(envelope, cancellationToken);
     }

@@ -33,8 +33,8 @@ internal sealed class SubfinderWorker : IReconWorker
 
         var assets = new[]
         {
-            new WorkerProducedAsset("Subdomain", $"www.{domain}", null, new Dictionary<string, string> { ["source"] = "subfinder" }, ["subfinder"]),
-            new WorkerProducedAsset("Subdomain", $"staging.{domain}", null, new Dictionary<string, string> { ["source"] = "subfinder" }, ["subfinder"])
+            new WorkerProducedAsset("Subdomain", $"www.{domain}", null, null, new Dictionary<string, string> { ["source"] = "subfinder" }, ["subfinder"]),
+            new WorkerProducedAsset("Subdomain", $"staging.{domain}", null, null, new Dictionary<string, string> { ["source"] = "subfinder" }, ["subfinder"])
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { domain, produced = assets.Length }), assets);

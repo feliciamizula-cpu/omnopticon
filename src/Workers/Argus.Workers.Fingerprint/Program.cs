@@ -34,8 +34,8 @@ internal sealed class FingerprintWorker : IReconWorker
 
         var assets = new[]
         {
-            new WorkerProducedAsset("Technology", "nginx", "Server", new Dictionary<string, string> { ["target"] = target }, ["tech"]),
-            new WorkerProducedAsset("Technology", "react", "FrontendFramework", new Dictionary<string, string> { ["target"] = target }, ["tech"])
+            new WorkerProducedAsset("Technology", "nginx", "Server", null, new Dictionary<string, string> { ["target"] = target }, ["tech"]),
+            new WorkerProducedAsset("Technology", "react", "FrontendFramework", null, new Dictionary<string, string> { ["target"] = target }, ["tech"])
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { target, produced = assets.Length }), assets);

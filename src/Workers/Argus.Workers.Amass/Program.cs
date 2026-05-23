@@ -33,9 +33,9 @@ internal sealed class AmassWorker : IReconWorker
 
         var assets = new[]
         {
-            new WorkerProducedAsset("Subdomain", $"api.{domain}", null, new Dictionary<string, string> { ["source"] = "amass" }, ["amass"]),
-            new WorkerProducedAsset("Subdomain", $"dev.{domain}", null, new Dictionary<string, string> { ["source"] = "amass" }, ["amass"]),
-            new WorkerProducedAsset("DnsRecord", $"ns1.{domain}", "NS", new Dictionary<string, string> { ["source"] = "amass" }, ["dns"])
+            new WorkerProducedAsset("Subdomain", $"api.{domain}", null, null, new Dictionary<string, string> { ["source"] = "amass" }, ["amass"]),
+            new WorkerProducedAsset("Subdomain", $"dev.{domain}", null, null, new Dictionary<string, string> { ["source"] = "amass" }, ["amass"]),
+            new WorkerProducedAsset("DnsRecord", $"ns1.{domain}", "NS", null, new Dictionary<string, string> { ["source"] = "amass" }, ["dns"])
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { domain, produced = assets.Length }), assets);

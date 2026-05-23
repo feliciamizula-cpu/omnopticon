@@ -2,13 +2,13 @@
   "agentId": "devops-2",
   "currentTaskId": null,
   "currentTaskDescription": null,
-  "context": "build=ok,1warning(missing ref proj);compose=valid;agents=7active,3busy,26pending;reconcile=clean;no issues",
+  "context": "7 agents healthy (5 tasks running, 2 idle); 48 tasks completed; compose.yaml valid; dotnet unavailable (container env); no issues",
   "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T03:27:09.536Z",
-  "lastHeartbeatAt": "2026-05-23T03:27:09.536Z",
+  "lastRunAt": "2026-05-23T03:29:41.135Z",
+  "lastHeartbeatAt": "2026-05-23T03:29:41.135Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T03:27:11.770Z",
+  "updatedAt": "2026-05-23T03:47:23.340Z",
   "workStatus": "idle"
 }

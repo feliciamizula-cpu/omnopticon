@@ -22,6 +22,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     private readonly int _maxRetries = 3;
     private IConnection? _connection;
     private IChannel? _channel;
+    private readonly IPoisonMessageStore? _poisonStore;
 
     private const string DeadLetterExchange = "argus.events.dlx";
     private const string RetryExchange = "argus.events.retry";
@@ -29,12 +30,14 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
         IOptions<ArgusEventBusOptions> options,
-        ILogger<RabbitMqConsumerService<TDbContext>> logger)
+        ILogger<RabbitMqConsumerService<TDbContext>> logger,
+        IPoisonMessageStore? poisonStore = null)
     {
         _scopeFactory = scopeFactory;
         _options = options;
         _logger = logger;
         _consumerName = $"{options.Value.SourceService}_{typeof(TDbContext).Name}";
+        _poisonStore = poisonStore;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -125,7 +128,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                             var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json);
                             if (envelope is not null)
                             {
-                                await _poisonStore.RecordPoisonAsync(envelope, ex, stoppingToken);
+                                if (_poisonStore is not null) { await _poisonStore.RecordPoisonAsync(envelope, ex, stoppingToken); }
                             }
                         }
                         catch { }
@@ -173,22 +176,15 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
 
         if (ea.BasicProperties.Headers is null)
         {
-            properties.Headers = new Dictionary<string, object>();
+            properties.Headers = new Dictionary<string, object?>();
         }
         else
         {
-            properties.Headers = new Dictionary<string, object>(ea.BasicProperties.Headers);
+            properties.Headers = new Dictionary<string, object?>(ea.BasicProperties.Headers);
         }
 
         var retryCount = GetRetryCount(ea.BasicProperties);
         properties.Headers["x-retry-count"] = retryCount + 1;
-
-        var body = ea.Body.ToArray();
-        var eventType = ea.BasicProperties.Type ?? "unknown";
-
-        await _channel!.BasicPublishAsync(RetryExchange, eventType, false, properties, body, cancellationToken);
-    }
-        };
 
         var body = ea.Body.ToArray();
         var eventType = ea.BasicProperties.Type ?? "unknown";
@@ -325,8 +321,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         {
             return Convert.ToInt32(countObj);
         }
-        return 0;
-    }
         return 0;
     }
 

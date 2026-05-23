@@ -10,10 +10,10 @@ var postgres = builder.AddPostgres("postgres")
 
 var argusDb = postgres.AddDatabase("argusdb");
 
-var programScope = builder.AddProject<Projects.Argus_ProgramScopeService>("program-scope-service")
-    .WithReference(argusDb)
-    .WithReference(rabbitMq).WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+// var programScope = builder.AddProject<Projects.Argus_ProgramScopeService>("program-scope-service")
+//     .WithReference(argusDb)
+//     .WithReference(rabbitMq).WaitFor(rabbitMq)
+//     .WithHttpHealthCheck("/health");
 
 var asset = builder.AddProject<Projects.Argus_AssetService>("asset-service")
     .WithReference(argusDb)
@@ -34,7 +34,6 @@ var rateLimit = builder.AddProject<Projects.Argus_RateLimitService>("rate-limit-
 var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("scan-orchestrator-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq).WaitFor(rabbitMq)
-    .WaitFor(programScope)
     .WaitFor(asset)
     .WaitFor(task);
 
@@ -43,21 +42,20 @@ var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-serv
     .WithReference(rabbitMq).WaitFor(rabbitMq)
     .WithHttpHealthCheck("/health");
 
-var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("proxy-registry-service")
-    .WithReference(argusDb)
-    .WithReference(rabbitMq).WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+// var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("proxy-registry-service")
+//     .WithReference(argusDb)
+//     .WithReference(rabbitMq).WaitFor(rabbitMq)
+//     .WithHttpHealthCheck("/health");
 
-programScope.WithReference(realtime);
 asset.WithReference(realtime);
 task.WithReference(realtime);
 rateLimit.WithReference(realtime);
 orchestrator.WithReference(realtime);
-proxyRegistry.WithReference(realtime);
+// proxyRegistry.WithReference(realtime);
 
 builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -68,7 +66,7 @@ builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
 
 builder.AddProject<Projects.Argus_Workers_Subfinder>("subfinder-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -79,7 +77,7 @@ builder.AddProject<Projects.Argus_Workers_Subfinder>("subfinder-worker")
 
 builder.AddProject<Projects.Argus_Workers_DnsResolver>("dns-resolver-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -90,7 +88,7 @@ builder.AddProject<Projects.Argus_Workers_DnsResolver>("dns-resolver-worker")
 
 builder.AddProject<Projects.Argus_Workers_HttpProbe>("http-probe-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -102,7 +100,7 @@ builder.AddProject<Projects.Argus_Workers_HttpProbe>("http-probe-worker")
 
 builder.AddProject<Projects.Argus_Workers_HtmlDomSpider>("html-dom-spider-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -114,7 +112,7 @@ builder.AddProject<Projects.Argus_Workers_HtmlDomSpider>("html-dom-spider-worker
 
 builder.AddProject<Projects.Argus_Workers_JsExtractor>("js-extractor-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -126,7 +124,7 @@ builder.AddProject<Projects.Argus_Workers_JsExtractor>("js-extractor-worker")
 
 builder.AddProject<Projects.Argus_Workers_WordlistDiscovery>("wordlist-discovery-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -138,7 +136,7 @@ builder.AddProject<Projects.Argus_Workers_WordlistDiscovery>("wordlist-discovery
 
 builder.AddProject<Projects.Argus_Workers_HeadlessSpider>("headless-spider-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -150,7 +148,7 @@ builder.AddProject<Projects.Argus_Workers_HeadlessSpider>("headless-spider-worke
 
 builder.AddProject<Projects.Argus_Workers_Fingerprint>("fingerprint-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -167,7 +165,7 @@ builder.AddProject<Projects.Argus_Workers_Validation>("validation-worker")
 
 builder.AddProject<Projects.Argus_Workers_AssetScoring>("asset-scoring-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(task)
     .WithReference(asset)
     .WithReference(rateLimit)
@@ -178,7 +176,7 @@ builder.AddProject<Projects.Argus_Workers_AssetScoring>("asset-scoring-worker")
 
 builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithExternalHttpEndpoints()
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(asset)
     .WithReference(task)
     .WithReference(rateLimit)
@@ -187,7 +185,7 @@ builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
 
 builder.AddProject<Projects.Argus_Web>("argus-web")
     .WithExternalHttpEndpoints()
-    .WithReference(programScope)
+    .WithReference(asset)
     .WithReference(asset)
     .WithReference(task)
     .WithReference(rateLimit)

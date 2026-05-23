@@ -50,7 +50,7 @@ internal sealed class JsEndpointExtractorWorker : IReconWorker
         {
             new WorkerProducedAsset("ApiEndpoint", new Uri(baseUri, "/graphql").ToString(), "GraphQL", new Dictionary<string, string> { ["source"] = "javascript" }, ["api", "graphql"]),
             new WorkerProducedAsset("ApiEndpoint", new Uri(baseUri, "/api/internal/users").ToString(), "REST", new Dictionary<string, string> { ["source"] = "javascript" }, ["api", "internal"]),
-            new WorkerProducedAsset("FindingCandidate", "possible api key literal in app.js", "PossibleSecret", new Dictionary<string, string> { ["source"] = jsUrl }, ["secret-candidate"])
+            new WorkerProducedAsset("FindingCandidate", "possible api key literal in app.js", "PossibleSecret", null, new Dictionary<string, string> { ["source"] = jsUrl }, ["secret-candidate"])
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { jsUrl, produced = assets.Length }), assets);

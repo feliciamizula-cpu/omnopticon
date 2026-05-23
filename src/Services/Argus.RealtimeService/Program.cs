@@ -641,3 +641,21 @@ internal sealed record EventIngestRequest(
     Guid? CorrelationId,
     Guid? CausationId,
     string? PayloadJson);
+
+public sealed record EventRecord(
+    Guid EventId,
+    string EventType,
+    string SourceService,
+    DateTimeOffset RecordedAt,
+    Guid CorrelationId,
+    Guid CausationId,
+    string PayloadJson);
+
+public sealed record WorkerRecord(
+    string WorkerId,
+    string WorkerType,
+    string? Version,
+    int RunningTasks,
+    int MaxConcurrency,
+    DateTimeOffset LastSeenAt,
+    bool IsOnline);

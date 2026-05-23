@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Argus.Contracts.Events;
@@ -140,8 +141,8 @@ public sealed class EfCorePoisonMessageStore<TDbContext> : IPoisonMessageStore
 
         if (record is null) return false;
 
-        record.IsReplayed = true;
-        record.ReplayedAt = DateTimeOffset.UtcNow;
+        var updated = record with { IsReplayed = true, ReplayedAt = DateTimeOffset.UtcNow };
+        _dbContext.Entry(record).CurrentValues.SetValues(updated);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }

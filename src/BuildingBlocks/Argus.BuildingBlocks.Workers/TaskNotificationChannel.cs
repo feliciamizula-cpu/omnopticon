@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.Contracts.Workers;

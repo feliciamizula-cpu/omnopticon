@@ -47,4 +47,19 @@ public sealed class ProxyRecord
     public int MaxConcurrentRequests { get; set; } = 5;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public static Argus.Contracts.Proxies.ProxyDto ToDto(ProxyRecord r) =>
+        new(
+            r.ProxyId,
+            r.Url,
+            r.Protocol,
+            r.Username,
+            r.IsActive,
+            r.IsOnline,
+            r.Country,
+            r.City,
+            r.MaxRequestsPerSecond,
+            r.MaxConcurrentRequests,
+            r.CreatedAt,
+            r.UpdatedAt);
 }

@@ -34,8 +34,8 @@ internal sealed class DnsResolverWorker : IReconWorker
 
         var assets = new[]
         {
-            new WorkerProducedAsset("Ip", "203.0.113.10", null, new Dictionary<string, string> { ["host"] = host }, ["reserved"]),
-            new WorkerProducedAsset("DnsRecord", $"{host} A 203.0.113.10", "A", new Dictionary<string, string> { ["host"] = host }, ["dns"])
+            new WorkerProducedAsset("Ip", "203.0.113.10", null, null, new Dictionary<string, string> { ["host"] = host }, ["reserved"]),
+            new WorkerProducedAsset("DnsRecord", $"{host} A 203.0.113.10", "A", null, new Dictionary<string, string> { ["host"] = host }, ["dns"])
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { host, produced = assets.Length }), assets);

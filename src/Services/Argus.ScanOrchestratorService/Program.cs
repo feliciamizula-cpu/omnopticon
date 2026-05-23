@@ -1,5 +1,6 @@
 using Argus.Contracts.Assets;
 using Argus.Contracts.Tasks;
+using Argus.Contracts.ScanPlans;
 using Argus.ServiceDefaults;
 using Cronos;
 using Microsoft.EntityFrameworkCore;
@@ -259,7 +260,7 @@ internal sealed class ScanSchedulerBackgroundService : BackgroundService
         };
         dbContext.ScanPlans.Add(cloned);
         plan.LastRunAt = DateTimeOffset.UtcNow;
-        plan.NextRunAt = Cronos.CronExpression.Parse(plan.CronExpression!).GetNextOccurrence(DateTimeOffset.UtcNow, true);
+        plan.NextRunAt = Cronos.CronExpression.Parse(plan.CronExpression!).GetNextOccurrence(DateTime.UtcNow, true);
         await dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Recurring scan plan {PlanId} spawned clone {CloneId}, next run at {NextRun}", plan.ScanPlanId, cloned.ScanPlanId, plan.NextRunAt);
     }
@@ -283,7 +284,7 @@ internal sealed class ScanSchedulerBackgroundService : BackgroundService
         using var response = await client.GetAsync($"/assets?programId={scheduled.ProgramId}&minStalenessScore={scheduled.StalenessThreshold}&maxStalenessScore=100&sort=staleness_score&direction=desc&pageSize=100", cancellationToken);
         if (!response.IsSuccessStatusCode) { _logger.LogWarning("Failed to query assets for scheduled scan {ScanId}: {StatusCode}", scheduled.ScheduledScanId, response.StatusCode); return; }
         var assetsResult = await response.Content.ReadFromJsonAsync<PagedResult<AssetDto>>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, cancellationToken);
-        if (assetsResult is null || assetsResult.Items.Count == 0) { scheduled.NextRunAt = Cronos.CronExpression.Parse(scheduled.CronExpression).GetNextOccurrence(DateTimeOffset.UtcNow, true); await dbContext.SaveChangesAsync(cancellationToken); return; }
+        if (assetsResult is null || assetsResult.Items.Count == 0) { scheduled.NextRunAt = Cronos.CronExpression.Parse(scheduled.CronExpression).GetNextOccurrence(DateTime.UtcNow, true); await dbContext.SaveChangesAsync(cancellationToken); return; }
         using var taskClient = new HttpClient { BaseAddress = taskSvc };
         foreach (var asset in assetsResult.Items.Take(10))
         {
@@ -291,7 +292,7 @@ internal sealed class ScanSchedulerBackgroundService : BackgroundService
             using var taskResponse = await taskClient.PostAsJsonAsync("/tasks", request, ScanPlanJson.Options, cancellationToken);
         }
         scheduled.LastRunAt = DateTimeOffset.UtcNow;
-        scheduled.NextRunAt = Cronos.CronExpression.Parse(scheduled.CronExpression).GetNextOccurrence(DateTimeOffset.UtcNow, true);
+        scheduled.NextRunAt = Cronos.CronExpression.Parse(scheduled.CronExpression).GetNextOccurrence(DateTime.UtcNow, true);
         await dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Scheduled scan {ScanId} triggered re-scan of {Count} assets", scheduled.ScheduledScanId, Math.Min(assetsResult.Items.Count, 10));
     }
@@ -304,7 +305,7 @@ internal sealed class InMemoryScanSchedulerStore : IScanSchedulerStore
     public Task<IReadOnlyCollection<ScheduledScanDto>> GetAllAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<ScheduledScanDto>>(_scheduledScans.Values.ToArray());
     public Task<ScheduledScanDto> CreateAsync(CreateScheduledScanRequest request, CancellationToken cancellationToken)
     {
-        var dto = new ScheduledScanDto(ScheduledScanId: Guid.NewGuid(), ProgramId: request.ProgramId, ScopeId: request.ScopeId, Name: request.Name, WorkflowType: request.WorkflowType, CronExpression: request.CronExpression, StalenessThreshold: request.StalenessThreshold, LastRunAt: null, NextRunAt: Cronos.CronExpression.Parse(request.CronExpression).GetNextOccurrence(DateTimeOffset.UtcNow, true), CreatedAt: DateTimeOffset.UtcNow, State: "Active");
+        var dto = new ScheduledScanDto(ScheduledScanId: Guid.NewGuid(), ProgramId: request.ProgramId, ScopeId: request.ScopeId, Name: request.Name, WorkflowType: request.WorkflowType, CronExpression: request.CronExpression, StalenessThreshold: request.StalenessThreshold, LastRunAt: null, NextRunAt: Cronos.CronExpression.Parse(request.CronExpression).GetNextOccurrence(DateTime.UtcNow, true), CreatedAt: DateTimeOffset.UtcNow, State: "Active");
         _scheduledScans[dto.ScheduledScanId] = dto;
         return Task.FromResult(dto);
     }
@@ -316,7 +317,7 @@ internal sealed class EfScanSchedulerStore(ScanOrchestratorDbContext dbContext) 
     public async Task<IReadOnlyCollection<ScheduledScanDto>> GetAllAsync(CancellationToken cancellationToken) { var records = await dbContext.ScheduledScans.AsNoTracking().OrderByDescending(s => s.CreatedAt).ToArrayAsync(cancellationToken); return records.Select(s => s.ToDto()).ToArray(); }
     public async Task<ScheduledScanDto> CreateAsync(CreateScheduledScanRequest request, CancellationToken cancellationToken)
     {
-        var dto = new ScheduledScanDto(ScheduledScanId: Guid.NewGuid(), ProgramId: request.ProgramId, ScopeId: request.ScopeId, Name: request.Name, WorkflowType: request.WorkflowType, CronExpression: request.CronExpression, StalenessThreshold: request.StalenessThreshold, LastRunAt: null, NextRunAt: Cronos.CronExpression.Parse(request.CronExpression).GetNextOccurrence(DateTimeOffset.UtcNow, true), CreatedAt: DateTimeOffset.UtcNow, State: "Active");
+        var dto = new ScheduledScanDto(ScheduledScanId: Guid.NewGuid(), ProgramId: request.ProgramId, ScopeId: request.ScopeId, Name: request.Name, WorkflowType: request.WorkflowType, CronExpression: request.CronExpression, StalenessThreshold: request.StalenessThreshold, LastRunAt: null, NextRunAt: Cronos.CronExpression.Parse(request.CronExpression).GetNextOccurrence(DateTime.UtcNow, true), CreatedAt: DateTimeOffset.UtcNow, State: "Active");
         dbContext.ScheduledScans.Add(new ScheduledScanRecord { ScheduledScanId = dto.ScheduledScanId, ProgramId = dto.ProgramId, ScopeId = dto.ScopeId, Name = dto.Name, WorkflowType = dto.WorkflowType, CronExpression = dto.CronExpression, StalenessThreshold = dto.StalenessThreshold, LastRunAt = dto.LastRunAt, NextRunAt = dto.NextRunAt, CreatedAt = dto.CreatedAt, State = dto.State });
         await dbContext.SaveChangesAsync(cancellationToken);
         return dto;
@@ -443,6 +444,7 @@ internal sealed class TaskSeeder(IHttpClientFactory httpClientFactory, IConfigur
             AssetType.Domain,
             plan.Target,
             Subtype: null,
+            Confidence: 1.0m,
             DiscoveredByTaskId: "scan-plan",
             Metadata: new Dictionary<string, string> { ["scan_plan_id"] = plan.ScanPlanId.ToString() },
             Tags: ["seed"]);
@@ -628,7 +630,7 @@ internal static class ScanPlanFactory
             CreatedTaskIds: [],
             CronExpression: request.CronExpression,
             LastRunAt: null,
-            NextRunAt: request.CronExpression is not null ? Cronos.CronExpression.Parse(request.CronExpression).GetNextOccurrence(DateTimeOffset.UtcNow, true) : null,
+            NextRunAt: request.CronExpression is not null ? Cronos.CronExpression.Parse(request.CronExpression).GetNextOccurrence(DateTime.UtcNow, true) : null,
             RecurrencePolicyId: null);
     }
 

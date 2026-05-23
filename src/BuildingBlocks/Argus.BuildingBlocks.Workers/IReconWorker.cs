@@ -14,7 +14,7 @@ public interface IReconWorker
         CancellationToken cancellationToken);
 }
 
-public sealed record WorkerExecutionContext(
+public record WorkerExecutionContext(
     string WorkerId,
     Func<int, string, string?, Task> ReportProgressAsync,
     Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync,

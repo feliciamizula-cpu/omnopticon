@@ -28,7 +28,7 @@ public sealed class WorkerTestHarness<TWorker> where TWorker : class, IReconWork
     {
         return new WorkerTestContext(
             workerId ?? Guid.NewGuid().ToString(),
-            percent => Task.CompletedTask,
+            (percent, message, checkpoint) => Task.CompletedTask,
             request =>
             {
                 _rateLimitRequests.Add(request);
@@ -90,14 +90,12 @@ public sealed class WorkerTestHarness<TWorker> where TWorker : class, IReconWork
 
 public sealed record ProgressReported(int Percent, string Message, string? Checkpoint);
 
-public sealed class WorkerTestContext(
+public sealed record WorkerTestContext(
     string WorkerId,
-    Func<int, string, string?, Task> reportProgressAsync,
-    Func<RateLimitRequest, Task<bool>> requestRateLimitTokenAsync,
-    Func<RateLimitBackpressureSignal, Task> signalBackpressureAsync)
-    : WorkerExecutionContext(WorkerId, reportProgressAsync, requestRateLimitTokenAsync, signalBackpressureAsync)
-{
-}
+    Func<int, string, string?, Task> ReportProgressAsync,
+    Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync,
+    Func<RateLimitBackpressureSignal, Task> SignalBackpressureAsync)
+    : WorkerExecutionContext(WorkerId, ReportProgressAsync, RequestRateLimitTokenAsync, SignalBackpressureAsync);
 
 public sealed class WorkerTestFixtures
 {
@@ -238,7 +236,7 @@ public sealed class WorkerScenarioBuilder<TWorker> where TWorker : class, IRecon
                 progressWatcher.Add((percent, message, checkpoint));
                 return Task.CompletedTask;
             },
-            request => Task.FromResult(_harness.SetRateLimitAllowed(true)),
+            request => Task.FromResult(true),
             signal => Task.CompletedTask);
 
         var result = await _harness.ExecuteAsync(programId, taskType, payload, workerId, cancellationToken);

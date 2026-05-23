@@ -36,7 +36,7 @@ internal sealed class AssetScoringWorker : IReconWorker
         var produced = value.Contains("admin", StringComparison.OrdinalIgnoreCase)
             || value.Contains("internal", StringComparison.OrdinalIgnoreCase)
             || value.Contains("graphql", StringComparison.OrdinalIgnoreCase)
-            ? [new WorkerProducedAsset("FindingCandidate", $"interesting asset: {value}", "InterestingAsset", new Dictionary<string, string> { ["source"] = "asset-scoring" }, ["score"])]
+            ? [new WorkerProducedAsset("FindingCandidate", $"interesting asset: {value}", "InterestingAsset", null, new Dictionary<string, string> { ["source"] = "asset-scoring" }, ["score"])]
             : Array.Empty<WorkerProducedAsset>();
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { value, produced = produced.Length }), produced);

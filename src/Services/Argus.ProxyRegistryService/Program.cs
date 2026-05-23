@@ -5,6 +5,8 @@ using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 
+using Argus.ProxyRegistryService;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
@@ -209,8 +211,10 @@ app.MapPost("/proxies/{id:guid}/consume", async (
         var state = registry.GetRateLimitState(id);
         if (state is not null)
         {
+            var proxy = await db.Proxies.FindAsync([id], ct);
+            var proxyUrl = proxy?.Url ?? "";
             await events.PublishAsync(
-                new ProxyRateLimitExceeded(id, state.Url, state.CurrentRequestsPerSecond),
+                new ProxyRateLimitExceeded(id, proxyUrl, state.CurrentRequestsPerSecond),
                 nameof(ProxyRateLimitExceeded),
                 "Argus.ProxyRegistryService",
                 cancellationToken: ct);
@@ -229,27 +233,7 @@ app.MapPost("/proxies/{id:guid}/release", (Guid id, ProxyRegistry registry) =>
 
 app.Run();
 
-static ProxyDto ToDto(ProxyRecord r)
-{
-    return new ProxyDto(
-        r.ProxyId,
-        r.Url,
-        r.Protocol,
-        r.Username,
-        r.Password,
-        r.Country,
-        r.City,
-        r.IsActive,
-        r.IsOnline,
-        new ProxyRateLimitDto(
-            r.MaxRequestsPerSecond,
-            r.MaxConcurrentRequests,
-            0,
-            0,
-            null),
-        r.CreatedAt,
-        r.UpdatedAt);
-}
+static ProxyDto ToDto(ProxyRecord r) => ProxyRecord.ToDto(r);
 
 internal sealed class ProxyRegistry
 {
@@ -263,7 +247,7 @@ internal sealed class ProxyRegistry
         {
             _proxies[record.ProxyId] = new ProxyEntry
             {
-                Dto = ToDto(record),
+                Dto = ProxyRecord.ToDto(record),
                 RateLimitBucket = new RateLimitBucket(
                     record.MaxRequestsPerSecond,
                     record.MaxConcurrentRequests),
