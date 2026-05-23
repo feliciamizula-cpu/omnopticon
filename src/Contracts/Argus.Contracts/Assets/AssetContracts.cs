@@ -68,7 +68,6 @@ public enum AssetSubcategory
     TechnologyDatabase,
     FindingSqlInjection,
     FindingXss,
-    FindingSsrf,
     FindingCsrf,
     FindingOpenRedirect,
     FindingSsrf,

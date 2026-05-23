@@ -38,6 +38,10 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
         Register<ProgramScopeChanged>();
         Register<AssetPropertyChanged>();
         Register<FindingCandidateCreated>();
+        Register<ProxyAdded>();
+        Register<ProxyRemoved>();
+        Register<ProxyStatusChanged>();
+        Register<ProxyRateLimitExceeded>();
     }
 
     private void Register<T>(int version = 1) where T : notnull

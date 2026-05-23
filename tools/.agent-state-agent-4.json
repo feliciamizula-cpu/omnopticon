@@ -1,14 +1,14 @@
 {
   "agentId": "agent-4",
   "status": "working",
-  "currentTaskId": "055",
-  "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
+  "currentTaskId": "054",
+  "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
   "workStatus": "idle",
   "pid": 2482670,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T04:39:26.130Z",
-  "updatedAt": "2026-05-23T04:39:26.130Z",
+  "lastHeartbeatAt": "2026-05-23T04:39:51.186Z",
+  "updatedAt": "2026-05-23T04:39:51.186Z",
   "startedAt": "2026-05-23T04:38:44.891Z",
   "lastRunAt": "2026-05-23T04:38:45.113Z",
-  "context": "Bulk tag/enqueue endpoints already implemented in Program.cs lines 207-294. Asset grid UI does not exist yet - would need new asset browse page."
+  "context": "Implementation verified - builds successfully. IScopeProvider, HackerOneScopeProvider, BugcrowdScopeProvider, ScopeSyncService all in place."
 }

@@ -1,14 +1,14 @@
 {
   "agentId": "devops-2",
-  "currentTaskId": "043",
+  "currentTaskId": null,
   "currentTaskDescription": null,
   "context": "7 agents healthy; compose.yaml valid; dotnet N/A in container; reconcile done; standing task running",
   "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T04:39:26.761Z",
-  "lastHeartbeatAt": "2026-05-23T04:39:26.761Z",
+  "lastRunAt": "2026-05-23T04:39:27.275Z",
+  "lastHeartbeatAt": "2026-05-23T04:39:38.632Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:39:26.761Z",
+  "updatedAt": "2026-05-23T04:39:38.632Z",
   "workStatus": "idle"
 }
