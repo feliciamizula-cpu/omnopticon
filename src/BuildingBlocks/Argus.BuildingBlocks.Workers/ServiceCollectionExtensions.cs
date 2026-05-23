@@ -61,7 +61,7 @@ public static class ServiceCollectionExtensions
                     options.EventDrivenMode = bool.TryParse(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"], out var eventDriven) && eventDriven;
                 }
 
-                if (int.TryParse(builder.Configuration["ARGUS_DRAIN_TIMEOUT_SECONDS"], out var drainTimeoutSeconds))
+                if (int.TryParse(builder.Configuration["ARGUS_WORKER_DRAIN_TIMEOUT"], out var drainTimeoutSeconds))
                 {
                     options.DrainTimeout = TimeSpan.FromSeconds(drainTimeoutSeconds);
                 }

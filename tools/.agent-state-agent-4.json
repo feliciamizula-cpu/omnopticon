@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "D05230229",
-  "currentTaskDescription": "DevOps: fix crashed workers",
-  "context": "Implemented graceful shutdown StopAsync with drain timeout and checkpoint preservation to fix worker crashes on shutdown",
+  "currentTaskId": "T05230228",
+  "currentTaskDescription": "This script that shows menu options has malformed text (bad encoding?) that appears in the menu options",
+  "context": null,
   "status": "working",
-  "pid": 325893,
-  "startedAt": "2026-05-23T02:41:16.040Z",
-  "lastRunAt": "2026-05-23T02:41:16.040Z",
-  "lastHeartbeatAt": "2026-05-23T02:44:30.439Z",
+  "pid": 389205,
+  "startedAt": "2026-05-23T02:45:12.579Z",
+  "lastRunAt": "2026-05-23T02:45:12.579Z",
+  "lastHeartbeatAt": "2026-05-23T02:45:12.579Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:44:36.938Z"
+  "updatedAt": "2026-05-23T02:45:26.151Z"
 }

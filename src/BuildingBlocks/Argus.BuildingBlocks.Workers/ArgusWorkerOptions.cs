@@ -15,6 +15,6 @@ public sealed class ArgusWorkerOptions
     public Uri RealtimeServiceBaseAddress { get; set; } = new("http://realtime-service");
     public bool ScopeValidationRequired { get; set; }
     public string SnapshotSecretKey { get; set; } = string.Empty;
-    public TimeSpan DrainTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan DrainTimeout { get; set; } = TimeSpan.FromSeconds(60);
     public bool SaveCheckpointOnShutdown { get; set; } = true;
 }

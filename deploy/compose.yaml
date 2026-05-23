@@ -143,6 +143,7 @@ services:
 
   amass-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -154,6 +155,7 @@ services:
 
   subfinder-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -165,6 +167,7 @@ services:
 
   dns-resolver-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -176,6 +179,7 @@ services:
 
   http-probe-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -187,6 +191,7 @@ services:
 
   html-dom-spider-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -198,6 +203,7 @@ services:
 
   js-extractor-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -209,6 +215,7 @@ services:
 
   wordlist-discovery-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -220,6 +227,7 @@ services:
 
   headless-spider-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -231,6 +239,7 @@ services:
 
   fingerprint-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
@@ -242,6 +251,7 @@ services:
 
   asset-scoring-worker:
     <<: *service-defaults
+    stop_grace_period: 90s
     environment:
       <<: *common-env
       ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
