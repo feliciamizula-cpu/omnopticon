@@ -5,11 +5,11 @@
       "currentTask": "045",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
       "workStatus": "working",
       "currentTaskDescription": "DevOps: Keep AI agents and coordination systems healthy",
-      "lastRunAt": "2026-05-23T04:24:36.932Z",
-      "lastHeartbeatAt": "2026-05-23T04:24:36.932Z",
+      "lastRunAt": "2026-05-23T04:27:00.742Z",
+      "lastHeartbeatAt": "2026-05-23T04:27:00.742Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -24,7 +24,7 @@
       "currentTask": "034",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
       "workStatus": "working",
       "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
       "lastRunAt": "2026-05-23T03:17:15.468Z",
@@ -43,7 +43,7 @@
       "currentTask": "054",
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
       "lastRunAt": "2026-05-23T03:05:00.681Z",
@@ -62,7 +62,7 @@
       "currentTask": "043",
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
       "lastRunAt": "2026-05-23T03:05:48.152Z",
@@ -81,7 +81,7 @@
       "currentTask": "055",
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
       "lastRunAt": "2026-05-23T03:03:40.221Z",
@@ -105,12 +105,12 @@
         "deployed component health",
         "release readiness"
       ],
-      "currentTask": "046",
-      "workStatus": "working",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
-      "pid": 2062600,
-      "lastHeartbeatAt": "2026-05-23T04:24:16.673Z",
-      "currentTaskDescription": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
+      "currentTask": null,
+      "workStatus": "idle",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
+      "pid": null,
+      "lastHeartbeatAt": "2026-05-23T04:25:30.318Z",
+      "currentTaskDescription": null,
       "context": null,
       "lastError": null,
       "lastRunAt": "2026-05-23T03:28:39.490Z",
@@ -128,9 +128,9 @@
       ],
       "currentTask": "044",
       "workStatus": "working",
-      "lastUpdated": "2026-05-23T04:24:43.905Z",
+      "lastUpdated": "2026-05-23T04:27:07.133Z",
       "pid": 2030773,
-      "lastHeartbeatAt": "2026-05-23T04:23:50.972Z",
+      "lastHeartbeatAt": "2026-05-23T04:26:06.283Z",
       "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
       "context": null,
       "lastError": null,
@@ -675,7 +675,7 @@
       "claimedAt": "2026-05-23T04:24:36.932Z",
       "attempts": 7,
       "recoveryContext": "Health check complete: build passes, 7 agents active, 51 completed tasks, reviewer-1 alert is informational (review working)",
-      "completedAt": "2026-05-23T04:24:20.953Z"
+      "completedAt": "2026-05-23T04:27:00.742Z"
     },
     {
       "id": "T05230228",
@@ -706,9 +706,11 @@
       "id": "046",
       "description": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
       "priority": "critical",
-      "assignedTo": "devops-1",
-      "status": "in_progress",
-      "createdAt": "2026-05-23T02:38:11.290740841Z"
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z",
+      "requeuedAt": "2026-05-23T04:25:31.405Z",
+      "requeueReason": "assigned agent is not currently working this task"
     },
     {
       "id": "047",
@@ -860,5 +862,5 @@
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-23T04:21:42.522Z"
+  "lastPullAt": "2026-05-23T04:26:44.137Z"
 }

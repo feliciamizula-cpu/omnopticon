@@ -1,14 +1,8 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "045",
-  "currentTaskDescription": "DevOps: Keep AI agents and coordination systems healthy",
-  "context": "Health check complete: build passes, 7 agents active, 51 completed tasks, reviewer-1 alert is informational (review working)",
-  "status": "working",
-  "pid": 2123030,
-  "startedAt": "2026-05-23T04:24:37.000Z",
-  "lastRunAt": "2026-05-23T04:24:37.033Z",
-  "lastHeartbeatAt": "2026-05-23T04:24:39.892Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T04:24:43.905Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": "",
+  "status": "idle",
   "workStatus": "idle"
 }

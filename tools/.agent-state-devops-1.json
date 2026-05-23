@@ -1,14 +1,14 @@
 {
   "agentId": "devops-1",
-  "currentTaskId": "046",
-  "currentTaskDescription": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
-  "context": "7 agents active, 5 tasks pending, 5 in progress, 50 completed. dotnet not installed in env - no build verification possible. compose.yaml uses modern v2+ syntax (name field) which docker-compose v1.29.2 cannot validate; Docker v20.10 with compose plugin would parse correctly. No critical alerts. Next: observe task 042 progress on ProxyRegistryService.",
-  "status": "working",
-  "pid": 2062600,
-  "startedAt": "2026-05-23T04:22:01.321Z",
-  "lastRunAt": "2026-05-23T04:22:01.321Z",
-  "lastHeartbeatAt": "2026-05-23T04:24:16.640Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": "7 active agents, 3 pending tasks, 51 completed. dotnet unavailable - cannot build .NET coordinator. Shell-based agent-coord.sh running. Critical alert about reviewer-1 is stale - cleared. Awaiting dotnet availability for .NET coordinator.",
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T04:25:30.283Z",
+  "lastHeartbeatAt": "2026-05-23T04:25:30.283Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:24:43.905Z",
+  "updatedAt": "2026-05-23T04:27:07.133Z",
   "workStatus": "idle"
 }
