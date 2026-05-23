@@ -408,8 +408,8 @@ reconcile_state() {
                     ) |
                     .tasks |= map(
                         if .id == $tid then
-                            .status = "pending" |
-                            .assignedTo = null |
+                            .status = (if .status == "monitoring" then "monitoring" else "pending" end) |
+                            .assignedTo = (if .status == "monitoring" then .assignedTo else null end) |
                             .requeuedAt = $now |
                             .requeueReason = ("released from " + $agent + " after " + $runtime) |
                             .recoveryContext = (if $context == "" then null else $context end)
@@ -523,7 +523,7 @@ reconcile_state() {
         ) |
         .tasks |= map(
             . as $task |
-            if $task.status == "in_progress" and ($task.assignedTo != null) then
+            if ($task.status == "in_progress" and $task.status != "monitoring") and ($task.assignedTo != null) then
                 ([ $root.agents[] | select(.id == $task.assignedTo) | .currentTask ][0]) as $currentTask |
                 if $currentTask != $task.id then
                     .status = "pending" |

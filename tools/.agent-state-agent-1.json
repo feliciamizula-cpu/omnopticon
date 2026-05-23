@@ -3,11 +3,11 @@
   "currentTaskId": "053",
   "currentTaskDescription": "Enhancement #19: Webhook notifications - Add WebhookService with configurable webhook targets: url, event-type filters (FindingCandidateCreated, AssetConfirmed, etc.), filters (programId, minInterestingScore). Fire via SSE subscription mechanism. Retry with exponential backoff. Store webhook configs in PostgreSQL. UI for CRUD webhook configs. File: src/Services/Argus.RealtimeService/",
   "context": "Analyzed the issue: immediate requeue with BasicNack causes infinite retry loop without delay. Need to: 1) Use delay queues for retry with DLX/TTL, 2) Add persistent poison message store, 3) Add inspection/replay endpoint",
-  "status": "working",
+  "status": "unresponsive",
   "pid": 680480,
   "startedAt": "2026-05-23T02:23:54.949Z",
   "lastRunAt": "2026-05-23T03:02:47.630Z",
-  "lastHeartbeatAt": "2026-05-23T03:17:49.069Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T03:18:12.096Z"
+  "lastHeartbeatAt": "2026-05-23T03:26:49.838Z",
+  "lastError": "heartbeat timeout",
+  "updatedAt": "2026-05-23T03:27:15.156Z"
 }

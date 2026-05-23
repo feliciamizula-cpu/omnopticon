@@ -72,8 +72,18 @@ get_task_assignee() {
 
 get_monitoring_task_for_agent() {
     local agent_id="$1"
-    jq -r --arg agent "$agent_id" '
+    local monitoring_task
+    monitoring_task="$(jq -r --arg agent "$agent_id" '
         [.tasks[] | select(.status == "monitoring" and .assignedTo == $agent)] |
+        sort_by(.id) |
+        .[0].id // empty
+    ' "$STATE_FILE")"
+    if [ -n "$monitoring_task" ] && [ "$monitoring_task" != "null" ]; then
+        echo "$monitoring_task"
+        return
+    fi
+    jq -r --arg agent "$agent_id" '
+        [.tasks[] | select(.status == "pending" and (.assignedTo == null or .assignedTo == $agent))] |
         sort_by(.id) |
         .[0].id // empty
     ' "$STATE_FILE"

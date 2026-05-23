@@ -6,8 +6,9 @@
   "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T03:05:00.074Z",
-  "lastHeartbeatAt": "2026-05-23T03:05:16.331Z",
-  "lastError": "Task 045 requeued during reconciliation",
-  "updatedAt": "2026-05-23T03:18:12.096Z"
+  "lastRunAt": "2026-05-23T03:27:09.536Z",
+  "lastHeartbeatAt": "2026-05-23T03:27:09.536Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T03:27:11.770Z",
+  "workStatus": "idle"
 }
