@@ -22,6 +22,7 @@ public sealed class RealtimeDbContext : DbContext
             e.Property(x => x.PayloadJson).HasColumnType("TEXT");
             e.HasIndex(x => x.RecordedAt);
             e.HasIndex(x => x.EventType);
+            e.HasIndex(x => x.CorrelationId);
         });
 
         var worker = modelBuilder.Entity<WorkerRecord>(e =>

@@ -58,6 +58,12 @@ app.MapDefaultEndpoints();
 
 app.MapGet("/events", (int? take, RealtimeStore store) => store.GetEvents(take ?? 200));
 
+app.MapGet("/events/chain/{correlationId}", async (Guid correlationId, RealtimeStore store) =>
+{
+    var events = await store.GetEventsByCorrelationIdAsync(correlationId);
+    return events.Count == 0 ? Results.NotFound() : Results.Ok(events);
+});
+
 app.MapGet("/events/stream", async (
     HttpContext context,
     RealtimeStore store,
@@ -475,6 +481,33 @@ internal sealed class RealtimeStore
     public WorkerCapabilityDescriptor? GetWorkerCapability(string workerId)
     {
         return _workerCapabilities.TryGetValue(workerId, out var capability) ? capability : null;
+    }
+
+    public async Task<IReadOnlyList<IntegrationEventEnvelope<JsonNode>>> GetEventsByCorrelationIdAsync(Guid correlationId)
+    {
+        using var scope = _services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+
+        var events = await dbContext.Events
+            .Where(e => e.CorrelationId == correlationId)
+            .OrderBy(e => e.RecordedAt)
+            .ToListAsync();
+
+        return events
+            .Select(evt =>
+            {
+                var payload = string.IsNullOrWhiteSpace(evt.PayloadJson)
+                    ? new JsonObject()
+                    : JsonNode.Parse(evt.PayloadJson) ?? new JsonObject();
+
+                return IntegrationEventEnvelope<JsonNode>.Create(
+                    payload,
+                    evt.EventType,
+                    evt.SourceService ?? "unknown",
+                    evt.CorrelationId,
+                    evt.CausationId).WithEventId(evt.EventId);
+            })
+            .ToArray();
     }
 }
 
