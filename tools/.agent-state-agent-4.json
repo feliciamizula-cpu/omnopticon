@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "context": null,
-  "status": "idle",
-  "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T00:57:39.099Z",
-  "lastHeartbeatAt": "2026-05-23T00:57:39.099Z",
+  "currentTaskId": "039",
+  "currentTaskDescription": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
+  "status": "working",
+  "lastRunAt": "2026-05-23T01:25:01.976Z",
+  "updatedAt": "2026-05-23T01:25:01.976Z",
+  "pid": 331659,
   "lastError": null,
-  "updatedAt": "2026-05-23T01:23:26.575Z"
+  "lastHeartbeatAt": "2026-05-23T01:25:01.976Z",
+  "startedAt": "2026-05-23T01:25:01.888Z",
+  "context": null
 }
