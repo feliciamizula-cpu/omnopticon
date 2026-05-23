@@ -1,13 +1,13 @@
 {
   "agentId": "devops-1",
-  "currentTaskId": "044",
+  "currentTaskId": null,
   "currentTaskDescription": null,
   "context": "Standing DevOps agent for application, deployed component, and release readiness health.",
   "status": "idle",
   "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-22T23:40:25.768Z",
-  "lastHeartbeatAt": "2026-05-22T23:48:51.567Z",
-  "lastError": null,
-  "updatedAt": "2026-05-22T23:48:51.567Z"
+  "startedAt": "2026-05-23T00:40:26.297Z",
+  "lastRunAt": "2026-05-23T00:40:26.297Z",
+  "lastHeartbeatAt": "2026-05-23T00:44:52.356Z",
+  "lastError": "Task 044 requeued during reconciliation",
+  "updatedAt": "2026-05-23T00:45:29.697Z"
 }

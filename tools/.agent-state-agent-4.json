@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "030",
-  "currentTaskDescription": "Enhancement #4: Re-scan scheduling based on LastScannedAt",
-  "status": "working",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "status": "idle",
   "lastRunAt": "2026-05-22T23:11:17.699Z",
-  "updatedAt": "2026-05-22T23:11:17.699Z",
-  "pid": 113805,
-  "lastError": null,
-  "lastHeartbeatAt": "2026-05-22T23:11:17.699Z",
+  "updatedAt": "2026-05-23T00:45:29.697Z",
+  "pid": null,
+  "lastError": "Task 030 requeued during reconciliation",
+  "lastHeartbeatAt": "2026-05-23T00:40:18.788Z",
   "startedAt": "2026-05-22T23:11:17.699Z",
   "context": null
 }

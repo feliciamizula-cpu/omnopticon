@@ -101,7 +101,9 @@ agent_runtime_status() {
     fi
 
     if agent_pid_is_running "$pid"; then
-        if [ "$heartbeat_age" -gt 900 ]; then
+        local heartbeat_threshold
+        heartbeat_threshold="${AGENT_HEARTBEAT_TIMEOUT:-60}"
+        if [ "$heartbeat_age" -gt "$heartbeat_threshold" ]; then
             echo "unresponsive"
         else
             echo "running"

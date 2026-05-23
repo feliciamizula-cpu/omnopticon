@@ -9,16 +9,16 @@ INTERVAL="${1:-5}"
 WORK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
 LOG_FILE="${LOG_FILE:-/tmp/auto-run-agents.log}"
-AGENT_HEARTBEAT_TIMEOUT="${AGENT_HEARTBEAT_TIMEOUT:-900}"
-AGENT_STALE_TIMEOUT="${AGENT_STALE_TIMEOUT:-1800}"
-RECONCILE_INTERVAL="${RECONCILE_INTERVAL:-60}"
+AGENT_HEARTBEAT_TIMEOUT="${AGENT_HEARTBEAT_TIMEOUT:-60}"
+AGENT_STALE_TIMEOUT="${AGENT_STALE_TIMEOUT:-120}"
+RECONCILE_INTERVAL="${RECONCILE_INTERVAL:-30}"
 
 AGENTS=("agent-1" "agent-2" "agent-3" "agent-4" "agent-5")
 DEVOPS_AGENTS=("devops-1" "devops-2")
 REVIEW_AGENTS=("reviewer-1" "reviewer-2")
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
 MAX_CONCURRENT_DEVOPS="${MAX_CONCURRENT_DEVOPS:-1}"
-DEVOPS_AGENT_INTERVAL="${DEVOPS_AGENT_INTERVAL:-300}"
+DEVOPS_AGENT_INTERVAL="${DEVOPS_AGENT_INTERVAL:-120}"
 
 log() { echo "[$(date +'%Y-%m-%dT%H:%M:%S')] $*" >> "$LOG_FILE"; }
 
@@ -750,6 +750,15 @@ run_agent_if_needed() {
     task_desc="$(echo "$state_json" | jq -r '.currentTaskDescription // empty')"
 
     if [ "$runtime" = "running" ] || [ "$runtime" = "unresponsive" ]; then
+        return
+    fi
+
+    if [ "$current_status" = "crashed" ]; then
+        if [ -n "$current_task_id" ] && [ "$current_task_id" != "null" ]; then
+            task_desc="$(get_task_description "$current_task_id")"
+            log "Agent $agent_id recovering from crash, respawning for task $current_task_id"
+            spawn_agent "$agent_id" "$current_task_id" "$task_desc" "resume" "$agent_id"
+        fi
         return
     fi
 
