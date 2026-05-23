@@ -215,7 +215,7 @@ app.MapPost("/tasks/{taskId:guid}/complete", async (
     }
 
     await events.PublishAsync(
-        new TaskCompleted(task.TaskId, task.OutputSummaryJson ?? "{}"),
+        new TaskCompleted(task.TaskId, task.InputAssetId, task.OutputSummaryJson ?? "{}"),
         nameof(TaskCompleted),
         "Argus.TaskService",
         cancellationToken: cancellationToken);

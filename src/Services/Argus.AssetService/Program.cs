@@ -596,6 +596,15 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
         return asset?.ToDto();
     }
 
+    public async Task<AssetDto?> FindByNaturalKeyAsync(string naturalKey, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.Assets
+            .AsNoTracking()
+            .FirstOrDefaultAsync(asset => asset.NaturalKey == naturalKey, cancellationToken);
+
+        return asset?.ToDto();
+    }
+
     public Task<bool> ContainsAsync(Guid assetId, CancellationToken cancellationToken) =>
         dbContext.Assets.AnyAsync(asset => asset.AssetId == assetId, cancellationToken);
 
@@ -865,6 +874,43 @@ internal static class AssetScoring
             _ when string.Equals(subtype, "graphql", StringComparison.OrdinalIgnoreCase) => 45,
             _ => 5
         };
+}
+
+internal sealed class TaskCompletedConsumer : IIntegrationEventConsumer<TaskCompleted>
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<TaskCompletedConsumer> _logger;
+
+    public TaskCompletedConsumer(IHttpClientFactory httpClientFactory, ILogger<TaskCompletedConsumer> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+    }
+
+    public async Task HandleAsync(IntegrationEventEnvelope<TaskCompleted> envelope, CancellationToken cancellationToken)
+    {
+        if (!envelope.Payload.InputAssetId.HasValue)
+        {
+            return;
+        }
+
+        var client = _httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(ServiceUriHelper.GetServiceUri("ARGUS_ASSET_SERVICE", "http://asset-service"));
+
+        try
+        {
+            using var response = await client.PatchAsync($"/assets/{envelope.Payload.InputAssetId}/last-scanned", null, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Updated LastScannedAt for asset {AssetId} after task {TaskId} completed",
+                    envelope.Payload.InputAssetId, envelope.Payload.TaskId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update LastScannedAt for asset {AssetId}", envelope.Payload.InputAssetId);
+        }
+    }
 }
 
 internal static class AssetStoreInitialization

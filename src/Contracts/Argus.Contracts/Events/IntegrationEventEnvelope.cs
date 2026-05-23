@@ -41,7 +41,7 @@ public sealed record TaskRequested(Guid TaskId, string TaskType, Guid ProgramId,
 public sealed record TaskLeased(Guid TaskId, string WorkerId, DateTimeOffset LeaseExpiresAt);
 public sealed record TaskStarted(Guid TaskId, string WorkerId, DateTimeOffset StartedAt);
 public sealed record TaskProgressed(Guid TaskId, int ProgressPercent, string ProgressMessage);
-public sealed record TaskCompleted(Guid TaskId, string OutputSummary);
+public sealed record TaskCompleted(Guid TaskId, Guid? InputAssetId, string OutputSummary);
 public sealed record TaskFailed(Guid TaskId, string ErrorCode, string ErrorMessage);
 public sealed record WorkerHeartbeat(Guid WorkerId, string WorkerType, DateTimeOffset SeenAt);
 public sealed record RateLimitTokenGranted(string BucketKey, Guid TokenId, DateTimeOffset ExpiresAt);

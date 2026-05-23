@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "currentTaskId": "031",
+  "currentTaskDescription": "Enhancement #5: Worker priority lanes (high/normal/low)",
   "context": "Dead letter exchange + poison message inspection/replay already implemented",
-  "status": "idle",
-  "pid": null,
+  "status": "working",
+  "pid": 78102,
   "startedAt": "2026-05-22T23:09:19.231Z",
-  "lastRunAt": "2026-05-23T00:46:43.152Z",
-  "lastHeartbeatAt": "2026-05-23T00:47:10.684Z",
-  "lastError": "Task 027 requeued during reconciliation",
-  "updatedAt": "2026-05-23T00:47:52.983Z"
+  "lastRunAt": "2026-05-23T00:48:27.464Z",
+  "lastHeartbeatAt": "2026-05-23T00:49:57.526Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T00:50:01.328Z"
 }
