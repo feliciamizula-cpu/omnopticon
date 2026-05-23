@@ -5,11 +5,11 @@
       "currentTask": "042",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
-      "lastRunAt": "2026-05-23T04:27:23.537Z",
-      "lastHeartbeatAt": "2026-05-23T04:27:23.537Z",
+      "lastRunAt": "2026-05-23T04:29:20.595Z",
+      "lastHeartbeatAt": "2026-05-23T04:29:20.595Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -24,7 +24,7 @@
       "currentTask": "034",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "workStatus": "working",
       "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
       "lastRunAt": "2026-05-23T03:17:15.468Z",
@@ -43,7 +43,7 @@
       "currentTask": "054",
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
       "lastRunAt": "2026-05-23T03:05:00.681Z",
@@ -62,7 +62,7 @@
       "currentTask": "043",
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
       "lastRunAt": "2026-05-23T03:05:48.152Z",
@@ -81,7 +81,7 @@
       "currentTask": "055",
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
       "lastRunAt": "2026-05-23T03:03:40.221Z",
@@ -105,12 +105,12 @@
         "deployed component health",
         "release readiness"
       ],
-      "currentTask": "042",
-      "workStatus": "working",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "currentTask": null,
+      "workStatus": "idle",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "pid": 2191399,
       "lastHeartbeatAt": "2026-05-23T04:27:32.563Z",
-      "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
+      "currentTaskDescription": null,
       "context": null,
       "lastError": null,
       "lastRunAt": "2026-05-23T03:28:39.490Z",
@@ -128,9 +128,9 @@
       ],
       "currentTask": "044",
       "workStatus": "working",
-      "lastUpdated": "2026-05-23T04:28:17.234Z",
+      "lastUpdated": "2026-05-23T04:33:08.452Z",
       "pid": 2030773,
-      "lastHeartbeatAt": "2026-05-23T04:26:06.283Z",
+      "lastHeartbeatAt": "2026-05-23T04:32:52.285Z",
       "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
       "context": null,
       "lastError": null,
@@ -619,13 +619,14 @@
       "description": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
       "createdAt": "2026-05-22T16:23:45.2832975-04:00",
       "priority": "low",
-      "assignedTo": "devops-1",
+      "assignedTo": "agent-1",
       "status": "in_progress",
       "claimedAt": "2026-05-23T04:27:23.537Z",
       "attempts": 6,
-      "requeuedAt": "2026-05-23T04:27:26.682Z",
-      "requeueReason": "assigned agent is not currently working this task",
-      "recoveryContext": "Standing DevOps agent for application, deployed component, and release readiness health."
+      "requeuedAt": "2026-05-23T04:29:04.510Z",
+      "requeueReason": "released from devops-1 after crashed",
+      "recoveryContext": "dotnet unavailable; docker compose unavailable; compose.yaml at deploy/ exists but can't validate; reconciliation done; no critical alerts; all 7 agents healthy",
+      "completedAt": "2026-05-23T04:29:20.595Z"
     },
     {
       "id": "043",
@@ -664,7 +665,7 @@
       "createdAt": "2026-05-22T23:48:51.516Z",
       "priority": "critical",
       "assignedTo": null,
-      "status": "pending",
+      "status": "completed",
       "scope": [
         "ai-agents",
         "coordination-state",
@@ -675,7 +676,7 @@
       "claimedAt": "2026-05-23T04:27:15.343Z",
       "attempts": 8,
       "recoveryContext": null,
-      "completedAt": "2026-05-23T04:27:00.742Z"
+      "completedAt": "2026-05-23T04:28:23.327Z"
     },
     {
       "id": "T05230228",
@@ -709,8 +710,9 @@
       "assignedTo": null,
       "status": "pending",
       "createdAt": "2026-05-23T02:38:11.290740841Z",
-      "requeuedAt": "2026-05-23T04:25:31.405Z",
-      "requeueReason": "assigned agent is not currently working this task"
+      "requeuedAt": "2026-05-23T04:31:43.533Z",
+      "requeueReason": "released from devops-1 after crashed",
+      "recoveryContext": "task 046 complete: Argus.AgentCoordinator implemented at src/Tools/Argus.AgentCoordinator/; csproj targets net10.0; Program.cs 854 lines with all 12 requirements: configurable pool, JSON task board, per-agent state files, 45s heartbeat, PID crash detection, priority-sorted task assignment, agent prompt files, opencode invocation, devops 120s sweep, reviewer git-cycle, watchdog restart, SIGTERM/SIGINT shutdown; no critical alerts"
     },
     {
       "id": "047",
@@ -862,5 +864,5 @@
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-23T04:26:44.137Z"
+  "lastPullAt": "2026-05-23T04:31:46.536Z"
 }

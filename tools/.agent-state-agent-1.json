@@ -1,14 +1,13 @@
 {
   "agentId": "agent-1",
+  "status": "working",
   "currentTaskId": "042",
   "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
-  "context": "ProxyRegistryService with per-proxy rate limit buckets fully implemented; enabled in AppHost; dotnet not available for build verification",
-  "status": "working",
   "workStatus": "idle",
-  "pid": 2187952,
-  "startedAt": "2026-05-23T04:27:24.005Z",
-  "lastRunAt": "2026-05-23T04:27:24.005Z",
-  "lastHeartbeatAt": "2026-05-23T04:28:16.800Z",
+  "pid": 2248741,
   "lastError": null,
-  "updatedAt": "2026-05-23T04:28:17.234Z"
+  "lastHeartbeatAt": "2026-05-23T04:33:16.053Z",
+  "updatedAt": "2026-05-23T04:33:16.053Z",
+  "startedAt": "2026-05-23T04:29:55.387Z",
+  "lastRunAt": "2026-05-23T04:29:55.387Z"
 }

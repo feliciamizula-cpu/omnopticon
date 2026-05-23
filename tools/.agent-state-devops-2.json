@@ -3,12 +3,12 @@
   "currentTaskId": "044",
   "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
   "context": "7 agents healthy 5 running; 51 completed; compose.yaml valid; dotnet unavailable in container env; no issues detected; next: next sweep",
-  "status": "working",
+  "status": "unresponsive",
   "pid": 2030773,
   "startedAt": "2026-05-23T04:20:05.417Z",
   "lastRunAt": "2026-05-23T04:20:05.417Z",
-  "lastHeartbeatAt": "2026-05-23T04:27:36.456Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T04:28:17.234Z",
+  "lastHeartbeatAt": "2026-05-23T04:32:52.251Z",
+  "lastError": "heartbeat timeout",
+  "updatedAt": "2026-05-23T04:33:08.452Z",
   "workStatus": "idle"
 }
