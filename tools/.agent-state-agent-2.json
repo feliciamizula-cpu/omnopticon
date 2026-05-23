@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "018",
-  "currentTaskDescription": "Design #20: RealtimeService fully in-memory - needs durability",
-  "context": "Enhancement #18 complete: Added GET /programs/{programId}/export (returns ProgramExportDto with program, scopes, exclusions, rule revisions, rate limit policies) and POST /programs/import (reconstructs full config). SnapshotSigner updated for export signing. Build not verifiable (dotnet not in PATH).",
-  "status": "done",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": null,
+  "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T04:41:46.547Z",
-  "lastHeartbeatAt": "2026-05-23T04:43:49.038Z",
-  "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T04:43:56.767Z"
+  "lastRunAt": "2026-05-23T04:45:12.574Z",
+  "lastHeartbeatAt": "2026-05-23T04:45:19.439Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T04:45:21.192Z"
 }

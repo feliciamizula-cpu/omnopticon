@@ -5,11 +5,11 @@
       "currentTask": null,
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T04:43:56.767Z",
+      "lastUpdated": "2026-05-23T04:44:38.170Z",
       "workStatus": "idle",
       "currentTaskDescription": null,
-      "lastRunAt": "2026-05-23T04:43:25.647Z",
-      "lastHeartbeatAt": "2026-05-23T04:43:25.647Z",
+      "lastRunAt": "2026-05-23T04:44:38.170Z",
+      "lastHeartbeatAt": "2026-05-23T04:44:38.170Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -21,14 +21,14 @@
     },
     {
       "status": "active",
-      "currentTask": "018",
+      "currentTask": null,
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T04:43:56.767Z",
-      "workStatus": "working",
-      "currentTaskDescription": "Design #20: RealtimeService fully in-memory - needs durability",
-      "lastRunAt": "2026-05-23T04:43:25.647Z",
-      "lastHeartbeatAt": "2026-05-23T04:43:25.647Z",
+      "lastUpdated": "2026-05-23T04:44:38.170Z",
+      "workStatus": "idle",
+      "currentTaskDescription": null,
+      "lastRunAt": "2026-05-23T04:44:38.170Z",
+      "lastHeartbeatAt": "2026-05-23T04:44:38.170Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -106,14 +106,14 @@
         "release readiness"
       ],
       "currentTask": "056",
-      "workStatus": "working",
-      "lastUpdated": "2026-05-23T04:43:56.767Z",
+      "workStatus": "monitoring",
+      "lastUpdated": "2026-05-23T04:45:27.559Z",
       "pid": 2542865,
-      "lastHeartbeatAt": "2026-05-23T04:43:54.307Z",
+      "lastHeartbeatAt": "2026-05-23T04:45:27.559Z",
       "currentTaskDescription": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
       "context": null,
       "lastError": null,
-      "lastRunAt": "2026-05-23T04:41:39.800Z",
+      "lastRunAt": "2026-05-23T04:45:06.752Z",
       "startedAt": null
     },
     {
@@ -126,12 +126,12 @@
         "coordination system health",
         "task-board hygiene"
       ],
-      "currentTask": null,
-      "workStatus": "idle",
-      "lastUpdated": "2026-05-23T04:44:12.464Z",
-      "pid": null,
-      "lastHeartbeatAt": "2026-05-23T04:44:12.464Z",
-      "currentTaskDescription": null,
+      "currentTask": "044",
+      "workStatus": "monitoring",
+      "lastUpdated": "2026-05-23T04:44:56.257Z",
+      "pid": 2030773,
+      "lastHeartbeatAt": "2026-05-23T04:44:56.257Z",
+      "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
       "context": null,
       "lastError": null,
       "lastRunAt": "2026-05-23T04:44:12.464Z",
@@ -322,14 +322,14 @@
       "description": "Design #20: RealtimeService fully in-memory - needs durability",
       "createdAt": "2026-05-22T15:30:16.5041452-04:00",
       "priority": "low",
-      "assignedTo": "agent-2",
-      "status": "in_progress",
-      "claimedAt": "2026-05-23T02:17:19.911Z",
-      "attempts": 2,
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "claimedAt": "2026-05-23T04:44:27.189Z",
+      "attempts": 3,
       "requeuedAt": "2026-05-23T02:16:59.473Z",
       "requeueReason": "released from agent-2 after crashed",
       "recoveryContext": null,
-      "completedAt": "2026-05-23T02:19:39.540Z"
+      "completedAt": "2026-05-23T04:44:38.170Z"
     },
     {
       "id": "019",
@@ -795,7 +795,7 @@
       "requeuedAt": "2026-05-23T04:42:59.352Z",
       "requeueReason": "released from agent-4 after crashed",
       "recoveryContext": "Export/import implementation complete - endpoints and store methods already implemented by agent-2",
-      "completedAt": "2026-05-23T04:43:25.647Z"
+      "completedAt": "2026-05-23T04:44:37.163Z"
     },
     {
       "id": "053",
@@ -844,13 +844,13 @@
       "description": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
       "priority": "low",
       "assignedTo": "devops-1",
-      "status": "in_progress",
+      "status": "completed",
       "createdAt": "2026-05-23T02:38:11.290740841Z",
       "claimedAt": "2026-05-23T04:40:01.522Z",
       "attempts": 1,
       "requeuedAt": "2026-05-23T04:40:46.342Z",
       "requeueReason": "assigned agent is not currently working this task",
-      "completedAt": "2026-05-23T04:41:39.800Z"
+      "completedAt": "2026-05-23T04:45:06.752Z"
     },
     {
       "id": "057",
@@ -882,5 +882,5 @@
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-23T04:39:10.146Z"
+  "lastPullAt": "2026-05-23T04:45:30.988Z"
 }

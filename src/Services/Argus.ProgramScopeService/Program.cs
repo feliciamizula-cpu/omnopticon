@@ -783,7 +783,7 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
             program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToList(),
             string.Empty);
 
-return snapshot;
+        return snapshot;
     }
 
     public async Task<ProgramExportDto?> ExportProgramAsync(Guid programId, CancellationToken cancellationToken)
@@ -968,122 +968,6 @@ return snapshot;
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return newProgram.ToDto();
-    }
-}
-
-        return new ProgramExportDto(
-            program.ProgramId,
-            program.Name,
-            program.Source,
-            program.ExternalUrl,
-            program.CreatedAt,
-            program.UpdatedAt,
-            program.Scopes.Select(s => s.ToDto()).ToList(),
-            program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToList(),
-            program.RuleRevisions.Select(r => new ProgramRuleRevisionDto(r.RevisionId, r.ProgramId, r.Version, r.ChangeType, r.OldValue, r.NewValue, r.ChangedBy, r.CreatedAt)).ToList(),
-            program.RateLimitPolicies.Select(p => new RateLimitPolicyDto(p.PolicyId, p.ProgramId, p.ScopeId, p.BucketKey, p.Capacity, p.RefillRate, p.Source)).ToList(),
-            DateTimeOffset.UtcNow.ToString("O"),
-            null);
-    }
-
-    public async Task<ProgramDto> ImportProgramAsync(ProgramImportRequest request, CancellationToken cancellationToken)
-    {
-        var export = request.Export;
-        var existingProgramId = request.ForceOverwrite && export.ProgramId != Guid.Empty ? export.ProgramId : Guid.NewGuid();
-
-        var program = await dbContext.Programs
-            .Include(p => p.Scopes)
-            .Include(p => p.ScopeExclusions)
-            .Include(p => p.RuleRevisions)
-            .Include(p => p.RateLimitPolicies)
-            .FirstOrDefaultAsync(p => p.ProgramId == existingProgramId, cancellationToken);
-
-        if (program is null)
-        {
-            program = new ProgramRecord
-            {
-                ProgramId = existingProgramId,
-                CreatedAt = export.CreatedAt
-            };
-            dbContext.Programs.Add(program);
-        }
-
-        program.Name = export.Name;
-        program.Source = export.Source;
-        program.ExternalUrl = export.ExternalUrl;
-        program.UpdatedAt = DateTimeOffset.UtcNow;
-
-        if (request.ForceOverwrite)
-        {
-            dbContext.Scopes.RemoveRange(program.Scopes);
-            dbContext.ScopeExclusions.RemoveRange(program.ScopeExclusions);
-            dbContext.RuleRevisions.RemoveRange(program.RuleRevisions);
-            dbContext.RateLimitPolicies.RemoveRange(program.RateLimitPolicies);
-            program.Scopes.Clear();
-            program.ScopeExclusions.Clear();
-            program.RuleRevisions.Clear();
-            program.RateLimitPolicies.Clear();
-        }
-
-        foreach (var scope in export.Scopes)
-        {
-            program.Scopes.Add(new ProgramScopeRecord
-            {
-                ScopeId = scope.ScopeId != Guid.Empty ? scope.ScopeId : Guid.NewGuid(),
-                ProgramId = existingProgramId,
-                ScopeType = scope.ScopeType,
-                Pattern = scope.Pattern,
-                Action = scope.Action,
-                Notes = scope.Notes,
-                CreatedAt = scope.CreatedAt
-            });
-        }
-
-        foreach (var exclusion in export.Exclusions)
-        {
-            program.ScopeExclusions.Add(new ScopeExclusionRecord
-            {
-                ExclusionId = exclusion.ExclusionId != Guid.Empty ? exclusion.ExclusionId : Guid.NewGuid(),
-                ProgramId = existingProgramId,
-                Pattern = exclusion.Pattern,
-                Reason = exclusion.Reason,
-                CreatedAt = exclusion.CreatedAt,
-                ExpiresAt = exclusion.ExpiresAt
-            });
-        }
-
-        foreach (var revision in export.RuleRevisions)
-        {
-            program.RuleRevisions.Add(new ProgramRuleRevisionRecord
-            {
-                RevisionId = revision.RevisionId != Guid.Empty ? revision.RevisionId : Guid.NewGuid(),
-                ProgramId = existingProgramId,
-                Version = revision.Version,
-                ChangeType = revision.ChangeType,
-                OldValue = revision.OldValue,
-                NewValue = revision.NewValue,
-                ChangedBy = revision.ChangedBy,
-                CreatedAt = revision.CreatedAt
-            });
-        }
-
-        foreach (var policy in export.RateLimitPolicies)
-        {
-            program.RateLimitPolicies.Add(new RateLimitPolicyRecord
-            {
-                PolicyId = policy.PolicyId != Guid.Empty ? policy.PolicyId : Guid.NewGuid(),
-                ProgramId = existingProgramId,
-                ScopeId = policy.ScopeId,
-                BucketKey = policy.BucketKey,
-                Capacity = policy.Capacity,
-                RefillRate = policy.RefillRate,
-                Source = policy.Source
-            });
-        }
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return program.ToDto();
     }
 }
 

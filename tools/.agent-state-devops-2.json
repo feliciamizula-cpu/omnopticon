@@ -7,8 +7,8 @@
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T04:42:45.293Z",
-  "lastHeartbeatAt": "2026-05-23T04:44:12.876Z",
+  "lastHeartbeatAt": "2026-05-23T04:44:56.171Z",
   "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T04:44:12.876Z",
+  "updatedAt": "2026-05-23T04:44:56.171Z",
   "workStatus": "idle"
 }

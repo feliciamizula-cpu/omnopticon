@@ -468,8 +468,9 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var checkpoint = checkpointJson ?? (_taskCheckpoints.TryGetValue(taskId, out var saved) ? saved : null);
-        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: checkpoint);
+        var checkpoint = checkpointJson ?? (_runningTasks.TryGetValue(taskId, out var state) ? state.CheckpointJson : null);
+        var retryable = ex is WorkerTimeoutException timeoutEx ? timeoutEx.IsRetryable : true;
+        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: retryable, CheckpointJson: checkpoint);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
         using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/fail", request, JsonOptions, cancellationToken);
@@ -537,7 +538,106 @@ public sealed class ArgusWorkerBackgroundService(
 
         return SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey);
     }
+
+    private async Task SaveCheckpointAsync(Guid taskId, string checkpointJson, CancellationToken cancellationToken)
+    {
+        if (_runningTasks.TryGetValue(taskId, out var state))
+        {
+            state.CheckpointJson = checkpointJson;
+        }
+
+        var client = CreateClient(_options.TaskServiceBaseAddress);
+        var request = new SaveWorkerContextRequest(_options.WorkerId, worker.Capability.WorkerType, checkpointJson);
+        try
+        {
+            using var response = await client.PostAsJsonAsync($"/workers/contexts", request, JsonOptions, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                logger.LogDebug("Saved checkpoint for task {TaskId}", taskId);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to save checkpoint for task {TaskId}", taskId);
+        }
+    }
+
+    private async Task PublishArtifactAsync(ReconTaskDto task, WorkerProducedArtifact artifact, CancellationToken cancellationToken)
+    {
+        if (_artifactStore == null)
+        {
+            var store = httpClientFactory.CreateClient("artifact");
+            store.BaseAddress = _options.ArtifactServiceBaseAddress;
+            var stream = new MemoryStream(artifact.Data);
+            var key = $"{task.ProgramId}/{task.TaskId}/{artifact.Name}";
+            try
+            {
+                await store.PostAsync($"/artifacts/{Uri.EscapeDataString(key)}?contentType={Uri.EscapeDataString(artifact.ContentType)}",
+                    new StreamContent(stream), cancellationToken);
+                logger.LogDebug("Published artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to publish artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
+            }
+        }
+    }
+
+    private async Task EmitAssetRejectedEventAsync(ReconTaskDto task, WorkerProducedAsset asset, CancellationToken cancellationToken)
+    {
+        var target = ScopeValidationTarget.Extract(asset);
+        var payload = new AssetRejectedEventPayload(
+            task.TaskId,
+            task.ProgramId,
+            asset.AssetType,
+            asset.Value,
+            target ?? asset.Value,
+            "OutOfScope",
+            $"Asset rejected by scope validation");
+
+        var request = new EventIngestRequest(
+            "AssetRejected",
+            "Argus.WorkerHost",
+            correlationId: task.TaskId,
+            causationId: null,
+            JsonSerializer.Serialize(payload, JsonOptions));
+
+        var client = CreateClient(_options.RealtimeServiceBaseAddress);
+        try
+        {
+            using var response = await client.PostAsJsonAsync("/events", request, JsonOptions, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to emit AssetRejected event for {AssetType} {Value}", asset.AssetType, asset.Value);
+        }
+    }
 }
+
+internal sealed record TaskRunState(
+    CancellationTokenSource CancellationSource,
+    string? CheckpointJson);
+
+internal sealed record SaveWorkerContextRequest(
+    string WorkerId,
+    string WorkerType,
+    string CheckpointJson);
+
+internal sealed record EventIngestRequest(
+    string EventType,
+    string? SourceService,
+    Guid? CorrelationId,
+    Guid? CausationId,
+    string? PayloadJson);
+
+internal sealed record AssetRejectedEventPayload(
+    Guid TaskId,
+    Guid ProgramId,
+    string AssetType,
+    string AssetValue,
+    string Target,
+    string ScopeStatus,
+    string Reason);
 
 internal static class ScopeValidationTarget
 {
