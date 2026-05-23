@@ -46,6 +46,8 @@ public static partial class Extensions
             logging.IncludeScopes = true;
         });
 
+        builder.Services.AddSingleton<ArgusMetrics>();
+
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics =>
             {

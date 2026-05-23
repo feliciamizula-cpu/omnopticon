@@ -3,12 +3,14 @@ using Argus.Contracts.Programs;
 using Argus.Contracts.RateLimits;
 using Argus.Contracts.Tasks;
 using Argus.Contracts.Workers;
+using Argus.ServiceDefaults;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Diagnostics;
 
 namespace Argus.BuildingBlocks.Workers;
 
@@ -16,7 +18,8 @@ public sealed class ArgusWorkerBackgroundService(
     IReconWorker worker,
     IHttpClientFactory httpClientFactory,
     IOptions<ArgusWorkerOptions> options,
-    ILogger<ArgusWorkerBackgroundService> logger) : BackgroundService
+    ILogger<ArgusWorkerBackgroundService> logger,
+    ArgusMetrics metrics) : BackgroundService
 {
 private readonly ArgusWorkerOptions _options = options.Value;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -75,6 +78,7 @@ private readonly ArgusWorkerOptions _options = options.Value;
 
     private async Task RunTaskAsync(ReconTaskDto task, CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         logger.LogInformation("Worker {WorkerId} leased task {TaskId} ({TaskType})", _options.WorkerId, task.TaskId, task.TaskType);
 
         await StartTaskAsync(task.TaskId, cancellationToken);
@@ -85,11 +89,13 @@ private readonly ArgusWorkerOptions _options = options.Value;
         var context = new WorkerExecutionContext(
             _options.WorkerId,
             (percent, message, checkpoint) => ReportProgressAsync(task.TaskId, percent, message, checkpoint, heartbeatCts.Token),
-            request => RequestRateLimitTokenAsync(request, heartbeatCts.Token));
+            request => RequestRateLimitTokenAsync(request, heartbeatCts.Token),
+            signal => SignalBackpressureAsync(signal, heartbeatCts.Token));
 
         try
         {
             var result = await worker.ProcessAsync(task, context, heartbeatCts.Token);
+            stopwatch.Stop();
 
             if (result.RetryAfter.HasValue && result.RetryAfter.Value > TimeSpan.Zero)
             {
@@ -105,14 +111,21 @@ private readonly ArgusWorkerOptions _options = options.Value;
                     if (createdAsset is not null)
                     {
                         await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
+                        metrics.RecordAssetProduced(worker.Capability.WorkerType, asset.AssetType);
                     }
                 }
             }
+
+            metrics.RecordTaskProcessed(worker.Capability.WorkerType, result.PartiallySucceeded);
+            metrics.RecordTaskDuration(worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
 
             await CompleteTaskAsync(task.TaskId, result, heartbeatCts.Token);
         }
         catch (Exception ex)
         {
+            stopwatch.Stop();
+            metrics.RecordTaskFailed(worker.Capability.WorkerType, ex.GetType().Name);
+            metrics.RecordTaskDuration(worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
             logger.LogError(ex, "Task {TaskId} failed in worker {WorkerId}", task.TaskId, _options.WorkerId);
             await FailTaskAsync(task.TaskId, ex, heartbeatCts.Token);
         }
@@ -218,7 +231,30 @@ private readonly ArgusWorkerOptions _options = options.Value;
         response.EnsureSuccessStatusCode();
 
         var decision = await response.Content.ReadFromJsonAsync<RateLimitDecision>(JsonOptions, cancellationToken);
+
+        if (decision?.IsAllowed != true)
+        {
+            metrics.RecordRateLimitHit(worker.Capability.WorkerType, request.Host ?? "unknown");
+        }
+
         return decision?.IsAllowed == true;
+    }
+
+    private async Task SignalBackpressureAsync(RateLimitBackpressureSignal signal, CancellationToken cancellationToken)
+    {
+        var client = CreateClient(_options.RateLimitServiceBaseAddress);
+        var payload = new RateLimitBackpressureRequest(signal.Host, signal.BucketKey, signal.RetryAfter, signal.ObservedStatusCode);
+
+        using var response = await client.PostAsJsonAsync("/rate-limits/backpressure", payload, JsonOptions, cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            logger.LogInformation("Signaled backpressure for host {Host}: {StatusCode}, retry after {RetryAfter}s",
+                signal.Host, signal.ObservedStatusCode, signal.RetryAfter.TotalSeconds);
+        }
+        else
+        {
+            logger.LogWarning("Failed to signal backpressure for host {Host}: {StatusCode}", signal.Host, response.StatusCode);
+        }
     }
 
     private async Task<AssetDto?> PublishAssetAsync(
