@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Argus.ServiceDefaults;
@@ -8,16 +11,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+app.UseDefaultFiles();
 app.UseStaticFiles();
-app.UseAntiforgery();
-
-app.MapRazorComponents<Argus.Web.App>()
-    .AddInteractiveServerRenderMode();
 
 app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
 {
@@ -205,6 +204,122 @@ app.MapGet("/ui/events/stream", async (
     }
 });
 
+
+app.MapPost("/ui/ops/send", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    CancellationToken cancellationToken) =>
+{
+    var method = payload["method"]?.GetValue<string>()?.Trim().ToUpperInvariant() ?? "GET";
+    var url = payload["url"]?.GetValue<string>()?.Trim();
+
+    if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+    {
+        return Results.BadRequest(new { message = "A valid absolute URL is required." });
+    }
+
+    if (uri.Scheme is not ("http" or "https"))
+    {
+        return Results.BadRequest(new { message = "Only http and https URLs are supported." });
+    }
+
+    var allowedMethods = new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" };
+    if (!allowedMethods.Contains(method, StringComparer.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = $"HTTP method '{method}' is not allowed." });
+    }
+
+    var allowedHosts = (configuration["ARGUS_UI_OPS_ALLOWED_HOSTS"] ?? string.Empty)
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    if (allowedHosts.Length > 0 && !allowedHosts.Any(pattern => HostMatches(uri.Host, pattern)))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    var allowPrivate = bool.TryParse(configuration["ARGUS_UI_OPS_ALLOW_PRIVATE"], out var parsedAllowPrivate) && parsedAllowPrivate;
+    if (!allowPrivate && await ResolvesToPrivateAddressAsync(uri, cancellationToken))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    var client = httpClientFactory.CreateClient();
+    client.Timeout = TimeSpan.FromSeconds(int.TryParse(configuration["ARGUS_UI_OPS_TIMEOUT_SECONDS"], out var timeoutSeconds)
+        ? Math.Clamp(timeoutSeconds, 1, 60)
+        : 20);
+
+    using var request = new HttpRequestMessage(new HttpMethod(method), uri);
+
+    var body = payload["body"]?.GetValue<string>() ?? string.Empty;
+    if (method is not ("GET" or "HEAD") || !string.IsNullOrEmpty(body))
+    {
+        request.Content = new StringContent(body, Encoding.UTF8);
+    }
+
+    if (payload["headers"] is JsonArray headers)
+    {
+        foreach (var headerNode in headers)
+        {
+            if (headerNode is not JsonArray pair || pair.Count < 2)
+            {
+                continue;
+            }
+
+            var name = pair[0]?.GetValue<string>()?.Trim();
+            var value = pair[1]?.GetValue<string>() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(name) || IsBlockedHeader(name))
+            {
+                continue;
+            }
+
+            if (request.Content is not null && IsContentHeader(name))
+            {
+                request.Content.Headers.Remove(name);
+                request.Content.Headers.TryAddWithoutValidation(name, value);
+            }
+            else
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
+            }
+        }
+    }
+
+    try
+    {
+        var stopwatch = Stopwatch.StartNew();
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        stopwatch.Stop();
+
+        const int maxBodyBytes = 256 * 1024;
+        var truncated = bytes.Length > maxBodyBytes;
+        var returnedBytes = truncated ? bytes[..maxBodyBytes] : bytes;
+        var responseBody = Encoding.UTF8.GetString(returnedBytes);
+
+        var responseHeaders = response.Headers
+            .Concat(response.Content.Headers)
+            .Select(h => new[] { h.Key, string.Join(", ", h.Value) })
+            .ToArray();
+
+        return Results.Json(new
+        {
+            status = (int)response.StatusCode,
+            statusText = response.ReasonPhrase ?? response.StatusCode.ToString(),
+            headers = responseHeaders,
+            body = responseBody,
+            time = stopwatch.ElapsedMilliseconds,
+            size = bytes.Length,
+            truncated
+        });
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        return Results.Problem($"Unable to send request: {ex.Message}", statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 // Agent management endpoints (BFF proxy)
 app.MapGet("/ui/agents", ProxyGetAgent);
 app.MapPost("/ui/agents", ProxyPostAgent);
@@ -223,6 +338,8 @@ app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
 
 app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
 app.MapPost("/ui/agent-chat", ProxyPostChat);
+
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
@@ -350,6 +467,132 @@ async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpCli
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
 }
+
+
+static bool HostMatches(string host, string pattern)
+{
+    host = host.Trim().TrimEnd('.').ToLowerInvariant();
+    pattern = pattern.Trim().TrimEnd('.').ToLowerInvariant();
+
+    if (string.IsNullOrWhiteSpace(pattern) || pattern == "*")
+    {
+        return true;
+    }
+
+    if (pattern.StartsWith("*."))
+    {
+        var suffix = pattern[1..];
+        return host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            || host.Equals(pattern[2..], StringComparison.OrdinalIgnoreCase);
+    }
+
+    return host.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsBlockedHeader(string headerName)
+{
+    var blocked = new[]
+    {
+        "Host",
+        "Connection",
+        "Content-Length",
+        "Transfer-Encoding",
+        "Keep-Alive",
+        "Expect",
+        "Upgrade",
+        "Proxy-Authorization",
+        "Proxy-Authenticate"
+    };
+
+    return blocked.Contains(headerName, StringComparer.OrdinalIgnoreCase);
+}
+
+static bool IsContentHeader(string headerName)
+{
+    var contentHeaders = new[]
+    {
+        "Content-Type",
+        "Content-Language",
+        "Content-Location",
+        "Content-MD5",
+        "Content-Range",
+        "Expires",
+        "Last-Modified"
+    };
+
+    return contentHeaders.Contains(headerName, StringComparer.OrdinalIgnoreCase);
+}
+
+static async Task<bool> ResolvesToPrivateAddressAsync(Uri uri, CancellationToken cancellationToken)
+{
+    if (uri.HostNameType == UriHostNameType.Dns && IsLocalHostName(uri.Host))
+    {
+        return true;
+    }
+
+    IPAddress[] addresses;
+    if (IPAddress.TryParse(uri.Host, out var parsedAddress))
+    {
+        addresses = new[] { parsedAddress };
+    }
+    else
+    {
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(uri.DnsSafeHost, cancellationToken);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    return addresses.Any(IsPrivateOrLoopback);
+}
+
+static bool IsLocalHostName(string host)
+{
+    return host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase)
+        || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsPrivateOrLoopback(IPAddress address)
+{
+    if (IPAddress.IsLoopback(address))
+    {
+        return true;
+    }
+
+    if (address.IsIPv4MappedToIPv6)
+    {
+        address = address.MapToIPv4();
+    }
+
+    if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+    {
+        var bytes = address.GetAddressBytes();
+        return bytes[0] == 10
+            || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+            || (bytes[0] == 192 && bytes[1] == 168)
+            || (bytes[0] == 169 && bytes[1] == 254)
+            || bytes[0] == 0
+            || bytes[0] >= 224;
+    }
+
+    if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+    {
+        return address.IsIPv6LinkLocal
+            || address.IsIPv6SiteLocal
+            || address.IsIPv6Multicast
+            || address.Equals(IPAddress.IPv6Loopback)
+            || address.Equals(IPAddress.IPv6None)
+            || address.Equals(IPAddress.IPv6Any);
+    }
+
+    return false;
+}
+
 
 internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 {
