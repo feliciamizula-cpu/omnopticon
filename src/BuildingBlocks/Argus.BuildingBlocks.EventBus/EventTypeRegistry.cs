@@ -31,6 +31,7 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
         Register<RateLimitDelayed>();
         Register<WorkerHeartbeat>();
         Register<ProgramScopeChanged>();
+        Register<AssetPropertyChanged>();
     }
 
     private void Register<T>() where T : notnull

@@ -76,7 +76,6 @@ start_supervisor
 while true; do
     sleep 10
 
-    local pid
     pid="$(get_pid)"
 
     if ! is_running "$pid"; then

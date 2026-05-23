@@ -1,13 +1,13 @@
 {
   "agentId": "devops-2",
-  "currentTaskId": "045",
-  "currentTaskDescription": "DevOps: Keep AI agents and coordination systems healthy",
-  "context": "Standing DevOps agent for AI agent runner, coordination state, task-board, and dashboard health.",
-  "status": "working",
-  "pid": 52799,
-  "startedAt": "2026-05-23T00:45:00.181Z",
-  "lastRunAt": "2026-05-23T00:45:00.181Z",
-  "lastHeartbeatAt": "2026-05-23T00:45:00.181Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": "build=ok,1warning(missing ref proj);compose=valid;agents=7active,3busy,26pending;reconcile=clean;no issues",
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T00:46:19.029Z",
+  "lastHeartbeatAt": "2026-05-23T00:46:19.029Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T00:45:00.181Z"
+  "updatedAt": "2026-05-23T00:47:52.983Z"
 }

@@ -1,12 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "013",
-  "currentTaskDescription": "Bug #13: SubscribedAssetTypes declared but unused - capability routing is a stub",
+  "currentTaskId": "030",
+  "currentTaskDescription": "Enhancement #4: Re-scan scheduling based on LastScannedAt",
   "status": "working",
-  "lastRunAt": "2026-05-23T00:44:53.832Z",
-  "updatedAt": "2026-05-23T00:45:29.697Z",
-  "pid": 51552,
+  "lastRunAt": "2026-05-23T00:47:42.082Z",
+  "updatedAt": "2026-05-23T00:47:52.983Z",
+  "pid": 72313,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T00:44:53.832Z",
-  "startedAt": "2026-05-22T23:05:12.416Z"
+  "lastHeartbeatAt": "2026-05-23T00:47:42.082Z",
+  "startedAt": "2026-05-23T00:47:42.082Z",
+  "context": null
 }

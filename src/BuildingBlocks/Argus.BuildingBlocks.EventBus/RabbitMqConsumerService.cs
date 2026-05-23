@@ -62,7 +62,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
             var eventTypes = new[] {
-                "AssetDiscovered", "AssetUpdated", "AssetRelationshipDiscovered",
+                "AssetDiscovered", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
                 "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
                 "ProgramCreated", "ScopeCreated", "RateLimitTokenGranted", "RateLimitDelayed",
                 "WorkerHeartbeat", "ProgramScopeChanged"
@@ -220,6 +220,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         ["ScopeCreated"] = (typeof(IIntegrationEventConsumer<ScopeCreated>), typeof(ScopeCreated)),
         ["AssetDiscovered"] = (typeof(IIntegrationEventConsumer<AssetDiscovered>), typeof(AssetDiscovered)),
         ["AssetUpdated"] = (typeof(IIntegrationEventConsumer<AssetUpdated>), typeof(AssetUpdated)),
+        ["AssetPropertyChanged"] = (typeof(IIntegrationEventConsumer<AssetPropertyChanged>), typeof(AssetPropertyChanged)),
         ["AssetRelationshipDiscovered"] = (typeof(IIntegrationEventConsumer<AssetRelationshipDiscovered>), typeof(AssetRelationshipDiscovered)),
         ["TaskRequested"] = (typeof(IIntegrationEventConsumer<TaskRequested>), typeof(TaskRequested)),
         ["TaskLeased"] = (typeof(IIntegrationEventConsumer<TaskLeased>), typeof(TaskLeased)),
@@ -240,7 +241,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         var iface = typeof(IIntegrationEventConsumer<>);
         var eventTypes = new[] {
             typeof(ProgramCreated), typeof(ScopeCreated), typeof(AssetDiscovered), typeof(AssetUpdated),
-            typeof(AssetRelationshipDiscovered), typeof(TaskRequested), typeof(TaskLeased), typeof(TaskStarted),
+            typeof(AssetPropertyChanged), typeof(AssetRelationshipDiscovered), typeof(TaskRequested), typeof(TaskLeased), typeof(TaskStarted),
             typeof(TaskProgressed), typeof(TaskCompleted), typeof(TaskFailed), typeof(WorkerHeartbeat),
             typeof(RateLimitTokenGranted), typeof(RateLimitDelayed)
         };

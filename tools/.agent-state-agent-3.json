@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "027",
-  "currentTaskDescription": "Enhancement #1: Dead letter exchange + poison message inspection/replay",
-  "context": null,
-  "status": "working",
-  "pid": 52288,
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": "Dead letter exchange + poison message inspection/replay already implemented",
+  "status": "idle",
+  "pid": null,
   "startedAt": "2026-05-22T23:09:19.231Z",
-  "lastRunAt": "2026-05-23T00:44:57.111Z",
-  "lastHeartbeatAt": "2026-05-23T00:44:57.111Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T00:45:29.697Z"
+  "lastRunAt": "2026-05-23T00:46:43.152Z",
+  "lastHeartbeatAt": "2026-05-23T00:47:10.684Z",
+  "lastError": "Task 027 requeued during reconciliation",
+  "updatedAt": "2026-05-23T00:47:52.983Z"
 }
