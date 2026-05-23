@@ -7,8 +7,8 @@
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T04:39:27.275Z",
-  "lastHeartbeatAt": "2026-05-23T04:39:38.632Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T04:39:38.632Z",
+  "lastHeartbeatAt": "2026-05-23T04:40:23.742Z",
+  "lastError": "Task 044 requeued during reconciliation",
+  "updatedAt": "2026-05-23T04:40:23.742Z",
   "workStatus": "idle"
 }

@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "056",
-  "currentTaskDescription": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
-  "context": null,
+  "currentTaskId": "046",
+  "currentTaskDescription": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
+  "context": "Starting task 046 - Reimplement AI agent framework as .NET Core console project Argus.AgentCoordinator",
   "status": "working",
   "pid": 2515777,
   "startedAt": "2026-05-23T04:40:00.700Z",
   "lastRunAt": "2026-05-23T04:40:01.568Z",
-  "lastHeartbeatAt": "2026-05-23T04:40:03.392Z",
+  "lastHeartbeatAt": "2026-05-23T04:40:46.701Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:40:03.392Z"
+  "updatedAt": "2026-05-23T04:40:46.342Z"
 }
