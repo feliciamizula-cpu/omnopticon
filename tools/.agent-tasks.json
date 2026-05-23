@@ -5,7 +5,7 @@
       "currentTask": "034",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T02:23:54.913Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
       "workStatus": "working",
       "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
       "lastRunAt": "2026-05-23T02:23:54.913Z",
@@ -21,14 +21,14 @@
     },
     {
       "status": "active",
-      "currentTask": "038",
+      "currentTask": "042",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T02:24:11.373Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
       "workStatus": "working",
-      "currentTaskDescription": "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
-      "lastRunAt": "2026-05-23T02:24:11.373Z",
-      "lastHeartbeatAt": "2026-05-23T02:24:11.373Z",
+      "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
+      "lastRunAt": "2026-05-23T02:27:14.040Z",
+      "lastHeartbeatAt": "2026-05-23T02:27:14.040Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -40,14 +40,14 @@
     },
     {
       "status": "active",
-      "currentTask": "023",
+      "currentTask": "040",
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-23T02:23:48.724Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
       "workStatus": "working",
-      "currentTaskDescription": "Design #23: Asset relationship uniqueness not enforced",
-      "lastRunAt": "2026-05-23T02:22:25.721Z",
-      "lastHeartbeatAt": "2026-05-23T02:22:25.721Z",
+      "currentTaskDescription": "Enhancement #12: Artifact storage - IArtifactStore with LocalFileArtifactStore and S3ArtifactStore",
+      "lastRunAt": "2026-05-23T02:24:43.005Z",
+      "lastHeartbeatAt": "2026-05-23T02:24:43.005Z",
       "lastError": null,
       "context": null,
       "pid": null,
@@ -59,14 +59,14 @@
     },
     {
       "status": "active",
-      "currentTask": null,
+      "currentTask": "047",
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-23T02:24:02.248Z",
-      "workStatus": "idle",
-      "currentTaskDescription": null,
-      "lastRunAt": "2026-05-23T02:24:02.248Z",
-      "lastHeartbeatAt": "2026-05-23T02:24:02.248Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
+      "workStatus": "working",
+      "currentTaskDescription": "Enhancement #11: Custom operational metrics - Add Argus.BuildingBlocks.Observability project with shared ArgusMetrics class. Static Meter named Argus.Recon. Define Counter<long>: AssetsDiscovered, AssetsConfirmed, RateLimitDelays, TasksCompleted. Define Histogram<double>: TaskDuration (ms), ScopeValidationDuration (ms). Define UpDownCounter<int>: TasksRunning. Tag all instruments with: program_id, worker_type, asset_type, registered_domain. Wire into Aspire dashboard and OTLP-compatible backends. File: src/BuildingBlocks/Argus.BuildingBlocks.Observability/ArgusMetrics.cs",
+      "lastRunAt": "2026-05-23T02:38:29.773Z",
+      "lastHeartbeatAt": "2026-05-23T02:38:29.773Z",
       "lastError": null,
       "context": null,
       "pid": null,
@@ -78,14 +78,14 @@
     },
     {
       "status": "active",
-      "currentTask": null,
+      "currentTask": "048",
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-23T02:23:48.724Z",
-      "workStatus": "idle",
-      "currentTaskDescription": null,
-      "lastRunAt": "2026-05-22T23:07:05.527Z",
-      "lastHeartbeatAt": "2026-05-22T23:07:05.527Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
+      "workStatus": "working",
+      "currentTaskDescription": "Enhancement #12: Worker graceful draining on SIGTERM - In ArgusWorkerBackgroundService, override StopAsync to honour configurable drain timeout. Read ARGUS_WORKER_DRAIN_TIMEOUT env var (default 60s). On StopAsync: signal no new tasks, wait for in-flight tasks up to drain timeout. Support checkpoint writing before yielding to cancellation for resume support. Update deploy/compose.yaml workers with stop_grace_period: 90s. File: src/BuildingBlocks/Argus.BuildingBlocks.Workers/ArgusWorkerBackgroundService.cs",
+      "lastRunAt": "2026-05-23T02:38:32.866Z",
+      "lastHeartbeatAt": "2026-05-23T02:38:32.866Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -104,7 +104,7 @@
       ],
       "currentTask": null,
       "workStatus": "idle",
-      "lastUpdated": "2026-05-23T02:23:48.724Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
       "pid": 18002,
       "lastHeartbeatAt": "2026-05-23T00:40:26.345Z",
       "currentTaskDescription": null,
@@ -125,7 +125,7 @@
       ],
       "currentTask": null,
       "workStatus": "idle",
-      "lastUpdated": "2026-05-23T02:23:48.724Z",
+      "lastUpdated": "2026-05-23T02:40:41.163Z",
       "pid": null,
       "lastHeartbeatAt": "2026-05-23T00:46:19.078Z",
       "currentTaskDescription": null,
@@ -381,9 +381,10 @@
       "createdAt": "2026-05-22T15:31:49.8198721-04:00",
       "priority": "low",
       "assignedTo": "agent-3",
-      "status": "in_progress",
+      "status": "completed",
       "claimedAt": "2026-05-23T02:22:25.721Z",
-      "attempts": 1
+      "attempts": 1,
+      "completedAt": "2026-05-23T02:24:27.312Z"
     },
     {
       "id": "024",
@@ -563,9 +564,10 @@
       "createdAt": "2026-05-22T16:22:34.5898677-04:00",
       "priority": "low",
       "assignedTo": "agent-2",
-      "status": "in_progress",
+      "status": "completed",
       "claimedAt": "2026-05-23T02:24:11.373Z",
-      "attempts": 1
+      "attempts": 1,
+      "completedAt": "2026-05-23T02:24:51.266Z"
     },
     {
       "id": "039",
@@ -586,24 +588,31 @@
       "description": "Enhancement #12: Artifact storage - IArtifactStore with LocalFileArtifactStore and S3ArtifactStore",
       "createdAt": "2026-05-22T16:23:11.0073110-04:00",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-3",
+      "status": "in_progress",
+      "claimedAt": "2026-05-23T02:24:43.005Z",
+      "attempts": 1
     },
     {
       "id": "041",
       "description": "Enhancement #13: Worker test infrastructure - WorkerTestHarness with fixture-based tests",
       "createdAt": "2026-05-22T16:23:24.7079028-04:00",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-2",
+      "status": "completed",
+      "claimedAt": "2026-05-23T02:25:01.406Z",
+      "attempts": 1,
+      "completedAt": "2026-05-23T02:27:03.646Z"
     },
     {
       "id": "042",
       "description": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
       "createdAt": "2026-05-22T16:23:45.2832975-04:00",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-2",
+      "status": "in_progress",
+      "claimedAt": "2026-05-23T02:27:14.040Z",
+      "attempts": 1
     },
     {
       "id": "043",
@@ -625,9 +634,11 @@
         "deployed-components",
         "release-readiness"
       ],
-      "requeuedAt": "2026-05-23T00:44:52.356Z",
-      "requeueReason": "released from devops-1 after crashed",
-      "recoveryContext": "Standing DevOps agent for application, deployed component, and release readiness health."
+      "requeuedAt": "2026-05-23T02:30:07.499Z",
+      "requeueReason": "released from agent-4 after crashed",
+      "recoveryContext": null,
+      "claimedAt": "2026-05-23T02:30:04.930Z",
+      "attempts": 2
     },
     {
       "id": "045",
@@ -641,10 +652,121 @@
         "coordination-state",
         "dashboard"
       ],
-      "requeuedAt": "2026-05-23T00:46:36.185Z",
-      "requeueReason": "assigned agent is not currently working this task"
+      "requeuedAt": "2026-05-23T02:30:07.499Z",
+      "requeueReason": "released from agent-5 after crashed",
+      "claimedAt": "2026-05-23T02:30:05.183Z",
+      "attempts": 2,
+      "recoveryContext": null
+    },
+    {
+      "id": "T05230228",
+      "description": "This script that shows menu options has malformed text (bad encoding?) that appears in the menu options",
+      "priority": "high",
+      "assignedTo": "agent-4",
+      "status": "pending",
+      "createdAt": "2026-05-23T02:28:40.676014164Z"
+    },
+    {
+      "id": "D05230229",
+      "description": "DevOps: fix crashed workers",
+      "priority": "high",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:29:52.085535200Z"
+    },
+    {
+      "id": "046",
+      "description": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
+      "priority": "critical",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "047",
+      "description": "Enhancement #11: Custom operational metrics - Add Argus.BuildingBlocks.Observability project with shared ArgusMetrics class. Static Meter named Argus.Recon. Define Counter<long>: AssetsDiscovered, AssetsConfirmed, RateLimitDelays, TasksCompleted. Define Histogram<double>: TaskDuration (ms), ScopeValidationDuration (ms). Define UpDownCounter<int>: TasksRunning. Tag all instruments with: program_id, worker_type, asset_type, registered_domain. Wire into Aspire dashboard and OTLP-compatible backends. File: src/BuildingBlocks/Argus.BuildingBlocks.Observability/ArgusMetrics.cs",
+      "priority": "high",
+      "assignedTo": "agent-4",
+      "status": "in_progress",
+      "createdAt": "2026-05-23T02:38:11.290740841Z",
+      "claimedAt": "2026-05-23T02:38:29.773Z",
+      "attempts": 1
+    },
+    {
+      "id": "048",
+      "description": "Enhancement #12: Worker graceful draining on SIGTERM - In ArgusWorkerBackgroundService, override StopAsync to honour configurable drain timeout. Read ARGUS_WORKER_DRAIN_TIMEOUT env var (default 60s). On StopAsync: signal no new tasks, wait for in-flight tasks up to drain timeout. Support checkpoint writing before yielding to cancellation for resume support. Update deploy/compose.yaml workers with stop_grace_period: 90s. File: src/BuildingBlocks/Argus.BuildingBlocks.Workers/ArgusWorkerBackgroundService.cs",
+      "priority": "high",
+      "assignedTo": "agent-5",
+      "status": "in_progress",
+      "createdAt": "2026-05-23T02:38:11.290740841Z",
+      "claimedAt": "2026-05-23T02:38:32.866Z",
+      "attempts": 1
+    },
+    {
+      "id": "049",
+      "description": "Enhancement #13: FindingCandidate promotion workflow - When worker produces FindingCandidate (AssetType with interesting score 70), AssetService emits FindingCandidateCreated event. Build ValidationWorker or manual review: promote to Finding asset type with severity/CVSS fields, or dismiss with reason and Archived status. Add Finding to AssetType enum. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/, src/Workers/Argus.Workers.Validation/",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "050",
+      "description": "Enhancement #15: Scheduled/recurring scan plans - Add CronExpression field to ScanPlanDto. Create RecurrencePolicy entity. Build ScanSchedulerBackgroundService checking for due recurrences every 60s, auto-creates scan plans from template. Track LastRunAt and NextRunAt on scan plan. Use NCrontab or Cronos NuGet (lightweight, avoid Hangfire/Quartz). File: src/Services/Argus.ScanOrchestratorService/",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "051",
+      "description": "Enhancement #16: Asset graph traversal API - Add GET /assets/{assetId}/subgraph?maxDepth=3&assetTypes=Subdomain,Url to AssetService. PostgreSQL recursive CTE via Dapper: WITH RECURSIVE reachable AS (SELECT to_asset_id FROM asset_relationships WHERE from_asset_id = rootId UNION ALL SELECT r.to_asset_id FROM asset_relationships r JOIN reachable ON r.from_asset_id = reachable.to_asset_id) SELECT * FROM assets WHERE asset_id IN (SELECT to_asset_id FROM reachable). MaxDepth and assetTypes params. File: src/Services/Argus.AssetService/",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "052",
+      "description": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "053",
+      "description": "Enhancement #19: Webhook notifications - Add WebhookService with configurable webhook targets: url, event-type filters (FindingCandidateCreated, AssetConfirmed, etc.), filters (programId, minInterestingScore). Fire via SSE subscription mechanism. Retry with exponential backoff. Store webhook configs in PostgreSQL. UI for CRUD webhook configs. File: src/Services/Argus.RealtimeService/",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "054",
+      "description": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "055",
+      "description": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+      "priority": "medium",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
+    },
+    {
+      "id": "056",
+      "description": "Enhancement #22: Asset staleness scoring - Add StalenessScore (int 0-100) to AssetDto computed from (now - LastSeenAt) relative to expected scan frequency for that asset type. UI visual indicator (colour band or age column). Add minStalenessScore/maxStalenessScore to AssetQuery. ScanSchedulerService uses StalenessScore as primary scheduling signal. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+      "priority": "low",
+      "assignedTo": null,
+      "status": "pending",
+      "createdAt": "2026-05-23T02:38:11.290740841Z"
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-23T02:22:16.141Z"
+  "lastPullAt": "2026-05-23T02:39:07.536Z"
 }

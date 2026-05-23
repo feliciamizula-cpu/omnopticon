@@ -36,32 +36,42 @@ public sealed class ArgusMetrics
             description: "Task processing duration in milliseconds");
     }
 
-    public void RecordTaskProcessed(string workerType, bool partiallySucceeded)
+    public void RecordTaskProcessed(Guid programId, string workerType, bool partiallySucceeded)
     {
-        _tasksProcessed.Add(1, new KeyValuePair<string, object?>("worker_type", workerType),
+        _tasksProcessed.Add(1,
+            new KeyValuePair<string, object?>("program_id", programId.ToString()),
+            new KeyValuePair<string, object?>("worker_type", workerType),
             new KeyValuePair<string, object?>("result", partiallySucceeded ? "partial" : "success"));
     }
 
-    public void RecordTaskFailed(string workerType, string errorType)
+    public void RecordTaskFailed(Guid programId, string workerType, string errorType)
     {
-        _tasksFailed.Add(1, new KeyValuePair<string, object?>("worker_type", workerType),
+        _tasksFailed.Add(1,
+            new KeyValuePair<string, object?>("program_id", programId.ToString()),
+            new KeyValuePair<string, object?>("worker_type", workerType),
             new KeyValuePair<string, object?>("error_type", errorType));
     }
 
-    public void RecordAssetProduced(string workerType, string assetType)
+    public void RecordAssetProduced(Guid programId, string workerType, string assetType)
     {
-        _assetsProduced.Add(1, new KeyValuePair<string, object?>("worker_type", workerType),
+        _assetsProduced.Add(1,
+            new KeyValuePair<string, object?>("program_id", programId.ToString()),
+            new KeyValuePair<string, object?>("worker_type", workerType),
             new KeyValuePair<string, object?>("asset_type", assetType));
     }
 
-    public void RecordRateLimitHit(string workerType, string host)
+    public void RecordRateLimitHit(Guid programId, string workerType, string host)
     {
-        _rateLimitHits.Add(1, new KeyValuePair<string, object?>("worker_type", workerType),
+        _rateLimitHits.Add(1,
+            new KeyValuePair<string, object?>("program_id", programId.ToString()),
+            new KeyValuePair<string, object?>("worker_type", workerType),
             new KeyValuePair<string, object?>("host", host));
     }
 
-    public void RecordTaskDuration(string workerType, double durationMs)
+    public void RecordTaskDuration(Guid programId, string workerType, double durationMs)
     {
-        _taskDuration.Record(durationMs, new KeyValuePair<string, object?>("worker_type", workerType));
+        _taskDuration.Record(durationMs,
+            new KeyValuePair<string, object?>("program_id", programId.ToString()),
+            new KeyValuePair<string, object?>("worker_type", workerType));
     }
 }

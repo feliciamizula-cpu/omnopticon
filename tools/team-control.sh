@@ -28,10 +28,11 @@ print_status() {
     
     echo -e "${CYAN}═══ AGENT STATUS ═══${NC}"
     echo "--------------------------------------------------------------------------------"
-    echo -e "AGENT         STATUS       TASK       WORK STATUS"
+    printf "%-15s %-12s %-10s %s\n" "AGENT" "STATUS" "TASK" "WORK STATUS"
     echo "--------------------------------------------------------------------------------"
     
-    for agent in agent-1 agent-2 agent-3 agent-4 agent-5 devops-1 devops-2; do
+    echo -e "${GREEN}[Dev Agents]${NC}"
+    for agent in agent-1 agent-2 agent-3 agent-4 agent-5; do
         local state_json=$(agent_read_state "$agent")
         local status=$(echo "$state_json" | jq -r '.status // "unknown"')
         local current_task=$(echo "$state_json" | jq -r '.currentTaskId // "-"')
@@ -45,7 +46,45 @@ print_status() {
             fi
         fi
         
-        printf "%-13s %-12s %-10s %s\n" "$agent" "$status" "$current_task" "$work_status"
+        printf "%-15s %-12s %-10s %s\n" "$agent" "$status" "$current_task" "$work_status"
+    done
+    
+    echo ""
+    echo -e "${YELLOW}[Review Agents]${NC}"
+    for agent in reviewer-1 reviewer-2; do
+        local state_json=$(agent_read_state "$agent")
+        local status=$(echo "$state_json" | jq -r '.status // "unknown"')
+        local current_task=$(echo "$state_json" | jq -r '.currentTaskId // "-"')
+        local work_status=$(echo "$state_json" | jq -r '.workStatus // "-"')
+        local pid=$(echo "$state_json" | jq -r '.pid // empty')
+        
+        if [ "$status" = "active" ] || [ "$status" = "working" ]; then
+            if [ -n "$pid" ] && [ "$pid" != "null" ] && ! kill -0 "$pid" 2>/dev/null; then
+                status="crashed"
+                work_status="crashed"
+            fi
+        fi
+        
+        printf "%-15s %-12s %-10s %s\n" "$agent" "$status" "$current_task" "$work_status"
+    done
+    
+    echo ""
+    echo -e "${BLUE}[DevOps Agents]${NC}"
+    for agent in devops-1 devops-2; do
+        local state_json=$(agent_read_state "$agent")
+        local status=$(echo "$state_json" | jq -r '.status // "unknown"')
+        local current_task=$(echo "$state_json" | jq -r '.currentTaskId // "-"')
+        local work_status=$(echo "$state_json" | jq -r '.workStatus // "-"')
+        local pid=$(echo "$state_json" | jq -r '.pid // empty')
+        
+        if [ "$status" = "active" ] || [ "$status" = "working" ]; then
+            if [ -n "$pid" ] && [ "$pid" != "null" ] && ! kill -0 "$pid" 2>/dev/null; then
+                status="crashed"
+                work_status="crashed"
+            fi
+        fi
+        
+        printf "%-15s %-12s %-10s %s\n" "$agent" "$status" "$current_task" "$work_status"
     done
     
     echo "--------------------------------------------------------------------------------"

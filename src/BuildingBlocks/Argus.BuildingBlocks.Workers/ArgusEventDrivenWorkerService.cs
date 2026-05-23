@@ -177,21 +177,21 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
                     if (createdAsset is not null)
                     {
                         await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
-                        _metrics.RecordAssetProduced(_worker.Capability.WorkerType, asset.AssetType);
+                        _metrics.RecordAssetProduced(task.ProgramId, _worker.Capability.WorkerType, asset.AssetType);
                     }
                 }
             }
 
-            _metrics.RecordTaskProcessed(_worker.Capability.WorkerType, result.PartiallySucceeded);
-            _metrics.RecordTaskDuration(_worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.RecordTaskProcessed(task.ProgramId, _worker.Capability.WorkerType, result.PartiallySucceeded);
+            _metrics.RecordTaskDuration(task.ProgramId, _worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
 
             await CompleteTaskAsync(task.TaskId, result, heartbeatCts.Token);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            _metrics.RecordTaskFailed(_worker.Capability.WorkerType, ex.GetType().Name);
-            _metrics.RecordTaskDuration(_worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.RecordTaskFailed(task.ProgramId, _worker.Capability.WorkerType, ex.GetType().Name);
+            _metrics.RecordTaskDuration(task.ProgramId, _worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
             _logger.LogError(ex, "Task {TaskId} failed in event-driven worker {WorkerId}", task.TaskId, _options.WorkerId);
             await FailTaskAsync(task.TaskId, ex, heartbeatCts.Token);
         }

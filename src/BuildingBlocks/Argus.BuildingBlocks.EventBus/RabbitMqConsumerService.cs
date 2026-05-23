@@ -25,6 +25,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     private IChannel? _channel;
 
     private const string DeadLetterExchange = "argus.events.dlx";
+    private const string RetryExchange = "argus.events.retry";
 
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
@@ -60,6 +61,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             await _channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, cancellationToken: stoppingToken);
 
             await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
+            await _channel.ExchangeDeclareAsync(RetryExchange, ExchangeType.Direct, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
             var eventTypes = new[] {
                 "AssetDiscovered", "AssetConfirmed", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
@@ -85,6 +87,16 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 };
                 await _channel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, arguments: args, cancellationToken: stoppingToken);
                 await _channel.QueueBindAsync(queueName, _options.Value.ExchangeName, eventType, cancellationToken: stoppingToken);
+
+                var retryQueueName = $"retry.{_consumerName}_{eventType}";
+                var retryArgs = new Dictionary<string, object?>
+                {
+                    ["x-dead-letter-exchange"] = _options.Value.ExchangeName,
+                    ["x-dead-letter-routing-key"] = eventType,
+                    ["x-message-ttl"] = GetRetryDelayMs(1)
+                };
+                await _channel.QueueDeclareAsync(retryQueueName, durable: true, exclusive: false, autoDelete: false, arguments: retryArgs, cancellationToken: stoppingToken);
+                await _channel.QueueBindAsync(retryQueueName, RetryExchange, eventType, cancellationToken: stoppingToken);
             }
 
             var consumer = new AsyncEventingBasicConsumer(_channel);
@@ -117,7 +129,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                             var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json);
                             if (envelope is not null)
                             {
-                                _poisonStore.RecordPoison(envelope, ex);
+                                await _poisonStore.RecordPoisonAsync(envelope, ex, stoppingToken);
                             }
                         }
                         catch { }
@@ -125,7 +137,10 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                     }
                     else
                     {
-                        await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, stoppingToken);
+                        var delayMs = GetRetryDelayMs(retryCount + 1);
+                        _logger.LogInformation("Scheduling message {DeliveryTag} for retry #{RetryCount} after {DelayMs}ms", ea.DeliveryTag, retryCount + 1, delayMs);
+                        await ScheduleRetryAsync(ea, delayMs, stoppingToken);
+                        await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false, stoppingToken);
                     }
                 }
             };
@@ -146,6 +161,51 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         {
             _logger.LogError(ex, "RabbitMQ consumer failed");
         }
+    }
+
+    private async Task ScheduleRetryAsync(BasicDeliverEventArgs ea, int delayMs, CancellationToken cancellationToken)
+    {
+        var properties = new BasicProperties
+        {
+            ContentType = "application/json",
+            DeliveryMode = DeliveryModes.Persistent,
+            MessageId = ea.BasicProperties.MessageId ?? Guid.NewGuid().ToString(),
+            CorrelationId = ea.BasicProperties.CorrelationId ?? "",
+            Type = ea.BasicProperties.Type ?? ""
+        };
+
+        if (ea.BasicProperties.Headers is null)
+        {
+            properties.Headers = new Dictionary<string, object>();
+        }
+        else
+        {
+            properties.Headers = new Dictionary<string, object>(ea.BasicProperties.Headers);
+        }
+
+        if (!properties.Headers.ContainsKey("x-death"))
+        {
+            properties.Headers["x-death"] = new List<object>
+            {
+                new Dictionary<string, object> { ["count"] = 1, ["time"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+            };
+        }
+        else if (properties.Headers["x-death"] is IList<object> deaths)
+        {
+            var newDeath = new Dictionary<string, object> { ["count"] = deaths.Count + 1, ["time"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
+            deaths.Add(newDeath);
+        }
+
+        var body = ea.Body.ToArray();
+        var eventType = ea.BasicProperties.Type ?? "unknown";
+
+        await _channel!.BasicPublishAsync(RetryExchange, eventType, false, properties, body, cancellationToken);
+    }
+
+    private static int GetRetryDelayMs(int retryAttempt)
+    {
+        var delaySeconds = Math.Min(60, Math.Pow(2, Math.Clamp(retryAttempt - 1, 0, 6)));
+        return (int)(delaySeconds * 1000);
     }
 
     private async Task ProcessMessageAsync(IntegrationEventEnvelope<JsonElement> envelope, CancellationToken cancellationToken)

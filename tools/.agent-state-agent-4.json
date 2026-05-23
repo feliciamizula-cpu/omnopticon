@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "context": null,
-  "status": "idle",
-  "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T02:24:04.669Z",
-  "lastHeartbeatAt": "2026-05-23T02:24:04.669Z",
+  "currentTaskId": "047",
+  "currentTaskDescription": "Enhancement #11: Custom operational metrics - Add Argus.BuildingBlocks.Observability project with shared ArgusMetrics class. Static Meter named Argus.Recon. Define Counter<long>: AssetsDiscovered, AssetsConfirmed, RateLimitDelays, TasksCompleted. Define Histogram<double>: TaskDuration (ms), ScopeValidationDuration (ms). Define UpDownCounter<int>: TasksRunning. Tag all instruments with: program_id, worker_type, asset_type, registered_domain. Wire into Aspire dashboard and OTLP-compatible backends. File: src/BuildingBlocks/Argus.BuildingBlocks.Observability/ArgusMetrics.cs",
+  "context": "Updated ArgusMetrics.cs: all 5 methods now accept Guid programId and include program_id tag. Updated ArgusEventDrivenWorkerService.cs (5 call sites) and ArgusWorkerBackgroundService.cs (6 call sites) to pass task.ProgramId / request.ProgramId. Build not run (no dotnet SDK in env).",
+  "status": "working",
+  "pid": 289564,
+  "startedAt": "2026-05-23T02:38:29.810Z",
+  "lastRunAt": "2026-05-23T02:38:29.810Z",
+  "lastHeartbeatAt": "2026-05-23T02:40:50.270Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:24:04.669Z"
+  "updatedAt": "2026-05-23T02:40:50.270Z"
 }

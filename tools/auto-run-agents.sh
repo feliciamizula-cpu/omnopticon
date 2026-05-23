@@ -16,8 +16,9 @@ RECONCILE_INTERVAL="${RECONCILE_INTERVAL:-30}"
 AGENTS=("agent-1" "agent-2" "agent-3" "agent-4" "agent-5")
 DEVOPS_AGENTS=("devops-1" "devops-2")
 REVIEW_AGENTS=("reviewer-1" "reviewer-2")
-MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
-MAX_CONCURRENT_DEVOPS="${MAX_CONCURRENT_DEVOPS:-1}"
+MAX_CONCURRENT="${MAX_CONCURRENT:-5}"
+MAX_CONCURRENT_DEVOPS="${MAX_CONCURRENT_DEVOPS:-2}"
+MAX_CONCURRENT_REVIEWERS="${MAX_CONCURRENT_REVIEWERS:-2}"
 DEVOPS_AGENT_INTERVAL="${DEVOPS_AGENT_INTERVAL:-120}"
 
 log() { echo "[$(date +'%Y-%m-%dT%H:%M:%S')] $*" >> "$LOG_FILE"; }
@@ -814,6 +815,18 @@ count_busy_devops_agents() {
     echo "$count"
 }
 
+count_busy_review_agents() {
+    local count=0
+    for agent in "${REVIEW_AGENTS[@]}"; do
+        local runtime
+        runtime="$(agent_runtime_status "$agent")"
+        if [ "$runtime" = "running" ] || [ "$runtime" = "unresponsive" ]; then
+            count=$((count + 1))
+        fi
+    done
+    echo "$count"
+}
+
 run_devops_agent_if_needed() {
     local agent_id="$1"
 
@@ -871,7 +884,14 @@ run_review_cycle() {
 
     log "New commits detected, spawning review agents..."
     for reviewer in "${REVIEW_AGENTS[@]}"; do
+        local busy_reviewers
+        busy_reviewers="$(count_busy_review_agents)"
+        if [ "$busy_reviewers" -ge "$MAX_CONCURRENT_REVIEWERS" ]; then
+            log "Max concurrent reviewers ($MAX_CONCURRENT_REVIEWERS) reached, skipping $reviewer"
+            break
+        fi
         spawn_review_agent "$reviewer"
+        sleep 1
     done
 }
 
@@ -883,6 +903,7 @@ log "DevOps agents: ${DEVOPS_AGENTS[*]}"
 log "Review agents: ${REVIEW_AGENTS[*]}"
 log "Max concurrent: $MAX_CONCURRENT"
 log "Max concurrent DevOps: $MAX_CONCURRENT_DEVOPS"
+log "Max concurrent reviewers: $MAX_CONCURRENT_REVIEWERS"
 
 git_pull || true
 reconcile_task_board

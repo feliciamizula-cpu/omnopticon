@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "038",
-  "currentTaskDescription": "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
-  "context": "Fixed SingleOrDefault->FirstOrDefault in OutboxDispatcher.cs:18. Build blocked: dotnet not in PATH",
-  "status": "working",
-  "pid": 139465,
-  "startedAt": "2026-05-23T02:21:22.568Z",
-  "lastRunAt": "2026-05-23T02:24:11.411Z",
-  "lastHeartbeatAt": "2026-05-23T02:24:11.411Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T02:24:11.411Z"
+  "currentTaskId": "042",
+  "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
+  "context": null,
+  "status": "unresponsive",
+  "pid": 170505,
+  "startedAt": "2026-05-23T02:27:14.079Z",
+  "lastRunAt": "2026-05-23T02:27:14.079Z",
+  "lastHeartbeatAt": "2026-05-23T02:40:45.251Z",
+  "lastError": "heartbeat timeout",
+  "updatedAt": "2026-05-23T02:40:45.251Z"
 }

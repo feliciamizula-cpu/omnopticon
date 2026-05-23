@@ -123,21 +123,21 @@ private readonly ArgusWorkerOptions _options = options.Value;
                     if (createdAsset is not null)
                     {
                         await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
-                        metrics.RecordAssetProduced(worker.Capability.WorkerType, asset.AssetType);
+                        metrics.RecordAssetProduced(task.ProgramId, worker.Capability.WorkerType, asset.AssetType);
                     }
                 }
             }
 
-            metrics.RecordTaskProcessed(worker.Capability.WorkerType, result.PartiallySucceeded);
-            metrics.RecordTaskDuration(worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
+            metrics.RecordTaskProcessed(task.ProgramId, worker.Capability.WorkerType, result.PartiallySucceeded);
+            metrics.RecordTaskDuration(task.ProgramId, worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
 
             await CompleteTaskAsync(task.TaskId, result, heartbeatCts.Token);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            metrics.RecordTaskFailed(worker.Capability.WorkerType, ex.GetType().Name);
-            metrics.RecordTaskDuration(worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
+            metrics.RecordTaskFailed(task.ProgramId, worker.Capability.WorkerType, ex.GetType().Name);
+            metrics.RecordTaskDuration(task.ProgramId, worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
             logger.LogError(ex, "Task {TaskId} failed in worker {WorkerId}", task.TaskId, _options.WorkerId);
             await FailTaskAsync(task.TaskId, ex, heartbeatCts.Token);
         }
@@ -246,7 +246,7 @@ private readonly ArgusWorkerOptions _options = options.Value;
 
         if (decision?.IsAllowed != true)
         {
-            metrics.RecordRateLimitHit(worker.Capability.WorkerType, request.Host ?? "unknown");
+            metrics.RecordRateLimitHit(request.ProgramId, worker.Capability.WorkerType, request.Host ?? "unknown");
         }
 
         return decision?.IsAllowed == true;
