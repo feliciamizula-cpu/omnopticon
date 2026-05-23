@@ -139,6 +139,15 @@ app.MapPost("/programs/{programId:guid}/rate-limit-policies", async (
     return Results.Created($"/programs/{programId}/rate-limit-policies/{policy.PolicyId}", policy);
 });
 
+app.MapGet("/programs/{programId:guid}/snapshot", async (
+    Guid programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var snapshot = await store.GetSnapshotAsync(programId, cancellationToken);
+    return snapshot is not null ? Results.Ok(snapshot) : Results.NotFound();
+});
+
 app.MapPost("/scope-validation/check-batch", async (
     ScopeBatchValidationRequest request,
     IProgramScopeStore store,
@@ -167,6 +176,7 @@ internal interface IProgramScopeStore
     Task<ScopeExclusionDto> CreateScopeExclusionAsync(Guid programId, string pattern, string? reason, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken);
     Task<RateLimitPolicyDto> CreateRateLimitPolicyAsync(Guid programId, Guid? scopeId, string bucketKey, int capacity, int refillRate, string source, CancellationToken cancellationToken);
+    Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
@@ -330,6 +340,24 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         }
 
         return Task.FromResult(new RateLimitPolicyDto(policy.PolicyId, policy.ProgramId, policy.ScopeId, policy.BucketKey, policy.Capacity, policy.RefillRate, policy.Source));
+    }
+
+    public Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            return Task.FromResult<ScopeSnapshot?>(null);
+        }
+
+        var snapshot = new ScopeSnapshot(
+            Guid.NewGuid(),
+            programId,
+            DateTimeOffset.UtcNow,
+            program.Scopes,
+            program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToList(),
+            string.Empty);
+
+        return Task.FromResult<ScopeSnapshot?>(snapshot);
     }
 
     private static ProgramDto ToDto(ProgramRecord record) =>
@@ -527,6 +555,30 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return new RateLimitPolicyDto(policy.PolicyId, policy.ProgramId, policy.ScopeId, policy.BucketKey, policy.Capacity, policy.RefillRate, policy.Source);
+    }
+
+    public async Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs
+            .AsNoTracking()
+            .Include(p => p.Scopes)
+            .Include(p => p.ScopeExclusions)
+            .FirstOrDefaultAsync(p => p.ProgramId == programId, cancellationToken);
+
+        if (program is null)
+        {
+            return null;
+        }
+
+        var snapshot = new ScopeSnapshot(
+            Guid.NewGuid(),
+            programId,
+            DateTimeOffset.UtcNow,
+            program.Scopes.Select(s => s.ToDto()).ToList(),
+            program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToList(),
+            string.Empty);
+
+        return snapshot;
     }
 }
 

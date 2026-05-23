@@ -1,4 +1,5 @@
 using Argus.BuildingBlocks.EventBus;
+using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;

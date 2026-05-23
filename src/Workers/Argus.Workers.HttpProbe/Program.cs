@@ -61,6 +61,7 @@ internal sealed class HttpProbeWorker : IReconWorker
         var schemes = new[] { "https", "http" };
         bool httpsSucceeded = false;
         string? httpsError = null;
+        string? httpsRedirectUrl = null;
 
         foreach (var scheme in schemes)
         {
@@ -110,6 +111,9 @@ internal sealed class HttpProbeWorker : IReconWorker
 
                 await context.ReportProgressAsync(70, $"Received {statusCode} from {host}", null);
 
+                var redirectToHttp = response.Headers.Location != null &&
+                    response.Headers.Location.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase);
+
                 producedAssets.Add(new WorkerProducedAsset(
                     "Url",
                     probeUrl,
@@ -139,8 +143,17 @@ internal sealed class HttpProbeWorker : IReconWorker
                 if (scheme == "https")
                 {
                     httpsSucceeded = true;
+                    if (redirectToHttp)
+                    {
+                        httpsRedirectUrl = response.Headers.Location?.ToString();
+                        httpsSucceeded = false;
+                    }
                 }
-                break;
+
+                if (httpsSucceeded || (!redirectToHttp && scheme == "https"))
+                {
+                    break;
+                }
             }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
