@@ -3,12 +3,12 @@
   "currentTaskId": "043",
   "currentTaskDescription": null,
   "context": "7 agents healthy; compose.yaml valid; dotnet N/A in container; reconcile done; standing task running",
-  "status": "working",
+  "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T04:39:08.412Z",
-  "lastHeartbeatAt": "2026-05-23T04:39:24.447Z",
-  "lastError": "Task 043 requeued during reconciliation",
-  "updatedAt": "2026-05-23T04:39:24.447Z",
+  "lastRunAt": "2026-05-23T04:39:26.761Z",
+  "lastHeartbeatAt": "2026-05-23T04:39:26.761Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T04:39:26.761Z",
   "workStatus": "idle"
 }
