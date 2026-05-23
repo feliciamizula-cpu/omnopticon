@@ -42,16 +42,16 @@ var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-serv
     .WithReference(rabbitMq).WaitFor(rabbitMq)
     .WithHttpHealthCheck("/health");
 
-// var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("proxy-registry-service")
-//     .WithReference(argusDb)
-//     .WithReference(rabbitMq).WaitFor(rabbitMq)
-//     .WithHttpHealthCheck("/health");
+var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("proxy-registry-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq).WaitFor(rabbitMq)
+    .WithHttpHealthCheck("/health");
 
 asset.WithReference(realtime);
 task.WithReference(realtime);
 rateLimit.WithReference(realtime);
 orchestrator.WithReference(realtime);
-// proxyRegistry.WithReference(realtime);
+proxyRegistry.WithReference(realtime);
 
 builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
     .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
