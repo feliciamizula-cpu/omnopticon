@@ -2,12 +2,12 @@
   "agentId": "agent-4",
   "currentTaskId": null,
   "currentTaskDescription": null,
+  "context": null,
   "status": "idle",
-  "lastRunAt": "2026-05-23T01:25:01.976Z",
-  "updatedAt": "2026-05-23T02:22:36.162Z",
   "pid": null,
-  "lastError": "Task 016 requeued during reconciliation",
-  "lastHeartbeatAt": "2026-05-23T02:09:34.696Z",
-  "startedAt": "2026-05-23T01:25:01.888Z",
-  "context": "Bug #18: HttpProbeWorker already implements HTTPS->HTTP fallback (lines 61-163). Task ID in state file was wrong (039). Verifying implementation completeness."
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T02:24:04.669Z",
+  "lastHeartbeatAt": "2026-05-23T02:24:04.669Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T02:24:04.669Z"
 }

@@ -2,14 +2,14 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "019",
+      "currentTask": "034",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:23:54.913Z",
       "workStatus": "working",
-      "currentTaskDescription": "Design #21: ProgramScopeChanged event never published",
-      "lastRunAt": "2026-05-23T02:21:19.694Z",
-      "lastHeartbeatAt": "2026-05-23T02:21:19.694Z",
+      "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
+      "lastRunAt": "2026-05-23T02:23:54.913Z",
+      "lastHeartbeatAt": "2026-05-23T02:23:54.913Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -21,14 +21,14 @@
     },
     {
       "status": "active",
-      "currentTask": "021",
+      "currentTask": "038",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:24:11.373Z",
       "workStatus": "working",
-      "currentTaskDescription": "Minor #25: OutboxDispatcher uses SingleOrDefault - brittle",
-      "lastRunAt": "2026-05-23T02:21:22.530Z",
-      "lastHeartbeatAt": "2026-05-23T02:21:22.530Z",
+      "currentTaskDescription": "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
+      "lastRunAt": "2026-05-23T02:24:11.373Z",
+      "lastHeartbeatAt": "2026-05-23T02:24:11.373Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -43,7 +43,7 @@
       "currentTask": "023",
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:23:48.724Z",
       "workStatus": "working",
       "currentTaskDescription": "Design #23: Asset relationship uniqueness not enforced",
       "lastRunAt": "2026-05-23T02:22:25.721Z",
@@ -62,11 +62,11 @@
       "currentTask": null,
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:24:02.248Z",
       "workStatus": "idle",
       "currentTaskDescription": null,
-      "lastRunAt": "2026-05-23T01:25:01.736Z",
-      "lastHeartbeatAt": "2026-05-23T01:25:01.736Z",
+      "lastRunAt": "2026-05-23T02:24:02.248Z",
+      "lastHeartbeatAt": "2026-05-23T02:24:02.248Z",
       "lastError": null,
       "context": null,
       "pid": null,
@@ -81,7 +81,7 @@
       "currentTask": null,
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:23:48.724Z",
       "workStatus": "idle",
       "currentTaskDescription": null,
       "lastRunAt": "2026-05-22T23:07:05.527Z",
@@ -104,7 +104,7 @@
       ],
       "currentTask": null,
       "workStatus": "idle",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:23:48.724Z",
       "pid": 18002,
       "lastHeartbeatAt": "2026-05-23T00:40:26.345Z",
       "currentTaskDescription": null,
@@ -125,7 +125,7 @@
       ],
       "currentTask": null,
       "workStatus": "idle",
-      "lastUpdated": "2026-05-23T02:22:36.162Z",
+      "lastUpdated": "2026-05-23T02:23:48.724Z",
       "pid": null,
       "lastHeartbeatAt": "2026-05-23T00:46:19.078Z",
       "currentTaskDescription": null,
@@ -334,10 +334,10 @@
       "createdAt": "2026-05-22T15:30:43.0458915-04:00",
       "priority": "low",
       "assignedTo": "agent-1",
-      "status": "in_progress",
+      "status": "completed",
       "claimedAt": "2026-05-23T02:21:19.694Z",
       "attempts": 2,
-      "completedAt": "2026-05-23T02:21:05.887Z"
+      "completedAt": "2026-05-23T02:22:58.176Z"
     },
     {
       "id": "020",
@@ -355,10 +355,14 @@
       "description": "Minor #25: OutboxDispatcher uses SingleOrDefault - brittle",
       "createdAt": "2026-05-22T15:31:12.0058804-04:00",
       "priority": "low",
-      "assignedTo": "agent-2",
-      "status": "in_progress",
-      "claimedAt": "2026-05-23T02:21:22.530Z",
-      "attempts": 1
+      "assignedTo": "agent-4",
+      "status": "completed",
+      "claimedAt": "2026-05-23T02:23:38.362Z",
+      "attempts": 2,
+      "completedAt": "2026-05-23T02:24:02.248Z",
+      "requeuedAt": "2026-05-23T02:23:48.724Z",
+      "requeueReason": "released from agent-2 after stalled",
+      "recoveryContext": "Fixed SingleOrDefault->FirstOrDefault in OutboxDispatcher.cs:18. Build blocked: dotnet not in PATH"
     },
     {
       "id": "022",
@@ -442,8 +446,11 @@
       "description": "Enhancement #2: Event schema versioning",
       "createdAt": "2026-05-22T15:46:43.6207729-04:00",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-1",
+      "status": "completed",
+      "claimedAt": "2026-05-23T02:23:04.935Z",
+      "attempts": 1,
+      "completedAt": "2026-05-23T02:23:46.253Z"
     },
     {
       "id": "029",
@@ -514,8 +521,10 @@
       "description": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
       "createdAt": "2026-05-22T16:21:08.6434833-04:00",
       "priority": "critical",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-1",
+      "status": "in_progress",
+      "claimedAt": "2026-05-23T02:23:54.913Z",
+      "attempts": 1
     },
     {
       "id": "035",
@@ -553,8 +562,10 @@
       "description": "Enhancement #10: Correlation chain endpoint - GET /events/chain/{correlationId} for tracing",
       "createdAt": "2026-05-22T16:22:34.5898677-04:00",
       "priority": "low",
-      "assignedTo": null,
-      "status": "pending"
+      "assignedTo": "agent-2",
+      "status": "in_progress",
+      "claimedAt": "2026-05-23T02:24:11.373Z",
+      "attempts": 1
     },
     {
       "id": "039",

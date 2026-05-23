@@ -121,14 +121,21 @@ app.MapPost("/assets/relationships", async (
         return Results.NotFound("Both assets must exist before a relationship can be created.");
     }
 
-    var relationship = await store.AddRelationshipAsync(request, cancellationToken);
-    await events.PublishAsync(
-        new AssetRelationshipDiscovered(relationship.FromAssetId, relationship.ToAssetId, relationship.EdgeType),
-        nameof(AssetRelationshipDiscovered),
-        "Argus.AssetService",
-        cancellationToken: cancellationToken);
+    try
+    {
+        var relationship = await store.AddRelationshipAsync(request, cancellationToken);
+        await events.PublishAsync(
+            new AssetRelationshipDiscovered(relationship.FromAssetId, relationship.ToAssetId, relationship.EdgeType),
+            nameof(AssetRelationshipDiscovered),
+            "Argus.AssetService",
+            cancellationToken: cancellationToken);
 
-    return Results.Created($"/assets/{request.FromAssetId}/relationships", relationship);
+        return Results.Created($"/assets/{request.FromAssetId}/relationships", relationship);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
+    {
+        return Results.Conflict(ex.Message);
+    }
 });
 
 app.MapPatch("/assets/{assetId:guid}/status", async (
@@ -431,11 +438,19 @@ internal sealed class InMemoryAssetStore : IAssetStore
 
     public Task<AssetRelationshipDto> AddRelationshipAsync(CreateAssetRelationshipRequest request, CancellationToken cancellationToken)
     {
+        var edgeType = request.EdgeType.Trim().ToLowerInvariant();
+        var exists = _relationships.Values.Any(r =>
+            r.FromAssetId == request.FromAssetId && r.ToAssetId == request.ToAssetId && r.EdgeType == edgeType);
+        if (exists)
+        {
+            throw new InvalidOperationException("Relationship already exists.");
+        }
+
         var relationship = new AssetRelationshipDto(
             Guid.NewGuid(),
             request.FromAssetId,
             request.ToAssetId,
-            request.EdgeType.Trim().ToLowerInvariant(),
+            edgeType,
             DateTimeOffset.UtcNow,
             request.DiscoveredByTaskId);
 
@@ -649,12 +664,21 @@ internal sealed class EfAssetStore(AssetDbContext dbContext) : IAssetStore
 
     public async Task<AssetRelationshipDto> AddRelationshipAsync(CreateAssetRelationshipRequest request, CancellationToken cancellationToken)
     {
+        var edgeType = request.EdgeType.Trim().ToLowerInvariant();
+        var exists = await dbContext.AssetRelationships.AnyAsync(
+            r => r.FromAssetId == request.FromAssetId && r.ToAssetId == request.ToAssetId && r.EdgeType == edgeType,
+            cancellationToken);
+        if (exists)
+        {
+            throw new InvalidOperationException("Relationship already exists.");
+        }
+
         var relationship = new AssetRelationshipRecord
         {
             RelationshipId = Guid.NewGuid(),
             FromAssetId = request.FromAssetId,
             ToAssetId = request.ToAssetId,
-            EdgeType = request.EdgeType.Trim().ToLowerInvariant(),
+            EdgeType = edgeType,
             CreatedAt = DateTimeOffset.UtcNow,
             DiscoveredByTaskId = request.DiscoveredByTaskId
         };
@@ -737,6 +761,7 @@ internal sealed class AssetDbContext(DbContextOptions<AssetDbContext> options) :
         relationship.HasIndex(record => record.FromAssetId);
         relationship.HasIndex(record => record.ToAssetId);
         relationship.HasIndex(record => record.EdgeType);
+        relationship.HasIndex(record => new { record.FromAssetId, record.ToAssetId, record.EdgeType }).IsUnique();
         relationship.Property(record => record.EdgeType).HasMaxLength(128);
 
         modelBuilder.ConfigureArgusOutbox();

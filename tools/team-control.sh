@@ -372,6 +372,45 @@ check_devops_errors() {
     fi
 }
 
+add_todo() {
+    echo -e "${CYAN}═══ ADD TODO ═══${NC}"
+    
+    echo "Task description:"
+    read -r description
+    
+    echo "Priority (critical/high/medium/low):"
+    read -r priority
+    
+    echo "Assigned to (agent-1/agent-2/agent-3/agent-4/agent-5/devops-1/devops-2/none):"
+    read -r assigned_to
+    
+    if [ -z "$description" ]; then
+        echo "Description required"
+        return
+    fi
+    
+    priority=${priority:-medium}
+    assigned_to=${assigned_to:-none}
+    
+    local task_id="T$(date +%m%d%H%M)"
+    
+    local assignee=null
+    if [ "$assigned_to" != "none" ]; then
+        assignee="\"$assigned_to\""
+    fi
+    
+    jq ".tasks += [{
+        \"id\": \"$task_id\",
+        \"description\": \"$description\",
+        \"priority\": \"$priority\",
+        \"assignedTo\": $assignee,
+        \"status\": \"pending\",
+        \"createdAt\": \"$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")\"
+    }]" "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+    
+    echo -e "${GREEN}✓ Created task $task_id${NC}"
+}
+
 create_devops_task() {
     echo -e "${YELLOW}═══ CREATE DEVOPS TASK ═══${NC}"
     
@@ -548,10 +587,10 @@ show_menu() {
     echo "  ${GREEN}[3]${NC} Fix failed/unresponsive agents"
     echo "  ${GREEN}[4]${NC} Force restart specific agent"
     echo "  ${GREEN}[5]${NC} Check devops error logs → create tasks"
-    echo "  ${GREEN}[6]${NC} Create devops task"
-    echo "  ${GREEN}[7]${NC} Fix build errors → create task if needed"
-    echo "  ${GREEN}[8]${NC} Reconcile task board"
-    echo "  ${GREEN}[9]${NC} Restart supervisor"
+    echo "  ${GREEN}[6]${NC} Add todo item"
+    echo "  ${GREEN}[7]${NC} Create devops task"
+    echo "  ${GREEN}[8]${NC} Fix build errors → create task if needed"
+    echo "  ${GREEN}[9]${NC} Reconcile task board"
     echo "  ${GREEN}[A]${NC} Spawn all idle agents"
     echo "  ${GREEN}[C]${NC} Show agent context"
     echo "  ${GREEN}[K]${NC} Kill all agents (reset)"
@@ -575,10 +614,11 @@ while true; do
         3) fix_failed_agents; echo ""; echo "Press enter to continue..."; read -r ;;
         4) force_restart_agent; echo ""; echo "Press enter to continue..."; read -r ;;
         5) check_devops_errors; echo ""; echo "Press enter to continue..."; read -r ;;
-        6) create_devops_task; echo ""; echo "Press enter to continue..."; read -r ;;
-        7) fix_build_errors; echo ""; echo "Press enter to continue..."; read -r ;;
-        8) reconcile_task_board; echo ""; echo "Press enter to continue..."; read -r ;;
-        9) restart_supervisor; echo ""; echo "Press enter to continue..."; read -r ;;
+        6) add_todo; echo ""; echo "Press enter to continue..."; read -r ;;
+        7) create_devops_task; echo ""; echo "Press enter to continue..."; read -r ;;
+        8) fix_build_errors; echo ""; echo "Press enter to continue..."; read -r ;;
+        9) reconcile_task_board; echo ""; echo "Press enter to continue..."; read -r ;;
+        0) restart_supervisor; echo ""; echo "Press enter to continue..."; read -r ;;
         A|a) spawn_idle_agents; echo ""; echo "Press enter to continue..."; read -r ;;
         C|c) show_agent_context; echo ""; echo "Press enter to continue..."; read -r ;;
         K|k) kill_all_agents; echo ""; echo "Press enter to continue..."; read -r ;;
