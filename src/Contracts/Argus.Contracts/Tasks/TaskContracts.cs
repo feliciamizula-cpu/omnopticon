@@ -45,6 +45,7 @@ public sealed record ReconTaskDto(
     string? ErrorCode,
     string? ErrorMessage,
     string? DedupeHash,
+    string? ScopeSnapshotJson,
     WorkerPriority Priority = WorkerPriority.Normal);
 
 public sealed record CreateReconTaskRequest(

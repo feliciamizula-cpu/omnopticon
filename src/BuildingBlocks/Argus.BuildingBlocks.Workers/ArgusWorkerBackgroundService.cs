@@ -81,6 +81,17 @@ private readonly ArgusWorkerOptions _options = options.Value;
         var stopwatch = Stopwatch.StartNew();
         logger.LogInformation("Worker {WorkerId} leased task {TaskId} ({TaskType})", _options.WorkerId, task.TaskId, task.TaskType);
 
+        if (!string.IsNullOrEmpty(task.ScopeSnapshotJson))
+        {
+            if (!VerifyScopeSnapshot(task.ScopeSnapshotJson))
+            {
+                logger.LogError("Task {TaskId} failed scope snapshot signature verification", task.TaskId);
+                await FailTaskAsync(task.TaskId, new InvalidOperationException("Scope snapshot signature verification failed"), cancellationToken);
+                return;
+            }
+            logger.LogDebug("Task {TaskId} scope snapshot signature verified", task.TaskId);
+        }
+
         await StartTaskAsync(task.TaskId, cancellationToken);
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -429,4 +440,22 @@ internal static class ScopeValidationTarget
 
         return asset.Value;
     }
+}
+
+private bool VerifyScopeSnapshot(string snapshotJson)
+{
+    if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
+    {
+        logger.LogWarning("SnapshotSecretKey not configured, skipping snapshot verification");
+        return true;
+    }
+
+    var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
+    if (snapshot is null)
+    {
+        logger.LogError("Failed to deserialize scope snapshot");
+        return false;
+    }
+
+    return SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey);
 }

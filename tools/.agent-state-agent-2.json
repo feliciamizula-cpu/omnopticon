@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "037",
-  "currentTaskDescription": "Bug #7: ArgusMetrics meter registered but no instruments - no operational metrics exist",
+  "currentTaskId": "039",
+  "currentTaskDescription": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
   "context": null,
   "status": "working",
-  "pid": 106289,
-  "startedAt": "2026-05-23T00:52:16.266Z",
-  "lastRunAt": "2026-05-23T00:52:16.266Z",
-  "lastHeartbeatAt": "2026-05-23T00:55:16.536Z",
+  "pid": 130695,
+  "startedAt": "2026-05-23T00:55:45.557Z",
+  "lastRunAt": "2026-05-23T00:55:45.557Z",
+  "lastHeartbeatAt": "2026-05-23T00:58:00.719Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T00:55:31.139Z"
+  "updatedAt": "2026-05-23T00:58:30.081Z"
 }

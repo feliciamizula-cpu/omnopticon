@@ -91,3 +91,11 @@ public sealed record ScopeBatchValidationRequest(
     Guid ProgramId,
     IReadOnlyCollection<string> Targets,
     string TargetType);
+
+public sealed record ScopeSnapshot(
+    Guid SnapshotId,
+    Guid ProgramId,
+    DateTimeOffset CreatedAt,
+    IReadOnlyCollection<ProgramScopeDto> Scopes,
+    IReadOnlyCollection<ScopeExclusionDto> Exclusions,
+    string Signature);

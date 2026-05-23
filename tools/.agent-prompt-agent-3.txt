@@ -1,17 +1,17 @@
 You are agent-3 working on a task.
 
 Your state file: /workspaces/omnopticon/tools/.agent-state-agent-3.json
-Current task ID: 032
-Task description: Enhancement #6: Per-program rate limit policies wired into RateLimitService
+Current task ID: 011
+Task description: Critical #2: Missing AssetConfirmed event - discovery vs confirmation not modelled
 
 CRITICAL INSTRUCTIONS:
 1. FIRST: cat /workspaces/omnopticon/tools/.agent-state-agent-3.json to read your current state and saved context.
 2. Treat the state file as the source of truth for progress.
 3. Keep the state file current with:
-   cd /workspaces/omnopticon/tools && ./agent-coord.sh checkpoint -a agent-3 -t 032 -s working -c "<brief progress summary>"
+   cd /workspaces/omnopticon/tools && ./agent-coord.sh checkpoint -a agent-3 -t 011 -s working -c "<brief progress summary>"
 4. If you pause or get blocked, leave status=working and record the blocker in context or error.
 5. Verify: cd /workspaces/omnopticon && dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release --verbosity quiet
-6. On success, commit: git -C /workspaces/omnopticon add -A && git -C /workspaces/omnopticon commit -m "agent-3: Enhancement #6: Per-program rate limit policies wired into RateLimitService" && git -C /workspaces/omnopticon push origin main
-7. Mark done: cd /workspaces/omnopticon/tools && ./agent-coord.sh done -t 032 -a agent-3
+6. On success, commit: git -C /workspaces/omnopticon add -A && git -C /workspaces/omnopticon commit -m "agent-3: Critical #2: Missing AssetConfirmed event - discovery vs confirmation not modelled" && git -C /workspaces/omnopticon push origin main
+7. Mark done: cd /workspaces/omnopticon/tools && ./agent-coord.sh done -t 011 -a agent-3
 
 Continue from the saved state instead of re-discovering work that has already been done.

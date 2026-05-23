@@ -1,17 +1,17 @@
 You are agent-1 working on a task.
 
 Your state file: /workspaces/omnopticon/tools/.agent-state-agent-1.json
-Current task ID: 033
-Task description: Enhancement #7: Adaptive rate limiting on 429/503 feedback
+Current task ID: 010
+Task description: Critical #1: Workers poll instead of subscribing to events - need event-driven architecture
 
 CRITICAL INSTRUCTIONS:
 1. FIRST: cat /workspaces/omnopticon/tools/.agent-state-agent-1.json to read your current state and saved context.
 2. Treat the state file as the source of truth for progress.
 3. Keep the state file current with:
-   cd /workspaces/omnopticon/tools && ./agent-coord.sh checkpoint -a agent-1 -t 033 -s working -c "<brief progress summary>"
+   cd /workspaces/omnopticon/tools && ./agent-coord.sh checkpoint -a agent-1 -t 010 -s working -c "<brief progress summary>"
 4. If you pause or get blocked, leave status=working and record the blocker in context or error.
 5. Verify: cd /workspaces/omnopticon && dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release --verbosity quiet
-6. On success, commit: git -C /workspaces/omnopticon add -A && git -C /workspaces/omnopticon commit -m "agent-1: Enhancement #7: Adaptive rate limiting on 429/503 feedback" && git -C /workspaces/omnopticon push origin main
-7. Mark done: cd /workspaces/omnopticon/tools && ./agent-coord.sh done -t 033 -a agent-1
+6. On success, commit: git -C /workspaces/omnopticon add -A && git -C /workspaces/omnopticon commit -m "agent-1: Critical #1: Workers poll instead of subscribing to events - need event-driven architecture" && git -C /workspaces/omnopticon push origin main
+7. Mark done: cd /workspaces/omnopticon/tools && ./agent-coord.sh done -t 010 -a agent-1
 
 Continue from the saved state instead of re-discovering work that has already been done.

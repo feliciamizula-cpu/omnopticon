@@ -1,13 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "033",
-  "currentTaskDescription": "Enhancement #7: Adaptive rate limiting on 429/503 feedback",
+  "currentTaskId": "010",
+  "currentTaskDescription": "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
   "status": "working",
-  "lastRunAt": "2026-05-23T00:51:24.297Z",
-  "updatedAt": "2026-05-23T00:55:31.139Z",
-  "pid": 99387,
+  "lastRunAt": "2026-05-23T00:56:54.301Z",
+  "updatedAt": "2026-05-23T00:58:30.081Z",
+  "pid": 139320,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T00:55:09.552Z",
-  "startedAt": "2026-05-23T00:51:24.297Z",
+  "lastHeartbeatAt": "2026-05-23T00:58:24.360Z",
+  "startedAt": "2026-05-23T00:56:54.301Z",
   "context": null
 }

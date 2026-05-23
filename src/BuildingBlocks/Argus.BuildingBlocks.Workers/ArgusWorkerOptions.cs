@@ -12,4 +12,5 @@ public sealed class ArgusWorkerOptions
     public Uri RateLimitServiceBaseAddress { get; set; } = new("http://rate-limit-service");
     public Uri RealtimeServiceBaseAddress { get; set; } = new("http://realtime-service");
     public bool ScopeValidationRequired { get; set; }
+    public string SnapshotSecretKey { get; set; } = string.Empty;
 }
