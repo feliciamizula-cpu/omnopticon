@@ -1,13 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "039",
-  "currentTaskDescription": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
+  "currentTaskId": "019",
+  "currentTaskDescription": "Design #21: ProgramScopeChanged event never published",
+  "context": null,
   "status": "working",
-  "lastRunAt": "2026-05-23T02:17:14.453Z",
-  "updatedAt": "2026-05-23T02:17:14.453Z",
-  "pid": 75385,
+  "pid": 105944,
+  "startedAt": "2026-05-23T02:21:19.757Z",
+  "lastRunAt": "2026-05-23T02:21:19.791Z",
+  "lastHeartbeatAt": "2026-05-23T02:22:04.885Z",
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T02:17:14.453Z",
-  "startedAt": "2026-05-23T00:56:54.301Z",
-  "context": null
+  "updatedAt": "2026-05-23T02:22:04.885Z"
 }

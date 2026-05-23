@@ -490,7 +490,8 @@ internal static class SseWriter
         CancellationToken cancellationToken)
     {
         await context.Response.WriteAsync($"id: {envelope.EventId}\n", cancellationToken);
-        await context.Response.WriteAsync($"event: {envelope.EventType}\n", cancellationToken);
+        var sanitizedEventType = envelope.EventType.Replace("\r", "").Replace("\n", " ");
+        await context.Response.WriteAsync($"event: {sanitizedEventType}\n", cancellationToken);
         await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(envelope)}\n\n", cancellationToken);
         await context.Response.Body.FlushAsync(cancellationToken);
     }

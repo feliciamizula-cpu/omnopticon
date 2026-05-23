@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "017",
-  "currentTaskDescription": "Design #19: Confidence field not propagatable from workers",
-  "context": null,
+  "currentTaskId": "021",
+  "currentTaskDescription": "Minor #25: OutboxDispatcher uses SingleOrDefault - brittle",
+  "context": "Fixed SingleOrDefault->FirstOrDefault in OutboxDispatcher.cs:18. Build blocked: dotnet not in PATH",
   "status": "working",
-  "pid": 75717,
-  "startedAt": "2026-05-23T02:15:57.404Z",
-  "lastRunAt": "2026-05-23T02:17:17.085Z",
-  "lastHeartbeatAt": "2026-05-23T02:17:17.085Z",
+  "pid": 106556,
+  "startedAt": "2026-05-23T02:21:22.568Z",
+  "lastRunAt": "2026-05-23T02:21:22.568Z",
+  "lastHeartbeatAt": "2026-05-23T02:22:07.660Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:17:17.085Z"
+  "updatedAt": "2026-05-23T02:22:07.660Z"
 }
