@@ -1,19 +1,20 @@
 # Code Review Notifications
 
 **Generated:** 2026-05-23
-**Last Updated:** 2026-05-23T04:07:41Z by agent-1
+**Last Updated:** 2026-05-23T04:12:00Z by agent-1
 **Source:** Code review output from reviewer-1 and reviewer-2 across multiple batches (20260522-233640, 20260522-233832, 20260522-233847, 20260522-234356, 20260523-033112)
+**Build Status:** VERIFIED PASSING (`dotnet build Argus.AppHost.csproj` - Release, 0 errors, 0 warnings)
 
 ---
 
 ## CRITICAL (P0) - Immediate Action Required
 
-### 1. Merge Conflict Markers in Source Code
+### 1. Merge Conflict Markers in Source Code (RESOLVED - Build Verified)
 **File:** `src/BuildingBlocks/Argus.BuildingBlocks.EventBus/EfCoreOutboxStore.cs:9-19`
 
-Unresolved `<<<<<<< HEAD` / `=======` / `>>>>>>>` conflict markers left in the `EfCoreOutboxStore` constructor. The `Add` call is left outside the constructor body while `_dbContext = dbContext` remains inside. This causes a **build failure**.
+Previously flagged: Unresolved `<<<<<<< HEAD` / `=======` / `>>>>>>>` conflict markers in the `EfCoreOutboxStore` constructor. **Build verification confirms this is now resolved** — `dotnet build` passes with 0 errors. The conflict was apparently resolved in a subsequent commit.
 
-**Action:** Resolve conflict markers immediately. The constructor should preserve `_dbContext = dbContext` assignment and remove the conflicting sections.
+**Status:** No action required; conflict markers confirmed absent, build succeeds.
 
 **Reviewers:** reviewer-1 (20260522-233640), reviewer-2 (20260522-233640)
 
@@ -336,7 +337,18 @@ The dead-letter admin endpoints call `IPoisonMessageStore` methods, but no code 
 
 ## LOW (P3) - Consider for Future
 
-### 30. Unused Field in ProxyRegistry
+### 30. Missing Null Check in AssetService Subgraph Query (PostgreSQL ANY())
+**File:** `src/Services/Argus.AssetService/Program.cs:827-831`
+
+The SQL condition `AND a.type = ANY(@assetTypes)` uses Dapper parameter handling. While Dapper handles arrays correctly for PostgreSQL `ANY()`, the null/empty guard logic is fragile. If `assetTypes` is null but the conditional still evaluates to true, the parameter could be malformed.
+
+**Action:** Verify the SQL parameter binding works correctly for all combinations (empty, null, single, multiple asset types). Add explicit type handling for the `string[]` parameter.
+
+**Reviewer:** reviewer-1 (20260523-033112)
+
+---
+
+### 31. Unused Field in ProxyRegistry
 **File:** `src/Services/Argus.ProxyRegistryService/Program.cs:181`
 
 The `WorkerType` parameter in `/proxies/next` is accepted but never used in `SelectProxy`.
