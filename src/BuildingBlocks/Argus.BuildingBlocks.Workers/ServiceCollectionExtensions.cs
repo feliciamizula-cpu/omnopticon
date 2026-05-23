@@ -61,6 +61,16 @@ public static class ServiceCollectionExtensions
                     options.EventDrivenMode = bool.TryParse(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"], out var eventDriven) && eventDriven;
                 }
 
+                if (int.TryParse(builder.Configuration["ARGUS_DRAIN_TIMEOUT_SECONDS"], out var drainTimeoutSeconds))
+                {
+                    options.DrainTimeout = TimeSpan.FromSeconds(drainTimeoutSeconds);
+                }
+
+                if (!string.IsNullOrEmpty(builder.Configuration["ARGUS_SAVE_CHECKPOINT_ON_SHUTDOWN"]))
+                {
+                    options.SaveCheckpointOnShutdown = bool.TryParse(builder.Configuration["ARGUS_SAVE_CHECKPOINT_ON_SHUTDOWN"], out var save) && save;
+                }
+
                 configure?.Invoke(options);
             });
 

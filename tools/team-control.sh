@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/agent-state-lib.sh"
 STATE_FILE="$SCRIPT_DIR/.agent-tasks.json"
 WORK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -590,6 +591,191 @@ kill_all_agents() {
     echo -e "${GREEN}✓ All agents killed and reset${NC}"
 }
 
+force_review() {
+    echo -e "${YELLOW}═══ FORCE CODE REVIEW ═══${NC}"
+
+    local review_marker="$SCRIPT_DIR/.reviewed-commits"
+    local last_reviewed=""
+    if [ -f "$review_marker" ]; then
+        last_reviewed="$(cat "$review_marker")"
+    fi
+
+    local unreviewed=""
+    if [ -n "$last_reviewed" ]; then
+        unreviewed=$(git -C "$WORK_DIR" log --oneline --since="1 hour ago" "$last_reviewed..HEAD" 2>/dev/null)
+    else
+        unreviewed=$(git -C "$WORK_DIR" log --oneline --since="1 hour ago" 2>/dev/null)
+    fi
+
+    if [ -z "$unreviewed" ]; then
+        echo "No unreviewed commits in the last hour"
+        return
+    fi
+
+    echo "Found unreviewed commits:"
+    echo "$unreviewed"
+    echo ""
+
+    for reviewer in reviewer-1 reviewer-2; do
+        local review_file="$SCRIPT_DIR/reviews/$(date +'%Y%m%d-%H%M%S')-$reviewer.md"
+        mkdir -p "$SCRIPT_DIR/reviews"
+
+        local modified_files
+        modified_files=$(git -C "$WORK_DIR" diff --name-only "$last_reviewed..HEAD" 2>/dev/null || echo "")
+
+        local recent_commits
+        recent_commits=$(git -C "$WORK_DIR" log --oneline -5 2>/dev/null)
+
+        local prompt="You are $reviewer, a code reviewer. Review these recent changes:
+Modified files:
+$modified_files
+
+Recent commits:
+$recent_commits
+
+Review for:
+1. Code quality issues
+2. Potential bugs
+3. Security concerns
+4. Performance issues
+5. Best practices violations
+
+Write your review to: $review_file
+Append any critical findings with '## Critical Findings' section.
+Check for TODO/FIXME/HACK comments in changed files.
+If critical issues found, echo '[CRITICAL] $reviewer found issues' >> $SCRIPT_DIR/.critical-alerts"
+
+        echo "Spawning $reviewer..."
+        (
+            echo "$prompt" | "$OPENCODE_BIN" run --dir "$WORK_DIR" 2>&1
+            echo "$unreviewed" > "$SCRIPT_DIR/.reviewed-commits"
+        ) &
+        sleep 2
+    done
+
+    echo -e "${GREEN}✓ Review agents dispatched${NC}"
+}
+
+force_devops_log_scan() {
+    echo -e "${YELLOW}═══ DEVOPS LOG SCAN ═══${NC}"
+
+    local log_files=(
+        "/tmp/auto-run-agents.log"
+        "/tmp/agent-supervisor.log"
+        "/tmp/watchdog.log"
+    )
+
+    local error_patterns=("error" "Error" "ERROR" "failed" "Failed" "FAILED" "exception" "Exception" "crashed" "Crashed" "CRASHED" "unresponsive" "stalled" "Stalled" "STALLED" "exit code" "Exit code" "warning" "Warning" "WARNING")
+
+    local issues=()
+    local seen=""
+
+    for log_file in "${log_files[@]}"; do
+        if [ ! -f "$log_file" ]; then
+            echo "Skipping $log_file (not found)"
+            continue
+        fi
+
+        local file_size
+        file_size=$(stat -c%s "$log_file" 2>/dev/null || echo "0")
+        echo "Scanning $(basename $log_file) ($(numfmt --to=iec $file_size 2>/dev/null || echo $file_size))..."
+
+        for pattern in "${error_patterns[@]}"; do
+            local matches
+            matches=$(grep -n "$pattern" "$log_file" 2>/dev/null | tail -20)
+            if [ -n "$matches" ]; then
+                while IFS= read -r line; do
+                    local dedup_key
+                    dedup_key=$(echo "$line" | md5sum | cut -d' ' -f1)
+                    if ! echo "$seen" | grep -q "$dedup_key"; then
+                        seen="$seen $dedup_key"
+                        issues+=("$(echo "$line" | sed 's/^[0-9]*://' | cut -c1-120)")
+                    fi
+                done <<< "$matches"
+            fi
+        done
+    done
+
+    local app_log_dirs=("$WORK_DIR/logs" "/var/log/argus" "/tmp/argus-logs")
+    for log_dir in "${app_log_dirs[@]}"; do
+        if [ -d "$log_dir" ]; then
+            local log_files_in_dir=$(find "$log_dir" -name "*.log" -newer /tmp/auto-run-agents.log 2>/dev/null | head -5)
+            if [ -n "$log_files_in_dir" ]; then
+                for lf in $log_files_in_dir; do
+                    local app_errors=$(grep -n "error\|Error\|ERROR\|exception\|Exception\|failed\|Failed" "$lf" 2>/dev/null | tail -5)
+                    if [ -n "$app_errors" ]; then
+                        echo "  Found issues in $lf"
+                        while IFS= read -r errline; do
+                            local dedup_key=$(echo "$errline" | md5sum | cut -d' ' -f1)
+                            if ! echo "$seen" | grep -q "$dedup_key"; then
+                                seen="$seen $dedup_key"
+                                issues+=("$(echo "$errline" | sed 's/^[0-9]*://' | cut -c1-120)")
+                            fi
+                        done <<< "$app_errors"
+                    fi
+                done
+            fi
+        fi
+    done
+
+    if [ ${#issues[@]} -eq 0 ]; then
+        echo -e "${GREEN}✓ No issues found in logs${NC}"
+        return
+    fi
+
+    echo ""
+    echo -e "${RED}Found ${#issues[@]} distinct issues${NC}"
+    echo ""
+
+    local grouped=()
+    local group_seen=""
+
+    for issue in "${issues[@]}"; do
+        local type=""
+        if echo "$issue" | grep -qi "error\|Error\|ERROR"; then type="Error"; fi
+        if echo "$issue" | grep -qi "crashed\|Crashed\|CRASHED"; then type="Crash"; fi
+        if echo "$issue" | grep -qi "stalled\|Stalled\|STALLED"; then type="Stalled"; fi
+        if echo "$issue" | grep -qi "unresponsive"; then type="Unresponsive"; fi
+        if echo "$issue" | grep -qi "exception\|Exception"; then type="Exception"; fi
+        if echo "$issue" | grep -qi "failed\|Failed\|FAILED"; then type="Failed"; fi
+        if echo "$issue" | grep -qi "warning\|Warning\|WARNING"; then type="Warning"; fi
+        if [ -z "$type" ]; then type="Issue"; fi
+
+        local type_key
+        type_key=$(echo "$issue" | cut -c1-40 | md5sum | cut -d' ' -f1)
+        local type_label="${type}_${type_key}"
+
+        if ! echo "$group_seen" | grep -q "$type_label"; then
+            group_seen="$group_seen $type_label"
+            grouped+=("$type: $issue")
+        fi
+    done
+
+    echo "Creating tasks from issues..."
+    for item in "${grouped[@]}"; do
+        local task_id="L$(date +%m%d%H%M%S)"
+        local description="Bug from logs: $item"
+        local priority="high"
+        if echo "$item" | grep -qi "warning"; then priority="low"; fi
+        if echo "$item" | grep -qi "error\|Error\|crashed\|unresponsive\|exception"; then priority="high"; fi
+        if echo "$item" | grep -qi "critical\|Critical\|CRITICAL"; then priority="critical"; fi
+
+        jq ".tasks += [{
+            \"id\": \"$task_id\",
+            \"description\": \"$description\",
+            \"priority\": \"$priority\",
+            \"assignedTo\": null,
+            \"status\": \"pending\",
+            \"createdAt\": \"$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")\"
+        }]" "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+
+        echo "  Created task $task_id: $description"
+    done
+
+    echo ""
+    echo -e "${GREEN}✓ Created ${#grouped[@]} tasks from log issues${NC}"
+}
+
 export_state() {
     echo -e "${CYAN}═══ EXPORT STATE ═══${NC}"
     echo "Enter output file path (default: /tmp/agent-state-export.json):"
@@ -630,6 +816,9 @@ show_menu() {
     echo "  ${GREEN}[7]${NC} Create devops task"
     echo "  ${GREEN}[8]${NC} Fix build errors → create task if needed"
     echo "  ${GREEN}[9]${NC} Reconcile task board"
+    echo "  ${GREEN}[0]${NC} Restart supervisor"
+    echo "  ${GREEN}[R]${NC} Force code review (unreviewed commits in last hour)"
+    echo "  ${GREEN}[L]${NC} Scan logs for bugs → create todo items"
     echo "  ${GREEN}[A]${NC} Spawn all idle agents"
     echo "  ${GREEN}[C]${NC} Show agent context"
     echo "  ${GREEN}[K]${NC} Kill all agents (reset)"
@@ -658,6 +847,8 @@ while true; do
         8) fix_build_errors; echo ""; echo "Press enter to continue..."; read -r ;;
         9) reconcile_task_board; echo ""; echo "Press enter to continue..."; read -r ;;
         0) restart_supervisor; echo ""; echo "Press enter to continue..."; read -r ;;
+        R|r) force_review; echo ""; echo "Press enter to continue..."; read -r ;;
+        L|l) force_devops_log_scan; echo ""; echo "Press enter to continue..."; read -r ;;
         A|a) spawn_idle_agents; echo ""; echo "Press enter to continue..."; read -r ;;
         C|c) show_agent_context; echo ""; echo "Press enter to continue..."; read -r ;;
         K|k) kill_all_agents; echo ""; echo "Press enter to continue..."; read -r ;;

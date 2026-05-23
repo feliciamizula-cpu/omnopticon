@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -25,6 +26,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
     private readonly ChannelReader<TaskNotification> _channelReader;
     private readonly SemaphoreSlim _concurrencyLimiter;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
 
     public ArgusEventDrivenWorkerService(
         IReconWorker worker,
@@ -74,6 +76,60 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         }
 
         await _concurrencyLimiter.WaitAsync(stoppingToken);
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Event-driven worker {WorkerType} ({WorkerId}) stopping, initiating graceful drain (timeout: {DrainTimeout})",
+            _worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout);
+
+        var baseStopTask = base.StopAsync(cancellationToken);
+
+        using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        drainCts.CancelAfter(_options.DrainTimeout);
+
+        try
+        {
+            await _concurrencyLimiter.WaitAsync(drainCts.Token);
+            _concurrencyLimiter.Release();
+            _logger.LogInformation("Event-driven worker {WorkerType} ({WorkerId}) drain complete, all in-flight tasks finished",
+                _worker.Capability.WorkerType, _options.WorkerId);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Event-driven worker {WorkerType} ({WorkerId}) drain timeout expired ({DrainTimeout}), forcing shutdown of remaining tasks",
+                _worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout);
+
+            if (_options.SaveCheckpointOnShutdown)
+            {
+                await FailRemainingTasksWithCheckpointAsync(cancellationToken);
+            }
+        }
+
+        try
+        {
+            await baseStopTask;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task FailRemainingTasksWithCheckpointAsync(CancellationToken cancellationToken)
+    {
+        foreach (var (taskId, checkpointJson) in _taskCheckpoints.ToArray())
+        {
+            try
+            {
+                _logger.LogInformation("Failing task {TaskId} with checkpoint due to worker shutdown", taskId);
+                var shutdownEx = new OperationCanceledException("Worker shutting down");
+                await FailTaskAsync(taskId, shutdownEx, cancellationToken, checkpointJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to record shutdown checkpoint for task {TaskId}", taskId);
+            }
+        }
     }
 
     private async Task ProcessTaskWithReleaseAsync(TaskNotification notification, CancellationToken stoppingToken)
@@ -130,6 +186,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
     {
         var task = notification.Task;
         var stopwatch = Stopwatch.StartNew();
+        _taskCheckpoints[task.TaskId] = task.CheckpointJson;
 
         _logger.LogInformation("Event-driven worker {WorkerId} processing task {TaskId} ({TaskType})",
             _options.WorkerId, task.TaskId, task.TaskType);
@@ -197,6 +254,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         }
         finally
         {
+            _taskCheckpoints.TryRemove(task.TaskId, out _);
             heartbeatCts.Cancel();
             await heartbeatTask;
             notification.CompletionCts.Cancel();
@@ -254,6 +312,11 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
 
     private async Task ReportProgressAsync(Guid taskId, int percent, string message, string? checkpointJson, CancellationToken cancellationToken)
     {
+        if (checkpointJson is not null)
+        {
+            _taskCheckpoints[taskId] = checkpointJson;
+        }
+
         var request = new UpdateReconTaskProgressRequest(percent, message, checkpointJson);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = _options.TaskServiceBaseAddress;
@@ -401,9 +464,10 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken)
+    private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: null);
+        var checkpoint = checkpointJson ?? (_taskCheckpoints.TryGetValue(taskId, out var saved) ? saved : null);
+        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: checkpoint);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = _options.TaskServiceBaseAddress;
 
