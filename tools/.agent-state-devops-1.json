@@ -2,13 +2,13 @@
   "agentId": "devops-1",
   "currentTaskId": null,
   "currentTaskDescription": null,
-  "context": "compose valid, 7 agents active, no critical alerts, devops-1 and agent-1 and devops-2 all running task 052",
+  "context": null,
   "status": "idle",
   "pid": null,
   "startedAt": null,
-  "lastRunAt": "2026-05-23T05:46:22.814Z",
-  "lastHeartbeatAt": "2026-05-23T05:46:22.814Z",
+  "lastRunAt": "2026-05-23T17:34:33.779Z",
+  "lastHeartbeatAt": "2026-05-23T17:35:36.158Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T05:47:56.430Z",
+  "updatedAt": "2026-05-23T17:35:51.005Z",
   "workStatus": "idle"
 }

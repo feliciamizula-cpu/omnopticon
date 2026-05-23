@@ -370,7 +370,7 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
     {
         if (!_programs.TryGetValue(request.ProgramId, out var program))
         {
-            return Task.FromResult(new ScopeValidationResult(request.ProgramId, request.Target, false, null, "Program was not found."));
+            return Task.FromResult(new ScopeValidationResult(request.ProgramId, request.Target, false, null, ScopeValidationReason.NoMatchingInclude, RulePattern: null));
         }
 
         return Task.FromResult(ScopeMatching.Validate(request, program.Scopes));
@@ -534,17 +534,7 @@ public Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken c
 
         foreach (var revision in export.RuleRevisions)
         {
-            record.RuleRevisions.Add(new ProgramRuleRevisionRecord
-            {
-                RevisionId = revision.RevisionId != Guid.Empty ? revision.RevisionId : Guid.NewGuid(),
-                ProgramId = existingProgramId,
-                Version = revision.Version,
-                ChangeType = revision.ChangeType,
-                OldValue = revision.OldValue,
-                NewValue = revision.NewValue,
-                ChangedBy = revision.ChangedBy,
-                CreatedAt = revision.CreatedAt
-            });
+            record.RuleRevisions.Add(revision);
         }
 
         _programs[existingProgramId] = record;
@@ -567,10 +557,10 @@ internal sealed class InMemoryProgramRecord
     public string? ExternalUrl { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
-    public List<ProgramScopeDto> Scopes { get; } = [];
-    public List<ProgramRuleRevisionDto> RuleRevisions { get; } = [];
-    public List<ScopeExclusionRecord> ScopeExclusions { get; } = [];
-    public List<RateLimitPolicyRecord> RateLimitPolicies { get; } = [];
+    public List<ProgramScopeDto> Scopes { get; init; } = [];
+    public List<ProgramRuleRevisionDto> RuleRevisions { get; init; } = [];
+    public List<ScopeExclusionRecord> ScopeExclusions { get; init; } = [];
+    public List<RateLimitPolicyRecord> RateLimitPolicies { get; init; } = [];
 
     public ProgramDto ToDto() =>
         new(ProgramId, Name, Source, ExternalUrl, CreatedAt, UpdatedAt, Scopes.ToArray());
@@ -680,7 +670,7 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
 
         if (!exists)
         {
-            return new ScopeValidationResult(request.ProgramId, request.Target, false, null, "Program was not found.");
+            return new ScopeValidationResult(request.ProgramId, request.Target, false, null, ScopeValidationReason.NoMatchingInclude, RulePattern: null);
         }
 
         var scopes = await dbContext.Scopes
@@ -1106,15 +1096,15 @@ internal static class ScopeMatching
 
             if (scope.Action == ScopeRuleAction.Exclude)
             {
-                return new ScopeValidationResult(request.ProgramId, request.Target, false, scope.ScopeId, "Target matched an exclusion.");
+                return new ScopeValidationResult(request.ProgramId, request.Target, false, scope.ScopeId, ScopeValidationReason.ExcludedByRule, RulePattern: scope.Pattern);
             }
 
             includeMatch ??= scope;
         }
 
         return includeMatch is null
-            ? new ScopeValidationResult(request.ProgramId, request.Target, false, null, "Target did not match an in-scope rule.")
-            : new ScopeValidationResult(request.ProgramId, request.Target, true, includeMatch.ScopeId, "Target matched an in-scope rule.");
+            ? new ScopeValidationResult(request.ProgramId, request.Target, false, null, ScopeValidationReason.NoMatchingInclude, RulePattern: null)
+            : new ScopeValidationResult(request.ProgramId, request.Target, true, includeMatch.ScopeId, ScopeValidationReason.IncludedByRule, RulePattern: includeMatch.Pattern);
     }
 
     private static bool Matches(string pattern, string target)

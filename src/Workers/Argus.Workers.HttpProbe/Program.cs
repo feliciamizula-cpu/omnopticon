@@ -70,241 +70,134 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         string? httpsError = null;
         string? httpsRedirectUrl = null;
         var redirectChain = new List<string>();
+        string outputSummary = "";
 
         foreach (var scheme in schemes)
         {
             var probeUrl = $"{scheme}://{host}/";
             redirectChain.Clear();
+            var redirectCount = 0;
+            var currentUri = new Uri(probeUrl);
 
             try
             {
-                await context.ReportProgressAsync(15, $"Probing {probeUrl}", $"{{\"scheme\":\"{scheme}\"}}");
+                using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
+                request.Headers.Accept.ParseAdd("*/*");
+                request.Headers.UserAgent.ParseAdd("Argus-HttpProbe/1.0");
 
-                var client = _httpClientFactory.CreateClient("probe");
-                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+                var httpClient = _httpClientFactory.CreateClient("probe");
+                httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                var statusCode = (int)response.StatusCode;
+                var effectiveCharset = response.Content.Headers.ContentType?.CharSet ?? "utf-8";
 
-                if (!followRedirects)
+                await context.ReportProgressAsync(40, $"Got {statusCode} from {scheme}://{host}", null);
+
+                var headersDict = new Dictionary<string, string>();
+                foreach (var header in response.Headers.Concat(response.Content.Headers))
                 {
-                    client.DefaultRequestHeaders.Remove("Authorization");
+                    headersDict[header.Key] = string.Join(", ", header.Value);
                 }
 
-                using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
-                request.Headers.UserAgent.ParseAdd("ArgusRecon/1.0 (bug-bounty-recon)");
-                request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/json,*/*");
+                var headersArtifact = new WorkerProducedArtifact(
+                    "HttpHeaders",
+                    $"headers-{host}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{redirectCount}",
+                    "application/json",
+                    Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { url = currentUri.ToString(), statusCode, headers = headersDict })),
+                    new Dictionary<string, string>
+                    {
+                        ["url"] = currentUri.ToString(),
+                        ["status_code"] = statusCode.ToString(),
+                        ["redirect_count"] = redirectCount.ToString()
+                    });
 
-                var redirectCount = 0;
-                var currentUri = new Uri(probeUrl);
+                producedArtifacts.Add(headersArtifact);
 
-                while (redirectCount <= MaxRedirects)
+                if (statusCode >= 300 && statusCode < 400 && response.Headers.Location != null)
                 {
+                    redirectCount++;
+                    if (redirectCount > 10)
+                    {
+                        outputSummary = JsonSerializer.Serialize(new { host, error = "Too many redirects" });
+                        return new WorkerProcessResult(false, outputSummary, producedAssets);
+                    }
                     redirectChain.Add(currentUri.ToString());
-
-                    using var requestCopy = new HttpRequestMessage(HttpMethod.Get, currentUri);
-                    requestCopy.Headers.UserAgent.ParseAdd("ArgusRecon/1.0 (bug-bounty-recon)");
-                    requestCopy.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/json,*/*");
-
-                    var response = await client.SendAsync(requestCopy, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-                    var statusCode = (int)response.StatusCode;
-                    var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
-                    var charset = response.Content.Headers.ContentType?.CharSet ?? "utf-8";
-                    var contentLength = response.Content.Headers.ContentLength ?? 0;
-
-                    if ((statusCode == 429 || statusCode == 503) && !string.IsNullOrWhiteSpace(host))
+                    var redirectUri = new Uri(currentUri, response.Headers.Location);
+                    if (redirectUri.Host != currentUri.Host)
                     {
-                        var retryAfter = GetRetryAfter(response.Headers.RetryAfter);
-                        await context.SignalBackpressureAsync(new RateLimitBackpressureSignal(
-                            host,
-                            $"host:{host.Trim().ToLowerInvariant()}",
-                            retryAfter,
-                            statusCode));
+                        outputSummary = JsonSerializer.Serialize(new { host, error = "Cross-site redirect blocked" });
+                        return new WorkerProcessResult(false, outputSummary, producedAssets);
                     }
+                    currentUri = redirectUri;
+                    continue;
+                }
 
-                    await context.ReportProgressAsync(40, $"Received {statusCode} from {currentUri.Host}", null);
+                var actualContentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+                var bodyToStore = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                var truncated = false;
+                if (bodyToStore.Length > 1024 * 512)
+                {
+                    bodyToStore = bodyToStore.Take(1024 * 512).ToArray();
+                    truncated = true;
+                }
 
-                    var headersDict = new Dictionary<string, string>();
-                    foreach (var header in response.Headers)
+                var bodyArtifact = new WorkerProducedArtifact(
+                    "HttpBody",
+                    $"body-{host}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{redirectCount}",
+                    actualContentType,
+                    bodyToStore,
+                    new Dictionary<string, string>
                     {
-                        headersDict[header.Key] = string.Join(", ", header.Value);
-                    }
-                    foreach (var header in response.Content.Headers)
-                    {
-                        headersDict[header.Key] = string.Join(", ", header.Value);
-                    }
+                        ["url"] = currentUri.ToString(),
+                        ["status_code"] = statusCode.ToString(),
+                        ["content_type"] = actualContentType,
+                        ["charset"] = effectiveCharset,
+                        ["size_bytes"] = bodyToStore.Length.ToString(),
+                        ["truncated"] = truncated.ToString().ToLowerInvariant()
+                    });
+                producedArtifacts.Add(bodyArtifact);
 
-                    var headersArtifact = new WorkerProducedArtifact(
-                        "HttpHeaders",
-                        $"headers-{host}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{redirectCount}",
-                        "application/json",
-                        JsonSerializer.SerializeToUtfBytes(new { url = currentUri.ToString(), statusCode, headers = headersDict }),
-                        new Dictionary<string, string>
-                        {
-                            ["url"] = currentUri.ToString(),
-                            ["status_code"] = statusCode.ToString(),
-                            ["redirect_count"] = redirectCount.ToString()
-                        });
-                    producedArtifacts.Add(headersArtifact);
+                if (scheme == "https")
+                    httpsSucceeded = true;
 
-                    var headersAsset = new WorkerProducedAsset(
-                        "Observation",
-                        $"HTTP headers from {currentUri.Host}",
-                        "HttpHeaders",
+                await context.ReportProgressAsync(70, $"Storing {bodyToStore.Length} bytes from {currentUri.Host}", null);
+
+                if (actualContentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+                {
+                    var bodyText = DecodeBody(bodyToStore, effectiveCharset);
+                    var title = ExtractTitle(bodyText);
+
+                    producedAssets.Add(new WorkerProducedAsset(
+                        "HtmlPage",
+                        currentUri.ToString(),
+                        actualContentType,
                         0.9m,
                         new Dictionary<string, string>
                         {
-                            ["url"] = currentUri.ToString(),
-                            ["status_code"] = statusCode.ToString(),
-                            ["redirect_count"] = redirectCount.ToString(),
-                            ["headers.count"] = headersDict.Count.ToString()
-                        },
-                        ["http", "headers", $"status-{statusCode}"]);
-                    producedAssets.Add(headersAsset);
-
-                    if (statusCode >= 300 && statusCode < 400 && response.Headers.Location != null)
-                    {
-                        var location = response.Headers.Location;
-                        if (!location.IsAbsoluteUri)
-                        {
-                            location = new Uri(currentUri, location);
-                        }
-
-                        var redirectScheme = location.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase);
-                        if (redirectScheme && scheme == "https")
-                        {
-                            httpsRedirectUrl = location.ToString();
-                            goto httpsFallback;
-                        }
-
-                        currentUri = location;
-                        redirectCount++;
-                        continue;
-                    }
-
-                    var actualContentType = DetectContentType(contentType, currentUri.ToString());
-                    var effectiveCharset = DetectCharset(charset, actualContentType);
-
-                    producedAssets.Add(new WorkerProducedAsset(
-                        "Url",
-                        currentUri.ToString(),
-                        null,
-                        0.95m,
-                        new Dictionary<string, string>
-                        {
-                            ["http.status_code"] = statusCode.ToString(),
-                            ["http.content_type"] = contentType,
-                            ["http.charset"] = effectiveCharset,
-                            ["http.redirects"] = redirectCount.ToString(),
-                            ["url.scheme"] = currentUri.Scheme,
-                            ["redirect_chain"] = string.Join(" -> ", redirectChain)
-                        },
-                        ["http", "alive", currentUri.Scheme]));
-
-                    producedAssets.Add(new WorkerProducedAsset(
-                        "HttpResponse",
-                        $"{currentUri} {statusCode} {contentType}",
-                        actualContentType,
-                        0.95m,
-                        new Dictionary<string, string>
-                        {
-                            ["status_code"] = statusCode.ToString(),
-                            ["content_type"] = actualContentType,
-                            ["content_length"] = contentLength.ToString(),
+                            ["title"] = title ?? string.Empty,
+                            ["size_bytes"] = bodyToStore.Length.ToString(),
                             ["charset"] = effectiveCharset,
-                            ["response.scheme"] = currentUri.Scheme,
                             ["redirect_count"] = redirectCount.ToString()
                         },
-                        ["response", currentUri.Scheme]));
+                        ["html", "webpage", "alive"],
+                        new[] { new ArtifactReference("HttpBody", bodyArtifact.Name, bodyArtifact.ComputeHash()) }));
 
-                    if (statusCode >= 200 && statusCode < 300 && contentLength >= 0 && contentLength <= MaxBodySizeBytes)
+                    if (!string.IsNullOrEmpty(title))
                     {
-                        var bodyBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-                        var truncated = bodyBytes.Length > MaxBodySizeBytes;
-                        var bodyToStore = truncated ? bodyBytes.AsSpan(0, MaxBodySizeBytes).ToArray() : bodyBytes;
-
-                        var bodyArtifact = new WorkerProducedArtifact(
-                            "HttpBody",
-                            $"body-{host}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{redirectCount}",
-                            actualContentType,
-                            bodyToStore,
+                        producedAssets.Add(new WorkerProducedAsset(
+                            "Title",
+                            title,
+                            "text/plain",
+                            0.3m,
                             new Dictionary<string, string>
                             {
-                                ["url"] = currentUri.ToString(),
-                                ["status_code"] = statusCode.ToString(),
-                                ["content_type"] = actualContentType,
-                                ["charset"] = effectiveCharset,
                                 ["size_bytes"] = bodyToStore.Length.ToString(),
-                                ["truncated"] = truncated.ToString().ToLowerInvariant()
-                            });
-                        producedArtifacts.Add(bodyArtifact);
-
-                        await context.ReportProgressAsync(70, $"Storing {bodyToStore.Length} bytes from {currentUri.Host}", null);
-
-                        if (actualContentType.Contains("html", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var bodyText = DecodeBody(bodyToStore, effectiveCharset);
-                            var title = ExtractTitle(bodyText);
-
-                            producedAssets.Add(new WorkerProducedAsset(
-                                "HtmlPage",
-                                currentUri.ToString(),
-                                actualContentType,
-                                0.9m,
-                                new Dictionary<string, string>
-                                {
-                                    ["title"] = title ?? string.Empty,
-                                    ["size_bytes"] = bodyToStore.Length.ToString(),
-                                    ["charset"] = effectiveCharset,
-                                    ["redirect_count"] = redirectCount.ToString()
-                                },
-                                ["html", "webpage", "alive"],
-                                new[] { new ArtifactReference("HttpBody", bodyArtifact.Name, bodyArtifact.ComputeHash()) }));
-
-                            if (!string.IsNullOrEmpty(title))
-                            {
-                                producedAssets.Add(new WorkerProducedAsset(
-                                    "Observation",
-                                    $"Page title: {title}",
-                                    "HtmlTitle",
-                                    0.7m,
-                                    new Dictionary<string, string>
-                                    {
-                                        ["url"] = currentUri.ToString(),
-                                        ["title"] = title
-                                    },
-                                    ["html", "title"]));
-                            }
-                        }
-                        else if (actualContentType.Contains("json", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var bodyText = DecodeBody(bodyToStore, effectiveCharset);
-
-                            producedAssets.Add(new WorkerProducedAsset(
-                                "JsonDocument",
-                                currentUri.ToString(),
-                                actualContentType,
-                                0.9m,
-                                new Dictionary<string, string>
-                                {
-                                    ["size_bytes"] = bodyToStore.Length.ToString(),
-                                    ["charset"] = effectiveCharset,
-                                    ["redirect_count"] = redirectCount.ToString()
-                                },
-                                ["json", "api", "alive"],
-                                new[] { new ArtifactReference("HttpBody", bodyArtifact.Name, bodyArtifact.ComputeHash()) }));
-                        }
+                                ["charset"] = effectiveCharset,
+                                ["redirect_count"] = redirectCount.ToString()
+                            },
+                            ["json", "api", "alive"],
+                            Array.Empty<ArtifactReference>()));
                     }
-
-                    break;
-                }
-
-                if (scheme == "https")
-                {
-                    httpsSucceeded = true;
-                }
-
-                httpsFallback:
-                if (httpsSucceeded || scheme == "http")
-                {
-                    break;
                 }
             }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -327,7 +220,6 @@ internal sealed partial class HttpProbeWorker : IReconWorker
             }
         }
 
-        string outputSummary;
         if (httpsSucceeded)
         {
             outputSummary = JsonSerializer.Serialize(new { host, scheme = "https", redirects = redirectChain.Count });

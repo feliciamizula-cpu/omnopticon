@@ -47,6 +47,7 @@
                             <th>Status</th>
                             <th>Risk</th>
                             <th>Interesting</th>
+                            <th>Staleness</th>
                             <th>Tags</th>
                             <th>Last Seen</th>
                         </tr>
@@ -76,6 +77,15 @@
                                     <span class="risk-score risk-@(asset.RiskScore >= 70 ? "high" : asset.RiskScore >= 40 ? "medium" : "low")">@asset.RiskScore</span>
                                 </td>
                                 <td>@asset.InterestingScore</td>
+                                <td>
+                                    <div class="staleness-cell" title="Staleness: @asset.StalenessScore">
+                                        <div class="staleness-bar">
+                                            <div class="staleness-fill staleness-@(asset.StalenessScore >= 70 ? "high" : asset.StalenessScore >= 40 ? "medium" : "low")"
+                                                 style="width: @asset.StalenessScore%"></div>
+                                        </div>
+                                        <span class="staleness-value">@asset.StalenessScore</span>
+                                    </div>
+                                </td>
                                 <td>
                                     <div class="tags-cell">
                                         @if (asset.Tags != null)
@@ -194,7 +204,7 @@
                 _loading = false;
                 return;
             }
-            JsonElement assetsRoot = state.Assets is not null ? JsonDocument.Parse(state.Assets.GetRawText()).RootElement : default;
+            JsonElement assetsRoot = state.Assets is not null ? JsonDocument.Parse(state.Assets.ToJsonString()).RootElement : default;
             JsonElement assetsArray;
             if (assetsRoot.ValueKind == JsonValueKind.Object && assetsRoot.TryGetProperty("_embedded", out var embedded))
             {

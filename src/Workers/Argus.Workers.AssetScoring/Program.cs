@@ -1,6 +1,7 @@
 using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Events;
+using Argus.Contracts.Tasks;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
 using System.Text.Json;

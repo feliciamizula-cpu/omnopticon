@@ -1,13 +1,14 @@
 {
   "agentId": "agent-5",
-  "currentTaskId": "018",
-  "currentTaskDescription": "Design #20: RealtimeService fully in-memory - needs durability",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": null,
-  "status": "working",
-  "pid": 2827934,
-  "startedAt": "2026-05-23T05:03:26.311Z",
-  "lastRunAt": "2026-05-23T05:03:26.311Z",
-  "lastHeartbeatAt": "2026-05-23T05:47:45.318Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T05:47:56.430Z"
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T17:34:31.515Z",
+  "lastHeartbeatAt": "2026-05-23T17:35:36.158Z",
+  "lastError": "Task 018 requeued during reconciliation",
+  "updatedAt": "2026-05-23T17:35:51.005Z",
+  "workStatus": "idle"
 }

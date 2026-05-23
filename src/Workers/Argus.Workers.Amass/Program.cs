@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Workers;
+using Argus.ServiceDefaults;
 
 var builder = Host.CreateApplicationBuilder(args);
 

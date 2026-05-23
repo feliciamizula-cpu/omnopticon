@@ -29,7 +29,6 @@ public sealed class ArgusWorkerBackgroundService(
     };
     private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
-    private readonly ConcurrentDictionary<Guid, string?> _runningTasks = new();
     private HttpClient? _artifactStore;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -470,9 +469,8 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var checkpoint = checkpointJson ?? (_runningTasks.TryGetValue(taskId, out var state) ? state : null);
-        var retryable = ex is WorkerTimeoutException timeoutEx ? timeoutEx.IsRetryable : true;
-        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: retryable, CheckpointJson: checkpoint);
+        var checkpoint = checkpointJson ?? (_taskCheckpoints.TryGetValue(taskId, out var saved) ? saved : null);
+        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, true, checkpoint);
         var client = CreateClient(_options.TaskServiceBaseAddress);
 
         using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/fail", request, JsonOptions, cancellationToken);
@@ -543,7 +541,7 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task SaveCheckpointAsync(Guid taskId, string checkpointJson, CancellationToken cancellationToken)
     {
-        _runningTasks[taskId] = checkpointJson;
+        _taskCheckpoints[taskId] = checkpointJson;
 
         var client = CreateClient(_options.TaskServiceBaseAddress);
         var request = new SaveWorkerContextRequest(_options.WorkerId, worker.Capability.WorkerType, checkpointJson);
@@ -659,4 +657,13 @@ internal static class ScopeValidationTarget
     }
 }
 
-internal class WorkerTimeoutException(string Message, bool IsRetryable = true) : Exception(Message);
+internal class WorkerTimeoutException : Exception
+{
+    public bool IsRetryable { get; }
+
+    public WorkerTimeoutException(string message, bool isRetryable = true) 
+        : base(message)
+    {
+        IsRetryable = isRetryable;
+    }
+}

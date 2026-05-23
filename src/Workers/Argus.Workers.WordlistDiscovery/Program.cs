@@ -48,8 +48,8 @@ internal sealed class WordlistDiscoveryWorker : IReconWorker
         var baseUri = new Uri(baseUrl);
         var assets = new[]
         {
-            new WorkerProducedAsset("Url", new Uri(baseUri, "/admin").ToString(), "AdminRoute", new Dictionary<string, string> { ["source"] = "wordlist" }, ["interesting"]),
-            new WorkerProducedAsset("Url", new Uri(baseUri, "/health").ToString(), null, new Dictionary<string, string> { ["source"] = "wordlist" }, ["probe"])
+            new WorkerProducedAsset("Url", new Uri(baseUri, "/admin").ToString(), "AdminRoute", null, new Dictionary<string, string> { ["source"] = "wordlist" }, Tags: null, ArtifactReferences: null),
+            new WorkerProducedAsset("Url", new Uri(baseUri, "/health").ToString(), null, null, new Dictionary<string, string> { ["source"] = "wordlist" }, Tags: null, ArtifactReferences: null)
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { baseUrl, produced = assets.Length }), assets);

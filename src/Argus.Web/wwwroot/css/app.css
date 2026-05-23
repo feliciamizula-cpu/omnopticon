@@ -509,6 +509,44 @@
   color: var(--accent-hover);
 }
 
+.staleness-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.staleness-bar {
+  width: 50px;
+  height: 6px;
+  background: var(--bg-active);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.staleness-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.staleness-fill.staleness-low {
+  background: var(--success);
+}
+
+.staleness-fill.staleness-medium {
+  background: var(--warning);
+}
+
+.staleness-fill.staleness-high {
+  background: var(--danger);
+}
+
+.staleness-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 24px;
+}
+
 .bulk-toolbar {
   display: flex;
   align-items: center;

@@ -48,9 +48,9 @@ internal sealed class HeadlessSpiderWorker : IReconWorker
         var baseUri = new Uri(url);
         var assets = new[]
         {
-            new WorkerProducedAsset("Url", new Uri(baseUri, "/dashboard").ToString(), "RenderedRoute", new Dictionary<string, string> { ["source"] = "headless" }, ["spa"]),
-            new WorkerProducedAsset("ApiEndpoint", new Uri(baseUri, "/api/bootstrap").ToString(), "REST", new Dictionary<string, string> { ["source"] = "network-capture" }, ["api"]),
-            new WorkerProducedAsset("JavaScriptFile", new Uri(baseUri, "/assets/runtime.js").ToString(), null, new Dictionary<string, string> { ["source"] = "network-capture" }, ["js"])
+            new WorkerProducedAsset("Url", new Uri(baseUri, "/dashboard").ToString(), "RenderedRoute", null, new Dictionary<string, string> { ["source"] = "headless" }, Tags: null, ArtifactReferences: null),
+            new WorkerProducedAsset("ApiEndpoint", new Uri(baseUri, "/api/bootstrap").ToString(), "REST", null, new Dictionary<string, string> { ["source"] = "network-capture" }, Tags: null, ArtifactReferences: null),
+            new WorkerProducedAsset("JavaScriptFile", new Uri(baseUri, "/assets/runtime.js").ToString(), null, null, new Dictionary<string, string> { ["source"] = "network-capture" }, Tags: null, ArtifactReferences: null)
         };
 
         return new WorkerProcessResult(false, JsonSerializer.Serialize(new { url, produced = assets.Length }), assets);

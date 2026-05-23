@@ -1,13 +1,14 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "055",
-  "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+  "currentTaskId": "052",
+  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
   "context": null,
-  "status": "working",
-  "pid": 2827245,
-  "startedAt": "2026-05-23T05:03:23.121Z",
-  "lastRunAt": "2026-05-23T05:03:23.121Z",
-  "lastHeartbeatAt": "2026-05-23T05:48:05.044Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T05:48:05.044Z"
+  "status": "crashed",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T17:35:18.485Z",
+  "lastHeartbeatAt": "2026-05-23T17:35:55.071Z",
+  "lastError": "agent process exited unexpectedly",
+  "updatedAt": "2026-05-23T17:35:55.071Z",
+  "workStatus": "idle"
 }

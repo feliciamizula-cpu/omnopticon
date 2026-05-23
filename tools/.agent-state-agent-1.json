@@ -1,14 +1,14 @@
 {
   "agentId": "agent-1",
-  "workStatus": "idle",
-  "currentTaskId": "052",
-  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
-  "status": "working",
-  "pid": 3151928,
-  "updatedAt": "2026-05-23T05:48:04.755Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": null,
-  "startedAt": "2026-05-23T05:39:55.962Z",
-  "lastHeartbeatAt": "2026-05-23T05:48:04.755Z",
-  "lastRunAt": "2026-05-23T05:39:55.962Z",
-  "lastError": null
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T17:35:09.992Z",
+  "lastHeartbeatAt": "2026-05-23T17:35:36.158Z",
+  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
+  "updatedAt": "2026-05-23T17:35:51.005Z",
+  "workStatus": "idle"
 }

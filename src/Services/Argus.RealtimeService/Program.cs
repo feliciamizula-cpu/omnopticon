@@ -281,6 +281,7 @@ internal sealed class RealtimeStore
     private readonly ConcurrentDictionary<Guid, Channel<IntegrationEventEnvelope<JsonNode>>> _subscriptions = new();
     private readonly IServiceProvider _services;
     private readonly ILogger<RealtimeStore> _logger;
+    private readonly ConcurrentQueue<WorkerRecord> _pendingWorkers = new();
 
     public RealtimeStore(IServiceProvider services, ILogger<RealtimeStore> logger)
     {
@@ -496,17 +497,6 @@ public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, Can
             null,
             null,
             $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
-
-        _pendingWorkers.Enqueue(new WorkerRecord
-        {
-            WorkerId = request.WorkerId,
-            WorkerType = request.WorkerType,
-            Version = null,
-            RunningTasks = request.RunningTasks,
-            MaxConcurrency = request.MaxConcurrency,
-            LastSeenAt = request.SeenAt,
-            IsOnline = true
-        });
 
         return worker;
     }
