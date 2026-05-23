@@ -296,6 +296,27 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         return Task.FromResult<ProgramScopeDto?>(scope);
     }
 
+    public Task<bool> DeleteScopeAsync(Guid programId, Guid scopeId, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var program))
+        {
+            return Task.FromResult(false);
+        }
+
+        lock (program.Scopes)
+        {
+            var scope = program.Scopes.FirstOrDefault(s => s.ScopeId == scopeId);
+            if (scope is null)
+            {
+                return Task.FromResult(false);
+            }
+
+            program.Scopes.Remove(scope);
+            program.UpdatedAt = DateTimeOffset.UtcNow;
+            return Task.FromResult(true);
+        }
+    }
+
     public Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken)
     {
         if (!_programs.TryGetValue(request.ProgramId, out var program))
@@ -484,6 +505,26 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return scope.ToDto();
+    }
+
+    public async Task<bool> DeleteScopeAsync(Guid programId, Guid scopeId, CancellationToken cancellationToken)
+    {
+        var scope = await dbContext.Scopes.FirstOrDefaultAsync(s => s.ProgramId == programId && s.ScopeId == scopeId, cancellationToken);
+        if (scope is null)
+        {
+            return false;
+        }
+
+        var program = await dbContext.Programs.FirstOrDefaultAsync(p => p.ProgramId == programId, cancellationToken);
+        if (program is null)
+        {
+            return false;
+        }
+
+        dbContext.Scopes.Remove(scope);
+        program.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken)
