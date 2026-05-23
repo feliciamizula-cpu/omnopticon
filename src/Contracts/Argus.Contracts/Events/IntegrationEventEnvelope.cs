@@ -30,6 +30,10 @@ public sealed record IntegrationEventEnvelope<T>
             Payload = payload
         };
     }
+
+    public IntegrationEventEnvelope<T> WithEventId(Guid eventId) => this with { EventId = eventId };
+
+    public void SetEventId(Guid eventId) => throw new NotSupportedException("Use WithEventId instead");
 }
 
 public sealed record ProgramCreated(Guid ProgramId, string Name);

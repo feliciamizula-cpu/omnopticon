@@ -2,6 +2,7 @@ using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
+using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 using System.Collections.Concurrent;
 using System.Text;
@@ -13,7 +14,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
-builder.Services.AddSingleton<RealtimeStore>();
+
+var dbPath = builder.Configuration.GetConnectionString("realtimedb")
+    ?? builder.Configuration.GetConnectionString("sqlite")
+    ?? "realtime.db";
+
+builder.Services.AddDbContext<RealtimeDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}"));
+
 builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
 builder.Services.AddSingleton(sp =>
 {
@@ -29,8 +37,22 @@ builder.Services.AddSingleton(sp =>
     if (connection is null) return null!;
     return connection.CreateChannelAsync().GetAwaiter().GetResult();
 });
+builder.Services.AddSingleton<RealtimeStore>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<RealtimeStore>>();
+    return new RealtimeStore(sp, logger);
+});
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+    await dbContext.Database.EnsureCreatedAsync();
+}
+
+var store = app.Services.GetRequiredService<RealtimeStore>();
+await store.InitializeAsync(app.Services);
 
 app.MapDefaultEndpoints();
 
@@ -146,6 +168,147 @@ internal sealed class RealtimeStore
     private readonly ConcurrentDictionary<string, WorkerStatusDto> _workers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, WorkerCapabilityDescriptor> _workerCapabilities = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<Guid, Channel<IntegrationEventEnvelope<JsonNode>>> _subscriptions = new();
+    private readonly ConcurrentQueue<EventRecord> _pendingEvents = new();
+    private readonly ConcurrentQueue<WorkerRecord> _pendingWorkers = new();
+    private readonly IServiceProvider _services;
+    private readonly ILogger<RealtimeStore> _logger;
+
+    public RealtimeStore(IServiceProvider services, ILogger<RealtimeStore> logger)
+    {
+        _services = services;
+        _logger = logger;
+    }
+
+    public async Task InitializeAsync(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+
+        var recentEvents = await dbContext.Events
+            .OrderByDescending(e => e.RecordedAt)
+            .Take(5_000)
+            .ToListAsync();
+
+        foreach (var evt in recentEvents.AsEnumerable().Reverse())
+        {
+            var payload = string.IsNullOrWhiteSpace(evt.PayloadJson)
+                ? new JsonObject()
+                : JsonNode.Parse(evt.PayloadJson) ?? new JsonObject();
+
+            var envelope = IntegrationEventEnvelope<JsonNode>.Create(
+                payload,
+                evt.EventType,
+                evt.SourceService ?? "unknown",
+                evt.CorrelationId,
+                evt.CausationId).WithEventId(evt.EventId);
+            _events.Enqueue(envelope);
+        }
+
+        var workers = await dbContext.Workers.ToListAsync();
+        foreach (var worker in workers)
+        {
+            _workers[worker.WorkerId] = new WorkerStatusDto(
+                worker.WorkerId,
+                worker.WorkerType,
+                worker.Version,
+                worker.RunningTasks,
+                worker.MaxConcurrency,
+                worker.LastSeenAt,
+                worker.IsOnline);
+        }
+
+        var capabilities = await dbContext.WorkerCapabilities.ToListAsync();
+        foreach (var cap in capabilities)
+        {
+            var types = string.IsNullOrWhiteSpace(cap.SubscribedAssetTypes)
+                ? Array.Empty<string>()
+                : JsonSerializer.Deserialize<string[]>(cap.SubscribedAssetTypes) ?? Array.Empty<string>();
+
+            _workerCapabilities[cap.WorkerId] = new WorkerCapabilityDescriptor(
+                cap.WorkerType,
+                cap.MaxConcurrency,
+                types);
+        }
+
+        _ = Task.Run(PersistWorkerLoop);
+    }
+
+    private async Task PersistWorkerLoop()
+    {
+        while (true)
+        {
+            try
+            {
+                await Task.Delay(1_000);
+
+                if (_pendingWorkers.IsEmpty && _pendingEvents.IsEmpty)
+                    continue;
+
+                using var scope = _services.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+
+                var workersToSave = new List<WorkerRecord>();
+                while (_pendingWorkers.TryDequeue(out var worker))
+                {
+                    workersToSave.Add(worker);
+                }
+
+                if (workersToSave.Count != 0)
+                {
+                    foreach (var worker in workersToSave)
+                    {
+                        var existing = await dbContext.Workers.FindAsync(worker.WorkerId);
+                        if (existing is null)
+                        {
+                            dbContext.Workers.Add(worker);
+                        }
+                        else
+                        {
+                            existing.WorkerType = worker.WorkerType;
+                            existing.Version = worker.Version;
+                            existing.RunningTasks = worker.RunningTasks;
+                            existing.MaxConcurrency = worker.MaxConcurrency;
+                            existing.LastSeenAt = worker.LastSeenAt;
+                            existing.IsOnline = worker.IsOnline;
+                        }
+
+                        var existingCap = await dbContext.WorkerCapabilities.FindAsync(worker.WorkerId);
+                        if (existingCap is null && _workerCapabilities.TryGetValue(worker.WorkerId, out var cap))
+                        {
+                            dbContext.WorkerCapabilities.Add(new WorkerCapabilityRecord
+                            {
+                                WorkerId = worker.WorkerId,
+                                WorkerType = cap.WorkerType,
+                                MaxConcurrency = cap.MaxConcurrency,
+                                SubscribedAssetTypes = JsonSerializer.Serialize(cap.SubscribedAssetTypes)
+                            });
+                        }
+                    }
+                    await dbContext.SaveChangesAsync();
+                }
+
+                var eventsToSave = new List<EventRecord>();
+                while (_pendingEvents.TryDequeue(out var evt))
+                {
+                    eventsToSave.Add(evt);
+                }
+
+                if (eventsToSave.Count != 0)
+                {
+                    await dbContext.Events.AddRangeAsync(eventsToSave);
+                    await dbContext.SaveChangesAsync();
+                }
+
+                while (_events.Count > 5_000 && _events.TryDequeue(out _))
+                {
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in persist worker loop");
+            }
+        }
+    }
 
     public IReadOnlyCollection<IntegrationEventEnvelope<JsonNode>> GetEvents(int take) =>
         _events
@@ -167,6 +330,17 @@ internal sealed class RealtimeStore
             request.CausationId);
 
         _events.Enqueue(envelope);
+
+        _pendingEvents.Enqueue(new EventRecord
+        {
+            EventId = envelope.EventId,
+            EventType = envelope.EventType,
+            SourceService = envelope.SourceService,
+            RecordedAt = envelope.OccurredAt,
+            CorrelationId = envelope.CorrelationId,
+            CausationId = envelope.CausationId,
+            PayloadJson = request.PayloadJson
+        });
 
         while (_events.Count > 5_000 && _events.TryDequeue(out _))
         {
@@ -217,6 +391,17 @@ internal sealed class RealtimeStore
         _workers[request.WorkerId] = worker;
         _workerCapabilities[request.WorkerId] = request.Capability;
 
+        _pendingWorkers.Enqueue(new WorkerRecord
+        {
+            WorkerId = worker.WorkerId,
+            WorkerType = worker.WorkerType,
+            Version = worker.Version,
+            RunningTasks = worker.RunningTasks,
+            MaxConcurrency = worker.MaxConcurrency,
+            LastSeenAt = now,
+            IsOnline = true
+        });
+
         return worker;
     }
 
@@ -246,6 +431,17 @@ internal sealed class RealtimeStore
             null,
             null,
             $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
+
+        _pendingWorkers.Enqueue(new WorkerRecord
+        {
+            WorkerId = request.WorkerId,
+            WorkerType = request.WorkerType,
+            Version = null,
+            RunningTasks = request.RunningTasks,
+            MaxConcurrency = request.MaxConcurrency,
+            LastSeenAt = request.SeenAt,
+            IsOnline = true
+        });
 
         return worker;
     }

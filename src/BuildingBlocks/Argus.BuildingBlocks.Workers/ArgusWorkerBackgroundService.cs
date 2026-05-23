@@ -81,15 +81,16 @@ private readonly ArgusWorkerOptions _options = options.Value;
         var stopwatch = Stopwatch.StartNew();
         logger.LogInformation("Worker {WorkerId} leased task {TaskId} ({TaskType})", _options.WorkerId, task.TaskId, task.TaskType);
 
-        if (!string.IsNullOrEmpty(task.ScopeSnapshotJson))
+        if (!string.IsNullOrEmpty(_options.SnapshotSecretKey))
         {
-            if (!VerifyScopeSnapshot(task.ScopeSnapshotJson))
+            var snapshot = await FetchAndValidateSnapshotAsync(task.ProgramId, cancellationToken);
+            if (snapshot is null)
             {
-                logger.LogError("Task {TaskId} failed scope snapshot signature verification", task.TaskId);
-                await FailTaskAsync(task.TaskId, new InvalidOperationException("Scope snapshot signature verification failed"), cancellationToken);
+                logger.LogError("Task {TaskId} failed to fetch or validate scope snapshot", task.TaskId);
+                await FailTaskAsync(task.TaskId, new InvalidOperationException("Scope snapshot fetch/validation failed"), cancellationToken);
                 return;
             }
-            logger.LogDebug("Task {TaskId} scope snapshot signature verified", task.TaskId);
+            logger.LogDebug("Task {TaskId} fetched and validated scope snapshot {SnapshotId}", task.TaskId, snapshot.SnapshotId);
         }
 
         await StartTaskAsync(task.TaskId, cancellationToken);
@@ -416,6 +417,43 @@ private readonly ArgusWorkerOptions _options = options.Value;
         var client = httpClientFactory.CreateClient();
         client.BaseAddress = baseAddress;
         return client;
+    }
+
+    private async Task<ScopeSnapshot?> FetchAndValidateSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
+        {
+            logger.LogWarning("SnapshotSecretKey not configured, cannot fetch signed snapshot");
+            return null;
+        }
+
+        var client = CreateClient(_options.ScopeServiceBaseAddress);
+        using var response = await client.GetAsync($"/programs/{programId:N}/snapshot", cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogWarning("No snapshot found for program {ProgramId}", programId);
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var snapshotJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
+        if (snapshot is null)
+        {
+            logger.LogError("Failed to deserialize scope snapshot for program {ProgramId}", programId);
+            return null;
+        }
+
+        if (!SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey))
+        {
+            logger.LogError("Scope snapshot signature verification failed for program {ProgramId}", programId);
+            return null;
+        }
+
+        logger.LogDebug("Scope snapshot verified for program {ProgramId}", programId);
+        return snapshot;
     }
 
     private bool VerifyScopeSnapshot(string snapshotJson)

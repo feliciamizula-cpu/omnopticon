@@ -65,8 +65,27 @@ app.MapGet("/programs/{programId:guid}", async (
     return program is not null ? Results.Ok(program) : Results.NotFound();
 });
 
-app.MapGet("/scopes", (IProgramScopeStore store, CancellationToken cancellationToken) =>
-    store.GetScopesAsync(cancellationToken));
+app.MapDelete("/programs/{programId:guid}/scopes/{scopeId:guid}", async (
+    Guid programId,
+    Guid scopeId,
+    IProgramScopeStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    var deleted = await store.DeleteScopeAsync(programId, scopeId, cancellationToken);
+    if (!deleted)
+    {
+        return Results.NotFound();
+    }
+
+    await events.PublishAsync(
+        new ProgramScopeChanged(programId, scopeId, "deleted"),
+        nameof(ProgramScopeChanged),
+        "Argus.ProgramScopeService",
+        cancellationToken: cancellationToken);
+
+    return Results.NoContent();
+});
 
 app.MapPost("/programs/{programId:guid}/scopes", async (
     Guid programId,
@@ -95,6 +114,12 @@ app.MapPost("/programs/{programId:guid}/scopes", async (
     await events.PublishAsync(
         new ScopeCreated(scope.ProgramId, scope.ScopeId, scope.Pattern, scope.ScopeType),
         nameof(ScopeCreated),
+        "Argus.ProgramScopeService",
+        cancellationToken: cancellationToken);
+
+    await events.PublishAsync(
+        new ProgramScopeChanged(programId, scope.ScopeId, "created"),
+        nameof(ProgramScopeChanged),
         "Argus.ProgramScopeService",
         cancellationToken: cancellationToken);
 
@@ -187,6 +212,7 @@ internal interface IProgramScopeStore
     Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken);
     Task<ProgramScopeDto?> CreateScopeAsync(CreateProgramScopeRequest request, CancellationToken cancellationToken);
+    Task<bool> DeleteScopeAsync(Guid programId, Guid scopeId, CancellationToken cancellationToken);
     Task<ScopeValidationResult> ValidateAsync(ScopeValidationRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<ProgramRuleRevisionDto>> GetRuleRevisionsAsync(Guid programId, CancellationToken cancellationToken);
     Task<ScopeExclusionDto> CreateScopeExclusionAsync(Guid programId, string pattern, string? reason, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
