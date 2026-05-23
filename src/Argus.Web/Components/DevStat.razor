@@ -1,0 +1,14 @@
+<div class="dev-stat">
+    <div class="l">@Label</div>
+    <div class="v @ToneClass">@Value</div>
+    <div class="sub">@Sub</div>
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public string Sub { get; set; } = "";
+    [Parameter] public string Tone { get; set; } = "";
+
+    private string ToneClass => string.IsNullOrWhiteSpace(Tone) ? "" : $"tone-{Tone}";
+}

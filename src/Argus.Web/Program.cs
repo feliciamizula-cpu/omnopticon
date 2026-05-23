@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Argus.ServiceDefaults;
@@ -253,7 +254,7 @@ async Task<IResult> ProxyPutAgent(Guid agentId, JsonObject payload, IHttpClientF
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}", payload, ct);
+    return await gateway.PutJsonAsync(endpoints.Agent, $"/agents/{agentId}", payload, ct);
 }
 
 async Task<IResult> ProxyDeleteAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
@@ -270,14 +271,14 @@ async Task<IResult> ProxyPauseAgent(Guid agentId, IHttpClientFactory httpClientF
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/pause", new JsonObject(), ct);
+    return await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/pause", new JsonObject(), ct);
 }
 
 async Task<IResult> ProxyResumeAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/resume", new JsonObject(), ct);
+    return await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/resume", new JsonObject(), ct);
 }
 
 async Task<IResult> ProxyAssignTask(Guid agentId, string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
@@ -295,8 +296,8 @@ async Task<IResult> ProxyGetTasks(string? status, string? priority, IHttpClientF
     if (!string.IsNullOrWhiteSpace(status) || !string.IsNullOrWhiteSpace(priority))
     {
         var query = new List<string>();
-        if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={status}");
-        if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={priority}");
+        if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+        if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={Uri.EscapeDataString(priority)}");
         path += "?" + string.Join("&", query);
     }
     var result = await gateway.GetJsonAsync(endpoints.Agent, path, ct);
@@ -322,7 +323,7 @@ async Task<IResult> ProxyPutTask(string taskId, JsonObject payload, IHttpClientF
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/agent-tasks/{taskId}", payload, ct);
+    return await gateway.PutJsonAsync(endpoints.Agent, $"/agent-tasks/{Uri.EscapeDataString(taskId)}", payload, ct);
 }
 
 async Task<IResult> ProxyDeleteTask(string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
@@ -362,19 +363,43 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return path.Contains("assets", StringComparison.OrdinalIgnoreCase)
-                ? JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""")
-                : JsonNode.Parse("[]");
+            _ = ex;
+            if (path.Contains("assets", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""");
+            }
+
+            if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("agent-tasks", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("agent-chat", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonNode.Parse("""{"items":[],"count":0}""");
+            }
+
+            return JsonNode.Parse("[]");
         }
     }
 
-    public async Task<IResult> PostJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
+    public Task<IResult> PostJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, baseAddress, path, payload, cancellationToken);
+
+    public Task<IResult> PutJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Put, baseAddress, path, payload, cancellationToken);
+
+    public Task<IResult> PatchJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Patch, baseAddress, path, payload, cancellationToken);
+
+    private async Task<IResult> SendJsonAsync(HttpMethod method, string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
     {
         try
         {
             var client = httpClientFactory.CreateClient();
             client.BaseAddress = new Uri(baseAddress);
-            using var response = await client.PostAsJsonAsync(path, payload, cancellationToken);
+            using var request = new HttpRequestMessage(method, path)
+            {
+                Content = JsonContent.Create(payload)
+            };
+            using var response = await client.SendAsync(request, cancellationToken);
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
             var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/json";
 
