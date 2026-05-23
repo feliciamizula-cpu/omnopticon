@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "054",
-  "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
-  "context": "Added DI registrations for HackerOneScopeProvider, BugcrowdScopeProvider, and ScopeSyncService in Program.cs",
+  "currentTaskId": "034",
+  "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
+  "context": "Starting Bug #1: Poison message infinite retry loop - DLX + inspection/replay endpoint",
   "status": "working",
   "pid": 737133,
   "startedAt": "2026-05-23T03:05:00.636Z",
   "lastRunAt": "2026-05-23T03:05:00.681Z",
-  "lastHeartbeatAt": "2026-05-23T04:38:17.593Z",
+  "lastHeartbeatAt": "2026-05-23T04:38:35.591Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:38:17.593Z"
+  "updatedAt": "2026-05-23T04:38:40.666Z"
 }

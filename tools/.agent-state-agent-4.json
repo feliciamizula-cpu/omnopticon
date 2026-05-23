@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "043",
-  "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
-  "context": null,
-  "status": "unresponsive",
-  "pid": 756359,
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": "Resuming task 055: Bulk asset tag and enqueue endpoints - starting fresh",
+  "status": "idle",
+  "pid": null,
   "startedAt": "2026-05-23T03:05:47.674Z",
-  "lastRunAt": "2026-05-23T03:05:48.152Z",
-  "lastHeartbeatAt": "2026-05-23T04:38:21.024Z",
-  "lastError": "heartbeat timeout",
-  "updatedAt": "2026-05-23T04:38:21.024Z"
+  "lastRunAt": "2026-05-23T04:38:26.102Z",
+  "lastHeartbeatAt": "2026-05-23T04:38:25.692Z",
+  "lastError": "Task 055 requeued during reconciliation",
+  "updatedAt": "2026-05-23T04:38:40.666Z"
 }

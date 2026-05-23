@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="app-shell">
+  <SidebarNav Collapsed="@_sidebarCollapsed" OnToggle="ToggleSidebar" />
+  
+  <div class="main-content">
+    <TopBar />
+    
+    <div class="page-container">
+      @Body
+    </div>
+  </div>
+</div>
+
+@code {
+  private bool _sidebarCollapsed;
+  
+  protected override async Task OnInitializedAsync()
+  {
+    _sidebarCollapsed = await JS.InvokeAsync<bool>("eval", "localStorage.getItem('sidebar-collapsed') === 'true'");
+  }
+  
+  private async Task ToggleSidebar()
+  {
+    _sidebarCollapsed = !_sidebarCollapsed;
+    await JS.InvokeVoidAsync("eval", $"localStorage.setItem('sidebar-collapsed', '{_sidebarCollapsed.ToString().ToLower()}')");
+  }
+}

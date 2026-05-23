@@ -1,14 +1,14 @@
 {
   "agentId": "agent-1",
-  "status": "working",
-  "currentTaskId": "T05230436",
-  "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
+  "status": "idle",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "workStatus": "idle",
-  "pid": 2248741,
-  "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T04:38:19.901Z",
-  "updatedAt": "2026-05-23T04:38:19.901Z",
-  "startedAt": "2026-05-23T04:29:55.387Z",
-  "lastRunAt": "2026-05-23T04:29:55.387Z",
-  "context": "Implemented git commit on task completion in auto-run-agents.sh spawn_agent"
+  "pid": null,
+  "lastError": "Task 054 requeued during reconciliation",
+  "lastHeartbeatAt": "2026-05-23T04:38:42.449Z",
+  "updatedAt": "2026-05-23T04:38:42.449Z",
+  "startedAt": "2026-05-23T04:38:35.179Z",
+  "lastRunAt": "2026-05-23T04:38:38.205Z",
+  "context": "Implementation complete - IScopeProvider interface, HackerOneScopeProvider, BugcrowdScopeProvider, ScopeSyncService (6h sync), ProgramScopeChanged events all in place"
 }

@@ -605,6 +605,47 @@ get_tasks_requiring_attention() {
     fi
 }
 
+check_and_commit_changes() {
+    local agent_id="$1"
+    local task_id="$2"
+    local description="$3"
+
+    local modified_files
+    modified_files="$(get_modified_files)"
+    if [ -z "$modified_files" ]; then
+        log "Agent $agent_id: no modified files to commit"
+        return 0
+    fi
+
+    log "Agent $agent_id: found modified files to commit: $modified_files"
+
+    local build_result build_status
+    build_result="$(dotnet build "$WORK_DIR/src/Argus.AppHost/Argus.AppHost.csproj" --configuration Release --verbosity quiet 2>&1; echo "EXIT:$?")"
+    build_status="$(echo "$build_result" | tail -1)"
+
+    if echo "$build_status" | grep -q "EXIT:0"; then
+        local commit_msg
+        commit_msg="${agent_id}: ${description}"
+        if git -C "$WORK_DIR" add -A 2>&1 | while IFS= read -r line; do log "[git add] $line"; done; then
+            if git -C "$WORK_DIR" commit -m "$commit_msg" 2>&1 | while IFS= read -r line; do log "[git commit] $line"; done; then
+                log "Agent $agent_id committed changes: $commit_msg"
+                if git -C "$WORK_DIR" push origin main 2>&1 | while IFS= read -r line; do log "[git push] $line"; done; then
+                    log "Agent $agent_id pushed changes to origin main"
+                else
+                    log "Agent $agent_id: git push failed"
+                fi
+            else
+                log "Agent $agent_id: git commit failed"
+            fi
+        else
+            log "Agent $agent_id: git add failed"
+        fi
+    else
+        log "Agent $agent_id: build failed, not committing changes"
+        log "Build output: $(echo "$build_result" | head -20)"
+    fi
+}
+
 choose_task_for_agent() {
     local agent_id="$1"
     local state_json current_task_id current_status current_task_assignee runtime recoverable
@@ -704,6 +745,7 @@ spawn_agent() {
 
         coord_status="$(get_task_status "$task_id")"
         if [ "$coord_status" = "completed" ]; then
+            check_and_commit_changes "$agent_id" "$task_id" "$description"
             local idle_state
             idle_state="$(agent_read_state "$agent_id")"
             idle_state="$(echo "$idle_state" | jq \
@@ -722,6 +764,7 @@ spawn_agent() {
             agent_write_state "$agent_id" "$idle_state"
             log "Agent $agent_id completed task $task_id"
         else
+            check_and_commit_changes "$agent_id" "$task_id" "$description"
             local stalled_state
             stalled_state="$(agent_read_state "$agent_id")"
             stalled_state="$(echo "$stalled_state" | jq \
