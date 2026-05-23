@@ -88,6 +88,44 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         }
     }
 
+    private async Task<ScopeSnapshot?> FetchAndValidateSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
+        {
+            _logger.LogWarning("SnapshotSecretKey not configured, cannot fetch signed snapshot");
+            return null;
+        }
+
+        var client = _httpClientFactory.CreateClient();
+        client.BaseAddress = _options.ScopeServiceBaseAddress;
+        using var response = await client.GetAsync($"/programs/{programId:N}/snapshot", cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning("No snapshot found for program {ProgramId}", programId);
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var snapshotJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
+        if (snapshot is null)
+        {
+            _logger.LogError("Failed to deserialize scope snapshot for program {ProgramId}", programId);
+            return null;
+        }
+
+        if (!SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey))
+        {
+            _logger.LogError("Scope snapshot signature verification failed for program {ProgramId}", programId);
+            return null;
+        }
+
+        _logger.LogDebug("Scope snapshot verified for program {ProgramId}", programId);
+        return snapshot;
+    }
+
     private async Task ProcessTaskAsync(TaskNotification notification, CancellationToken cancellationToken)
     {
         var task = notification.Task;
@@ -95,6 +133,18 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
 
         _logger.LogInformation("Event-driven worker {WorkerId} processing task {TaskId} ({TaskType})",
             _options.WorkerId, task.TaskId, task.TaskType);
+
+        if (!string.IsNullOrEmpty(_options.SnapshotSecretKey))
+        {
+            var snapshot = await FetchAndValidateSnapshotAsync(task.ProgramId, cancellationToken);
+            if (snapshot is null)
+            {
+                _logger.LogError("Task {TaskId} failed to fetch or validate scope snapshot", task.TaskId);
+                await FailTaskAsync(task.TaskId, new InvalidOperationException("Scope snapshot fetch/validation failed"), cancellationToken);
+                return;
+            }
+            _logger.LogDebug("Task {TaskId} fetched and validated scope snapshot {SnapshotId}", task.TaskId, snapshot.SnapshotId);
+        }
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeatTask = StartHeartbeatTimerAsync(heartbeatCts.Token);
