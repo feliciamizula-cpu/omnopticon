@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "022",
-  "currentTaskDescription": "Minor #26: SSE event field not sanitized",
-  "context": "Applied fix - sanitizing event field in SseWriter by replacing \\r and \\n with space. dotnet build unavailable to verify but edit is syntactically correct",
+  "currentTaskId": "023",
+  "currentTaskDescription": "Design #23: Asset relationship uniqueness not enforced",
+  "context": null,
   "status": "working",
   "lastError": null,
-  "pid": 109769,
-  "startedAt": "2026-05-23T02:21:41.058Z",
-  "lastHeartbeatAt": "2026-05-23T02:22:10.744Z",
-  "lastRunAt": "2026-05-23T02:21:41.058Z",
-  "updatedAt": "2026-05-23T02:22:10.744Z"
+  "pid": 118293,
+  "startedAt": "2026-05-23T02:22:25.892Z",
+  "lastHeartbeatAt": "2026-05-23T02:22:25.892Z",
+  "lastRunAt": "2026-05-23T02:22:25.892Z",
+  "updatedAt": "2026-05-23T02:22:36.162Z"
 }

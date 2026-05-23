@@ -2,12 +2,12 @@
   "agentId": "agent-1",
   "currentTaskId": "019",
   "currentTaskDescription": "Design #21: ProgramScopeChanged event never published",
-  "context": null,
-  "status": "working",
+  "context": "Fixed RabbitMqConsumerService: added ProgramScopeChanged to queue bindings (line 67), EventTypeToTypes dict (line 221), and BuildDispatchDict (line 245). Build unavailable in environment.",
+  "status": "completed",
   "pid": 105944,
   "startedAt": "2026-05-23T02:21:19.757Z",
   "lastRunAt": "2026-05-23T02:21:19.791Z",
-  "lastHeartbeatAt": "2026-05-23T02:22:04.885Z",
+  "lastHeartbeatAt": "2026-05-23T02:22:50.347Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:22:04.885Z"
+  "updatedAt": "2026-05-23T02:22:50.347Z"
 }

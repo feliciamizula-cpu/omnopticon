@@ -64,8 +64,8 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             var eventTypes = new[] {
                 "AssetDiscovered", "AssetConfirmed", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
                 "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
-                "ProgramCreated", "ScopeCreated", "RateLimitTokenGranted", "RateLimitDelayed",
-                "WorkerHeartbeat", "ProgramScopeChanged"
+                "ProgramCreated", "ScopeCreated", "ProgramScopeChanged", "RateLimitTokenGranted", "RateLimitDelayed",
+                "WorkerHeartbeat"
             };
 
             foreach (var eventType in eventTypes)
@@ -218,6 +218,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     {
         ["ProgramCreated"] = (typeof(IIntegrationEventConsumer<ProgramCreated>), typeof(ProgramCreated)),
         ["ScopeCreated"] = (typeof(IIntegrationEventConsumer<ScopeCreated>), typeof(ScopeCreated)),
+        ["ProgramScopeChanged"] = (typeof(IIntegrationEventConsumer<ProgramScopeChanged>), typeof(ProgramScopeChanged)),
         ["AssetDiscovered"] = (typeof(IIntegrationEventConsumer<AssetDiscovered>), typeof(AssetDiscovered)),
         ["AssetConfirmed"] = (typeof(IIntegrationEventConsumer<AssetConfirmed>), typeof(AssetConfirmed)),
         ["AssetUpdated"] = (typeof(IIntegrationEventConsumer<AssetUpdated>), typeof(AssetUpdated)),
@@ -241,7 +242,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         var dict = new Dictionary<(Type, string), MethodInfo>();
         var iface = typeof(IIntegrationEventConsumer<>);
         var eventTypes = new[] {
-            typeof(ProgramCreated), typeof(ScopeCreated), typeof(AssetDiscovered), typeof(AssetConfirmed), typeof(AssetUpdated),
+            typeof(ProgramCreated), typeof(ScopeCreated), typeof(ProgramScopeChanged), typeof(AssetDiscovered), typeof(AssetConfirmed), typeof(AssetUpdated),
             typeof(AssetPropertyChanged), typeof(AssetRelationshipDiscovered), typeof(TaskRequested), typeof(TaskLeased), typeof(TaskStarted),
             typeof(TaskProgressed), typeof(TaskCompleted), typeof(TaskFailed), typeof(WorkerHeartbeat),
             typeof(RateLimitTokenGranted), typeof(RateLimitDelayed)
