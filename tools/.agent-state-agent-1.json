@@ -4,10 +4,10 @@
   "currentTaskDescription": "Enhancement #6: Signed scope snapshots - workers fetch HMAC-signed snapshot at task start, validate locally",
   "status": "working",
   "lastRunAt": "2026-05-23T01:05:27.923Z",
-  "updatedAt": "2026-05-23T01:11:28.805Z",
+  "updatedAt": "2026-05-23T01:23:58.589Z",
   "pid": 204262,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T01:11:28.805Z",
+  "lastHeartbeatAt": "2026-05-23T01:23:58.589Z",
   "startedAt": "2026-05-23T00:56:54.301Z",
   "context": null
 }

@@ -19,11 +19,6 @@ public static class ServiceCollectionExtensions
             {
                 options.WorkerId = builder.Configuration["ARGUS_WORKER_ID"] ?? options.WorkerId;
 
-                if (bool.TryParse(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"], out var eventDrivenMode))
-                {
-                    options.EventDrivenMode = eventDrivenMode;
-                }
-
                 if (Uri.TryCreate(builder.Configuration["ARGUS_TASK_SERVICE"], UriKind.Absolute, out var taskService))
                 {
                     options.TaskServiceBaseAddress = taskService;
@@ -54,11 +49,15 @@ public static class ServiceCollectionExtensions
                     options.ScopeValidationRequired = scopeValidationRequired;
                 }
 
+                if (!string.IsNullOrEmpty(builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"]))
+                {
+                    options.SnapshotSecretKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"]!;
+                }
+
                 configure?.Invoke(options);
             });
 
         builder.Services.AddHostedService<ArgusWorkerBackgroundService>();
-        builder.Services.AddHostedService<TaskEventConsumerBackgroundService<TWorker>>();
 
         return builder;
     }
