@@ -67,7 +67,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 "AssetDiscovered", "AssetConfirmed", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
                 "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
                 "ProgramCreated", "ScopeCreated", "ProgramScopeChanged", "RateLimitTokenGranted", "RateLimitDelayed",
-                "WorkerHeartbeat"
+                "WorkerHeartbeat", "FindingCandidateCreated"
             };
 
             foreach (var eventType in eventTypes)

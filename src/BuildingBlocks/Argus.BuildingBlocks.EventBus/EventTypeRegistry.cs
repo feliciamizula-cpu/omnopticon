@@ -37,6 +37,7 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
         Register<WorkerHeartbeat>();
         Register<ProgramScopeChanged>();
         Register<AssetPropertyChanged>();
+        Register<FindingCandidateCreated>();
     }
 
     private void Register<T>(int version = 1) where T : notnull

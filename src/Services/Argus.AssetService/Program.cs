@@ -793,6 +793,7 @@ internal sealed class AssetRecord
         [AssetType.ApiEndpoint] = TimeSpan.FromDays(3),
         [AssetType.Technology] = TimeSpan.FromDays(14),
         [AssetType.Finding] = TimeSpan.FromDays(30),
+        [AssetType.FindingCandidate] = TimeSpan.FromDays(30),
         [AssetType.Port] = TimeSpan.FromDays(7),
         [AssetType.DnsRecord] = TimeSpan.FromDays(7)
     };
