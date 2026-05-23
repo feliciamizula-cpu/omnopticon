@@ -2,14 +2,14 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "D05230334",
+      "currentTask": "044",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T04:15:31.823Z",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
       "workStatus": "working",
-      "currentTaskDescription": "DevOps: Analyze all code review output for any outstanding questions, action items, etc., that i need to be aware of, and create and push notifications.md so I can review it. We will be creating todo items based off of this document soon",
-      "lastRunAt": "2026-05-23T04:13:45.026Z",
-      "lastHeartbeatAt": "2026-05-23T04:13:45.026Z",
+      "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
+      "lastRunAt": "2026-05-23T04:19:11.672Z",
+      "lastHeartbeatAt": "2026-05-23T04:19:11.672Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
@@ -24,7 +24,7 @@
       "currentTask": "034",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T04:15:31.823Z",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
       "workStatus": "working",
       "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
       "lastRunAt": "2026-05-23T03:17:15.468Z",
@@ -43,7 +43,7 @@
       "currentTask": "054",
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-23T04:15:31.823Z",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
       "lastRunAt": "2026-05-23T03:05:00.681Z",
@@ -62,7 +62,7 @@
       "currentTask": "043",
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-23T04:15:31.823Z",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
       "lastRunAt": "2026-05-23T03:05:48.152Z",
@@ -81,7 +81,7 @@
       "currentTask": "055",
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-23T04:15:31.823Z",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
       "lastRunAt": "2026-05-23T03:03:40.221Z",
@@ -107,9 +107,9 @@
       ],
       "currentTask": "042",
       "workStatus": "working",
-      "lastUpdated": "2026-05-23T04:15:31.823Z",
-      "pid": 1864878,
-      "lastHeartbeatAt": "2026-05-23T04:15:25.814Z",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
+      "pid": 2008034,
+      "lastHeartbeatAt": "2026-05-23T04:19:26.687Z",
       "currentTaskDescription": "Enhancement #20: Proxy rotation - ProxyRegistryService with per-proxy rate limit buckets",
       "context": null,
       "lastError": null,
@@ -126,12 +126,12 @@
         "coordination system health",
         "task-board hygiene"
       ],
-      "currentTask": "044",
-      "workStatus": "monitoring",
-      "lastUpdated": "2026-05-23T04:15:34.682Z",
+      "currentTask": null,
+      "workStatus": "idle",
+      "lastUpdated": "2026-05-23T04:19:33.581Z",
       "pid": 1969629,
-      "lastHeartbeatAt": "2026-05-23T04:15:34.682Z",
-      "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
+      "lastHeartbeatAt": "2026-05-23T04:17:49.972Z",
+      "currentTaskDescription": null,
       "context": null,
       "lastError": null,
       "lastRunAt": "2026-05-23T03:29:41.135Z",
@@ -623,9 +623,9 @@
       "status": "in_progress",
       "claimedAt": "2026-05-23T03:05:47.634Z",
       "attempts": 3,
-      "requeuedAt": "2026-05-23T04:05:19.332Z",
-      "requeueReason": "assigned agent is not currently working this task",
-      "recoveryContext": null
+      "requeuedAt": "2026-05-23T04:16:42.420Z",
+      "requeueReason": "released from devops-1 after crashed",
+      "recoveryContext": "Standing DevOps agent for application, deployed component, and release readiness health."
     },
     {
       "id": "043",
@@ -645,18 +645,18 @@
       "description": "DevOps: Keep the application and deployed components healthy",
       "createdAt": "2026-05-22T23:48:51.516Z",
       "priority": "critical",
-      "assignedTo": null,
-      "status": "pending",
+      "assignedTo": "agent-1",
+      "status": "in_progress",
       "scope": [
         "application",
         "deployed-components",
         "release-readiness"
       ],
-      "requeuedAt": "2026-05-23T04:13:38.393Z",
-      "requeueReason": "assigned agent is not currently working this task",
-      "recoveryContext": "Standing DevOps agent for application, deployed component, and release readiness health.",
-      "claimedAt": "2026-05-23T03:25:04.373Z",
-      "attempts": 4
+      "requeuedAt": "2026-05-23T04:18:25.138Z",
+      "requeueReason": "released from devops-2 after crashed",
+      "recoveryContext": "7 agents healthy (5 tasks running, 2 idle); 49 tasks completed; compose.yaml valid; dotnet unavailable (container env); no issues detected; no reconciliation needed",
+      "claimedAt": "2026-05-23T04:19:11.672Z",
+      "attempts": 5
     },
     {
       "id": "045",
@@ -670,11 +670,11 @@
         "coordination-state",
         "dashboard"
       ],
-      "requeuedAt": "2026-05-23T03:29:56.491Z",
-      "requeueReason": "assigned agent is not currently working this task",
-      "claimedAt": "2026-05-23T03:25:04.505Z",
-      "attempts": 4,
-      "recoveryContext": "build=ok,1warning(missing ref proj);compose=valid;agents=7active,3busy,26pending;reconcile=clean;no issues"
+      "requeuedAt": "2026-05-23T04:19:06.258Z",
+      "requeueReason": "released from agent-1 after crashed",
+      "claimedAt": "2026-05-23T04:18:53.821Z",
+      "attempts": 6,
+      "recoveryContext": null
     },
     {
       "id": "T05230228",
@@ -848,16 +848,16 @@
       "description": "DevOps: Analyze all code review output for any outstanding questions, action items, etc., that i need to be aware of, and create and push notifications.md so I can review it. We will be creating todo items based off of this document soon",
       "priority": "high",
       "assignedTo": "agent-1",
-      "status": "in_progress",
+      "status": "completed",
       "createdAt": "2026-05-23T03:34:21.851618870Z",
       "claimedAt": "2026-05-23T04:13:45.026Z",
       "attempts": 5,
       "requeuedAt": "2026-05-23T04:13:38.393Z",
       "requeueReason": "released from agent-1 after stalled",
-      "completedAt": "2026-05-23T04:09:39.311Z",
+      "completedAt": "2026-05-23T04:18:47.197Z",
       "recoveryContext": null
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-23T04:14:59.056Z"
+  "lastPullAt": "2026-05-23T04:19:33.504Z"
 }
