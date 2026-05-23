@@ -2,12 +2,12 @@
   "agentId": "agent-4",
   "currentTaskId": "050",
   "currentTaskDescription": "Enhancement #15: Scheduled/recurring scan plans - Add CronExpression field to ScanPlanDto. Create RecurrencePolicy entity. Build ScanSchedulerBackgroundService checking for due recurrences every 60s, auto-creates scan plans from template. Track LastRunAt and NextRunAt on scan plan. Use NCrontab or Cronos NuGet (lightweight, avoid Hangfire/Quartz). File: src/Services/Argus.ScanOrchestratorService/",
-  "context": "Added Cronos package, replaced custom CronExpression, added CronExpression/LastRunAt/NextRunAt fields to ScanPlanDto and ScanPlanRecord, created RecurrencePolicyRecord entity, updated DbContext, added RecurrencePolicy CRUD endpoints, updated ScanSchedulerBackgroundService to process recurring scan plans",
+  "context": null,
   "status": "working",
-  "pid": 467756,
-  "startedAt": "2026-05-23T02:49:42.127Z",
-  "lastRunAt": "2026-05-23T02:49:42.127Z",
-  "lastHeartbeatAt": "2026-05-23T02:52:56.513Z",
+  "pid": 526374,
+  "startedAt": "2026-05-23T02:53:50.437Z",
+  "lastRunAt": "2026-05-23T02:53:50.437Z",
+  "lastHeartbeatAt": "2026-05-23T02:53:50.437Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:53:07.173Z"
+  "updatedAt": "2026-05-23T02:53:50.437Z"
 }
