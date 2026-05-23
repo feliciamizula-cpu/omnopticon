@@ -70,3 +70,8 @@ public sealed record ProxyAdded(Guid ProxyId, string Url, string Protocol);
 public sealed record ProxyRemoved(Guid ProxyId, string Url);
 public sealed record ProxyStatusChanged(Guid ProxyId, string Url, string OldStatus, string NewStatus);
 public sealed record ProxyRateLimitExceeded(Guid ProxyId, string Url, int CurrentRequestsPerSecond);
+public sealed record ArtifactCreated(Guid ArtifactId, Guid TargetId, string ArtifactType, string ContentType);
+public sealed record EvidenceAdded(Guid FindingId, Guid ArtifactId);
+public sealed record FindingCreated(Guid FindingId, Guid TargetId, string Title, string Severity);
+public sealed record FindingUpdated(Guid FindingId, string Status);
+public sealed record FindingTriaged(Guid FindingId, string OldStatus, string NewStatus, string Reason);

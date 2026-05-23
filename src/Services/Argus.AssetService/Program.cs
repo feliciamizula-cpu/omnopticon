@@ -25,7 +25,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddArgusEfCoreOutbox<AssetDbContext>();
     builder.Services.AddArgusInboxConsumer<AssetDbContext>();
     builder.Services.AddHealthChecks()
-        .AddNpgSql(builder.Configuration.GetConnectionString("argdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
+        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<IAssetStore, EfAssetStore>();
     builder.Services.AddScoped<TaskCompletedConsumer>();
 }

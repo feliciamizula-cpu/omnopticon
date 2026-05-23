@@ -17,6 +17,14 @@ public static class SnapshotSigner
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
+    public static string ComputeSignature(ProgramExportDto export, string secretKey)
+    {
+        var canonical = FormatCanonical(export);
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secretKey));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(canonical));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     public static bool VerifySignature(ScopeSnapshot snapshot, string secretKey)
     {
         var expectedSignature = ComputeSignature(snapshot, secretKey);
@@ -75,5 +83,39 @@ public static class SnapshotSigner
         }), JsonOptions);
 
         return $"{snapshot.SnapshotId:N}:{snapshot.ProgramId:N}:{snapshot.CreatedAt:O}:{snapshot.Scopes.Count}:{snapshot.Exclusions.Count}:{scopesJson}:{exclusionsJson}";
+    }
+
+    private static string FormatCanonical(ProgramExportDto export)
+    {
+        var scopesJson = JsonSerializer.Serialize(export.Scopes.OrderBy(s => s.ScopeId).Select(s => new
+        {
+            s.ScopeId,
+            s.Pattern,
+            s.ScopeType,
+            s.Action
+        }), JsonOptions);
+
+        var exclusionsJson = JsonSerializer.Serialize(export.Exclusions.OrderBy(e => e.ExclusionId).Select(e => new
+        {
+            e.ExclusionId,
+            e.Pattern
+        }), JsonOptions);
+
+        var revisionsJson = JsonSerializer.Serialize(export.RuleRevisions.OrderBy(r => r.RevisionId).Select(r => new
+        {
+            r.RevisionId,
+            r.Version,
+            r.ChangeType
+        }), JsonOptions);
+
+        var policiesJson = JsonSerializer.Serialize(export.RateLimitPolicies.OrderBy(p => p.PolicyId).Select(p => new
+        {
+            p.PolicyId,
+            p.BucketKey,
+            p.Capacity,
+            p.RefillRate
+        }), JsonOptions);
+
+        return $"{export.ProgramId:N}:{export.Name}:{export.Source}:{export.ExportedAt}:{export.Scopes.Count}:{export.Exclusions.Count}:{export.RuleRevisions.Count}:{export.RateLimitPolicies.Count}:{scopesJson}:{exclusionsJson}:{revisionsJson}:{policiesJson}";
     }
 }

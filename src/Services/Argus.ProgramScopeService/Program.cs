@@ -261,29 +261,6 @@ app.MapPost("/programs/import", async (
     }
 });
 
-app.MapGet("/programs/{programId:guid}/export", async (
-    Guid programId,
-    IProgramScopeStore store,
-    CancellationToken cancellationToken) =>
-{
-    var export = await store.ExportProgramAsync(programId, cancellationToken);
-    return export is not null ? Results.Ok(export) : Results.NotFound();
-});
-
-app.MapPost("/programs/import", async (
-    ProgramImportRequest request,
-    IProgramScopeStore store,
-    CancellationToken cancellationToken) =>
-{
-    if (request.Export is null)
-    {
-        return Results.BadRequest("Export data is required.");
-    }
-
-    var program = await store.ImportProgramAsync(request, cancellationToken);
-    return Results.Created($"/programs/{program.ProgramId}", program);
-});
-
 app.MapPost("/scope-validation/check-batch", async (
     ScopeBatchValidationRequest request,
     IProgramScopeStore store,

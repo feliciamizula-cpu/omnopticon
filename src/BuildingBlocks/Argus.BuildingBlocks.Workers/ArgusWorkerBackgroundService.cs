@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -32,7 +32,6 @@ public sealed class ArgusWorkerBackgroundService(
     };
     private readonly int _effectiveMaxConcurrency = DetermineEffectiveMaxConcurrency(options.Value, worker.Capability);
     private readonly SemaphoreSlim _concurrencyLimiter = new(0, int.MaxValue);
-    private readonly ConcurrentDictionary<Guid, TaskRunState> _runningTasks = new();
     private readonly Channel<ReconTaskDto> _taskChannel = Channel.CreateBounded<ReconTaskDto>(new BoundedChannelOptions(_effectiveMaxConcurrency)
     {
         SingleReader = false,
@@ -43,16 +42,49 @@ public sealed class ArgusWorkerBackgroundService(
     private volatile int _runningTaskCount;
     private volatile bool _isShuttingDown;
 
+    private static int DetermineEffectiveMaxConcurrency(ArgusWorkerOptions options, WorkerCapabilityDescriptor capability)
+    {
+        var limits = new[] {
+            options.MaxConcurrencyOverride > 0 ? options.MaxConcurrencyOverride : int.MaxValue,
+            capability.MaxConcurrency,
+            options.SubscriptionConcurrencyLimit > 0 ? options.SubscriptionConcurrencyLimit : int.MaxValue,
+            ArgusWorkerOptions.GlobalMaxConcurrency > 0 ? ArgusWorkerOptions.GlobalMaxConcurrency : int.MaxValue
+        };
+        return limits.Min();
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _concurrencyLimiter.Release(_effectiveMaxConcurrency);
+
         await RegisterWorkerAsync(stoppingToken);
 
-        while (!stoppingToken.IsCancellationRequested)
+        var workerLoop = WorkerLoopAsync(stoppingToken);
+        var heartbeatLoop = HeartbeatLoopAsync(stoppingToken);
+
+        await Task.WhenAll(workerLoop, heartbeatLoop);
+    }
+
+    private async Task WorkerLoopAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested && !_isShuttingDown)
         {
             try
             {
-                await _concurrencyLimiter.WaitAsync(stoppingToken);
-                _ = RunTaskWithReleaseAsync(stoppingToken);
+                if (_runningTaskCount >= _effectiveMaxConcurrency)
+                {
+                    await Task.Delay(_options.PollInterval, stoppingToken);
+                    continue;
+                }
+
+                var task = await LeaseTaskAsync(stoppingToken);
+                if (task is null)
+                {
+                    await Task.Delay(_options.PollInterval, stoppingToken);
+                    continue;
+                }
+
+                await _taskChannel.Writer.WriteAsync(task, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -65,7 +97,39 @@ public sealed class ArgusWorkerBackgroundService(
             }
         }
 
-        await _concurrencyLimiter.WaitAsync(stoppingToken);
+        _taskChannel.Writer.Complete();
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested && !_isShuttingDown)
+        {
+            try
+            {
+                await Task.Delay(_options.HeartbeatInterval, stoppingToken);
+                await HeartbeatAsync(_runningTaskCount, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Heartbeat failed for {WorkerType}", worker.Capability.WorkerType);
+            }
+        }
+    }
+
+    private async Task ProcessChannelTasksAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var task in _taskChannel.Reader.ReadAllAsync(stoppingToken))
+        {
+            Interlocked.Increment(ref _runningTaskCount);
+            _ = RunTaskAsync(task, stoppingToken).ContinueWith(_ =>
+            {
+                Interlocked.Decrement(ref _runningTaskCount);
+            }, TaskScheduler.Default);
+        }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -73,26 +137,40 @@ public sealed class ArgusWorkerBackgroundService(
         logger.LogInformation("Worker {WorkerType} ({WorkerId}) stopping, initiating graceful drain (timeout: {DrainTimeout})",
             worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout);
 
+        _isShuttingDown = true;
+
         var baseStopTask = base.StopAsync(cancellationToken);
 
         using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         drainCts.CancelAfter(_options.DrainTimeout);
 
-        try
+        var startTime = DateTimeOffset.UtcNow;
+        while (_runningTaskCount > 0 && DateTimeOffset.UtcNow - startTime < _options.DrainTimeout)
         {
-            await _concurrencyLimiter.WaitAsync(drainCts.Token);
-            _concurrencyLimiter.Release();
-            logger.LogInformation("Worker {WorkerType} ({WorkerId}) drain complete, all in-flight tasks finished",
-                worker.Capability.WorkerType, _options.WorkerId);
+            try
+            {
+                await Task.Delay(500, drainCts.Token);
+                logger.LogInformation("Waiting for {RunningTaskCount} tasks to complete", _runningTaskCount);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
-        catch (OperationCanceledException)
+
+        if (_runningTaskCount > 0)
         {
-            logger.LogWarning("Worker {WorkerType} ({WorkerId}) drain timeout expired ({DrainTimeout}), forcing shutdown of remaining tasks",
-                worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout);
+            logger.LogWarning("Worker {WorkerType} ({WorkerId}) drain timeout expired ({DrainTimeout}), cancelling {RunningTaskCount} remaining tasks",
+                worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout, _runningTaskCount);
 
             if (_options.SaveCheckpointOnShutdown)
             {
                 await FailRemainingTasksWithCheckpointAsync(cancellationToken);
+            }
+
+            foreach (var (taskId, state) in _runningTasks)
+            {
+                state.CancellationSource.Cancel();
             }
         }
 
@@ -107,41 +185,18 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task FailRemainingTasksWithCheckpointAsync(CancellationToken cancellationToken)
     {
-        foreach (var (taskId, checkpointJson) in _taskCheckpoints.ToArray())
+        foreach (var (taskId, state) in _runningTasks.ToArray())
         {
             try
             {
                 logger.LogInformation("Failing task {TaskId} with checkpoint due to worker shutdown", taskId);
-                var shutdownEx = new OperationCanceledException("Worker shutting down");
-                await FailTaskAsync(taskId, shutdownEx, cancellationToken, checkpointJson);
+                var shutdownEx = new WorkerShutdownException("Worker shutting down");
+                await FailTaskAsync(taskId, shutdownEx, cancellationToken, state.CheckpointJson);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to record shutdown checkpoint for task {TaskId}", taskId);
             }
-        }
-    }
-
-    private async Task RunTaskWithReleaseAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            var runningTasks = worker.Capability.MaxConcurrency - _concurrencyLimiter.CurrentCount;
-            await HeartbeatAsync(runningTasks, stoppingToken);
-            var task = await LeaseTaskAsync(stoppingToken);
-
-            if (task is null)
-            {
-                _concurrencyLimiter.Release();
-                await Task.Delay(_options.PollInterval, stoppingToken);
-                return;
-            }
-
-            await RunTaskAsync(task, stoppingToken);
-        }
-        finally
-        {
-            _concurrencyLimiter.Release();
         }
     }
 
