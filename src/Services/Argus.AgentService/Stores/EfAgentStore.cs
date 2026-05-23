@@ -31,67 +31,25 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
             // Tables might already exist from another service
         }
 
+        var now = DateTimeOffset.UtcNow;
         var hasAgents = await _dbContext.Agents.AnyAsync(cancellationToken);
         if (!hasAgents)
         {
-            SeedDefaultAgents();
+            _dbContext.Agents.AddRange(AgentDevelopmentSeedData.CreateAgents(now));
+        }
+
+        var hasTasks = await _dbContext.AgentTasks.AnyAsync(cancellationToken);
+        if (!hasTasks)
+        {
+            _dbContext.AgentTasks.AddRange(AgentDevelopmentSeedData.CreateTasks(now));
+        }
+
+        if (!hasAgents || !hasTasks)
+        {
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 
-    private void SeedDefaultAgents()
-    {
-        var devAgents = new[]
-        {
-            ("agent-1", "Agent 1", "development"),
-            ("agent-2", "Agent 2", "development"),
-            ("agent-3", "Agent 3", "development"),
-            ("agent-4", "Agent 4", "development"),
-            ("agent-5", "Agent 5", "development"),
-        };
-
-        foreach (var (id, name, role) in devAgents)
-        {
-            var guid = GuidFromId(id);
-            _dbContext.Agents.Add(new AgentRecord
-            {
-                AgentId = guid,
-                Name = name,
-                Role = role,
-                Status = "active",
-                ResponsibilitiesJson = JsonSerializer.Serialize(new[] { "application implementation" }),
-                Tool = "opencode",
-                Model = "claude-sonnet-4-6"
-            });
-        }
-
-        var devopsAgents = new[]
-        {
-            ("devops-1", "DevOps Agent 1"),
-            ("devops-2", "DevOps Agent 2"),
-        };
-
-        foreach (var (id, name) in devopsAgents)
-        {
-            var guid = GuidFromId(id);
-            _dbContext.Agents.Add(new AgentRecord
-            {
-                AgentId = guid,
-                Name = name,
-                Role = "devops",
-                Status = "active",
-                ResponsibilitiesJson = JsonSerializer.Serialize(new[] { "system health", "deployment", "coordination" }),
-                Tool = "opencode",
-                Model = "claude-sonnet-4-6"
-            });
-        }
-    }
-
-    private static Guid GuidFromId(string id)
-    {
-        var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(id));
-        return new Guid(hash);
-    }
 
     public async Task<IReadOnlyList<AgentDto>> ListAgentsAsync(CancellationToken cancellationToken = default)
     {
@@ -189,7 +147,11 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
 
     public async Task<AgentTaskDto> CreateTaskAsync(CreateAgentTaskRequest request, CancellationToken cancellationToken = default)
     {
-        var taskId = (await _dbContext.AgentTasks.MaxAsync(t => (int?)int.Parse(t.TaskId) ?? 0, cancellationToken) + 1).ToString("000");
+        var taskIds = await _dbContext.AgentTasks
+            .AsNoTracking()
+            .Select(t => t.TaskId)
+            .ToListAsync(cancellationToken);
+        var taskId = AgentDevelopmentSeedData.NextNumericTaskId(taskIds).ToString("000");
 
         var record = new AgentTaskRecord
         {
@@ -217,12 +179,43 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
         if (!string.IsNullOrWhiteSpace(request.Priority))
             record.Priority = request.Priority;
         if (!string.IsNullOrWhiteSpace(request.Status))
-            record.Status = request.Status;
+            ApplyStatusTransition(record, request.Status);
         if (request.AssignedTo != null)
-            record.AssignedTo = request.AssignedTo;
+            record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return record.ToDto();
+    }
+
+
+    private static void ApplyStatusTransition(AgentTaskRecord record, string status)
+    {
+        var normalizedStatus = status.Trim().ToLowerInvariant();
+        record.Status = normalizedStatus;
+
+        var now = DateTimeOffset.UtcNow;
+        switch (normalizedStatus)
+        {
+            case "pending":
+                record.ClaimedAt = null;
+                record.CompletedAt = null;
+                break;
+            case "claimed":
+            case "in_progress":
+            case "blocked":
+                record.ClaimedAt ??= now;
+                record.CompletedAt = null;
+                break;
+            case "completed":
+                record.ClaimedAt ??= now;
+                record.CompletedAt = now;
+                break;
+            case "failed":
+                record.ClaimedAt ??= now;
+                record.CompletedAt = now;
+                record.Attempts += 1;
+                break;
+        }
     }
 
     public async Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)

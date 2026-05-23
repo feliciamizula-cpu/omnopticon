@@ -348,7 +348,7 @@ Task @task.TaskId · @task.Priority · @task.Status
                 </div>
                 <div class="dev-modal-foot">
                     <button class="btn ghost" @onclick="CloseAgentModal">Cancel</button>
-                    <button class="btn primary" @onclick="SaveAgent" disabled="@(CanSaveAgent ? null : "disabled")">Save Agent</button>
+                    <button class="btn primary" @onclick="SaveAgent" disabled="@(!CanSaveAgent)">Save Agent</button>
                 </div>
             </div>
         </div>

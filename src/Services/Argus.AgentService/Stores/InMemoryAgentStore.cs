@@ -20,56 +20,19 @@ public sealed class InMemoryAgentStore : IAgentStore
 
     private void SeedDefaultAgents()
     {
-        var devAgents = new[]
-        {
-            ("agent-1", "Agent 1", "development"),
-            ("agent-2", "Agent 2", "development"),
-            ("agent-3", "Agent 3", "development"),
-            ("agent-4", "Agent 4", "development"),
-            ("agent-5", "Agent 5", "development"),
-        };
+        var now = DateTimeOffset.UtcNow;
 
-        foreach (var (id, name, role) in devAgents)
+        foreach (var agent in AgentDevelopmentSeedData.CreateAgents(now))
         {
-            var guid = GuidFromId(id);
-            _agents.TryAdd(guid, new AgentRecord
-            {
-                AgentId = guid,
-                Name = name,
-                Role = role,
-                Status = "active",
-                ResponsibilitiesJson = JsonSerializer.Serialize(new[] { "application implementation" }),
-                Tool = "opencode",
-                Model = "claude-sonnet-4-6"
-            });
+            _agents.TryAdd(agent.AgentId, agent);
         }
 
-        var devopsAgents = new[]
+        foreach (var task in AgentDevelopmentSeedData.CreateTasks(now))
         {
-            ("devops-1", "DevOps Agent 1"),
-            ("devops-2", "DevOps Agent 2"),
-        };
-
-        foreach (var (id, name) in devopsAgents)
-        {
-            var guid = GuidFromId(id);
-            _agents.TryAdd(guid, new AgentRecord
-            {
-                AgentId = guid,
-                Name = name,
-                Role = "devops",
-                Status = "active",
-                ResponsibilitiesJson = JsonSerializer.Serialize(new[] { "system health", "deployment", "coordination" }),
-                Tool = "opencode",
-                Model = "claude-sonnet-4-6"
-            });
+            _tasks.TryAdd(task.TaskId, task);
         }
-    }
 
-    private static Guid GuidFromId(string id)
-    {
-        var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(id));
-        return new Guid(hash);
+        _nextTaskId = AgentDevelopmentSeedData.NextNumericTaskId(_tasks.Keys);
     }
 
     public Task<IReadOnlyList<AgentDto>> ListAgentsAsync(CancellationToken cancellationToken = default)
@@ -174,11 +137,42 @@ public sealed class InMemoryAgentStore : IAgentStore
         if (!string.IsNullOrWhiteSpace(request.Priority))
             record.Priority = request.Priority;
         if (!string.IsNullOrWhiteSpace(request.Status))
-            record.Status = request.Status;
+            ApplyStatusTransition(record, request.Status);
         if (request.AssignedTo != null)
-            record.AssignedTo = request.AssignedTo;
+            record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
 
         return Task.FromResult<AgentTaskDto?>(record.ToDto());
+    }
+
+
+    private static void ApplyStatusTransition(AgentTaskRecord record, string status)
+    {
+        var normalizedStatus = status.Trim().ToLowerInvariant();
+        record.Status = normalizedStatus;
+
+        var now = DateTimeOffset.UtcNow;
+        switch (normalizedStatus)
+        {
+            case "pending":
+                record.ClaimedAt = null;
+                record.CompletedAt = null;
+                break;
+            case "claimed":
+            case "in_progress":
+            case "blocked":
+                record.ClaimedAt ??= now;
+                record.CompletedAt = null;
+                break;
+            case "completed":
+                record.ClaimedAt ??= now;
+                record.CompletedAt = now;
+                break;
+            case "failed":
+                record.ClaimedAt ??= now;
+                record.CompletedAt = now;
+                record.Attempts += 1;
+                break;
+        }
     }
 
     public Task<bool> DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)

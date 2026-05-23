@@ -1,0 +1,13 @@
+{
+  "tasks": [],
+  "agents": [
+    {
+      "id": "agent-1",
+      "name": "Agent 1",
+      "status": "active",
+      "currentTask": null,
+      "lastUpdated": ""
+    }
+  ],
+  "version": "1.0"
+}

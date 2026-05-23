@@ -555,7 +555,7 @@
                 Description: _taskForm.Description,
                 Priority: _taskForm.Priority,
                 Status: _taskForm.Status,
-                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? null : _taskForm.AssignedTo);
+                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? string.Empty : _taskForm.AssignedTo);
 
             var response = await Http.PutAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(task.TaskId)}"), request);
             if (!response.IsSuccessStatusCode)

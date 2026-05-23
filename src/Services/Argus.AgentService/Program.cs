@@ -170,12 +170,11 @@ internal static class AgentEndpoints
     private static async Task<IResult> SendChat(SendChatRequest request, IAgentStore store, CancellationToken ct)
     {
         // Persist user message
-        var userMsg = await store.SaveChatMessageAsync("user", request.Message, ct);
+        await store.SaveChatMessageAsync("user", request.Message, ct);
 
         // Get context
         var agents = await store.ListAgentsAsync(ct);
         var tasks = await store.ListTasksAsync(cancellationToken: ct);
-        var history = await store.GetChatHistoryAsync(20, ct);
 
         // Build prompt with current state
         var systemPrompt = BuildSystemPrompt(agents, tasks);
@@ -194,10 +193,10 @@ internal static class AgentEndpoints
 
         // Parse actions from response
         var actions = new List<AgentAction>();
-        var displayReply = ExtractAndExecuteActions(aiReply, actions, store, ct).Result;
+        var displayReply = await ExtractAndExecuteActions(aiReply, actions, store, ct);
 
         // Persist assistant message
-        var assistantMsg = await store.SaveChatMessageAsync("assistant", displayReply, ct);
+        await store.SaveChatMessageAsync("assistant", displayReply, ct);
 
         // Return response with updated history
         var updatedHistory = await store.GetChatHistoryAsync(50, ct);

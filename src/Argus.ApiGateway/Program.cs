@@ -48,6 +48,9 @@ app.MapGet("/", () => Results.Ok(new
         new { Name = "findings", Path = "/findings", Service = "finding", Description = "Vulnerability findings" },
         new { Name = "artifacts", Path = "/artifacts", Service = "artifact", Description = "Scan artifacts" },
         new { Name = "tasks", Path = "/tasks", Service = "task", Description = "Task orchestration" },
+        new { Name = "agents", Path = "/agents", Service = "agent", Description = "Development agent management" },
+        new { Name = "agent-tasks", Path = "/agent-tasks", Service = "agent", Description = "Development agent task queue" },
+        new { Name = "agent-chat", Path = "/agent-chat", Service = "agent", Description = "Development agent coordinator chat" },
         new { Name = "workers", Path = "/workers", Service = "realtime", Description = "Worker management" },
         new { Name = "worker-types", Path = "/worker-types", Service = "realtime", Description = "Worker type definitions" },
         new { Name = "worker-subscriptions", Path = "/worker-subscriptions", Service = "realtime", Description = "Worker subscription management" },
@@ -68,6 +71,9 @@ MapService(app, "/asset-types", endpoints.Asset);
 MapService(app, "/artifacts", endpoints.Artifact);
 MapService(app, "/findings", endpoints.Finding);
 MapService(app, "/tasks", endpoints.Task);
+MapService(app, "/agents", endpoints.Agent);
+MapService(app, "/agent-tasks", endpoints.Agent);
+MapService(app, "/agent-chat", endpoints.Agent);
 MapService(app, "/workers", endpoints.Realtime);
 MapService(app, "/worker-types", endpoints.Realtime);
 MapService(app, "/worker-subscriptions", endpoints.Realtime);
@@ -91,6 +97,7 @@ internal sealed record ArgusServiceEndpoints(
     string Artifact,
     string Finding,
     string Task,
+    string Agent,
     string RateLimit,
     string Realtime,
     string EventRouter)
@@ -101,6 +108,7 @@ internal sealed record ArgusServiceEndpoints(
         configuration["ARGUS_ARTIFACT_SERVICE"] ?? "https+http://artifact-service",
         configuration["ARGUS_FINDING_SERVICE"] ?? "https+http://finding-service",
         configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
+        configuration["ARGUS_AGENT_SERVICE"] ?? "https+http://agent-service",
         configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
         configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service",
         configuration["ARGUS_EVENT_ROUTER_SERVICE"] ?? "https+http://event-router-service");
