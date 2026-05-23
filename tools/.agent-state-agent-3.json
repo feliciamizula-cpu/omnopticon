@@ -1,14 +1,14 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
+  "currentTaskId": "052",
+  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
   "context": null,
-  "status": "idle",
+  "status": "stalled",
   "pid": null,
-  "startedAt": "2026-05-23T20:36:53.775Z",
-  "lastRunAt": "2026-05-23T20:36:56.929Z",
-  "lastHeartbeatAt": "2026-05-23T20:37:10.056Z",
-  "lastError": "Task 052 requeued during reconciliation",
-  "updatedAt": "2026-05-23T20:37:10.056Z",
+  "startedAt": "2026-05-23T20:37:23.379Z",
+  "lastRunAt": "2026-05-23T20:37:26.660Z",
+  "lastHeartbeatAt": "2026-05-23T20:37:26.660Z",
+  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
+  "updatedAt": "2026-05-23T20:37:26.660Z",
   "workStatus": "idle"
 }
