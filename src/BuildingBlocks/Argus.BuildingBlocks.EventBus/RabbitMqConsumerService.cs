@@ -102,6 +102,15 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             consumer.ReceivedAsync += async (_, ea) =>
             {
                 var retryCount = GetRetryCount(ea.BasicProperties);
+                var isRedelivered = ea.Redelivered;
+
+                if (isRedelivered || retryCount > _maxRetries)
+                {
+                    _logger.LogWarning("Message {DeliveryTag} is poison (redelivered={IsRedelivered}, retryCount={RetryCount}), moving to DLQ", ea.DeliveryTag, isRedelivered, retryCount);
+                    await MoveToDlqAsync(ea, null, stoppingToken);
+                    return;
+                }
+
                 try
                 {
                     var body = ea.Body.ToArray();
@@ -110,6 +119,17 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
 
                     if (envelope is not null)
                     {
+                        if (_poisonStore is not null)
+                        {
+                            var existing = await _poisonStore.GetMessageAsync(envelope.EventId, stoppingToken);
+                            if (existing is not null)
+                            {
+                                _logger.LogWarning("Message {EventId} is already in poison store, moving to DLQ", envelope.EventId);
+                                await MoveToDlqAsync(ea, null, stoppingToken);
+                                return;
+                            }
+                        }
+
                         await ProcessMessageAsync(envelope, stoppingToken);
                     }
 
@@ -118,29 +138,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error processing message {DeliveryTag} (retry {RetryCount})", ea.DeliveryTag, retryCount);
-                    if (retryCount >= _maxRetries)
-                    {
-                        _logger.LogWarning("Message {DeliveryTag} exceeded max retries, moving to DLQ", ea.DeliveryTag);
-                        try
-                        {
-                            var body = ea.Body.ToArray();
-                            var json = Encoding.UTF8.GetString(body);
-                            var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json);
-                            if (envelope is not null)
-                            {
-                                if (_poisonStore is not null) { await _poisonStore.RecordPoisonAsync(envelope, ex, stoppingToken); }
-                            }
-                        }
-                        catch { }
-                        await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, stoppingToken);
-                    }
-                    else
-                    {
-                        var delayMs = GetRetryDelayMs(retryCount + 1);
-                        _logger.LogInformation("Scheduling message {DeliveryTag} for retry #{RetryCount} after {DelayMs}ms", ea.DeliveryTag, retryCount + 1, delayMs);
-                        await ScheduleRetryAsync(ea, delayMs, stoppingToken);
-                        await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false, stoppingToken);
-                    }
+                    await HandleFailedMessageAsync(ea, ex, stoppingToken);
                 }
             };
 
@@ -159,6 +157,39 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "RabbitMQ consumer failed");
+        }
+    }
+
+    private async Task MoveToDlqAsync(BasicDeliverEventArgs ea, Exception? ex, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var body = ea.Body.ToArray();
+            var json = Encoding.UTF8.GetString(body);
+            var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json);
+            if (envelope is not null)
+            {
+                if (_poisonStore is not null) { await _poisonStore.RecordPoisonAsync(envelope, ex ?? new Exception("Poison message detected on redelivery"), cancellationToken); }
+            }
+        }
+        catch { }
+        await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, cancellationToken);
+    }
+
+    private async Task HandleFailedMessageAsync(BasicDeliverEventArgs ea, Exception ex, CancellationToken cancellationToken)
+    {
+        var retryCount = GetRetryCount(ea.BasicProperties);
+        if (retryCount >= _maxRetries)
+        {
+            _logger.LogWarning("Message {DeliveryTag} exceeded max retries, moving to DLQ", ea.DeliveryTag);
+            await MoveToDlqAsync(ea, ex, cancellationToken);
+        }
+        else
+        {
+            var delayMs = GetRetryDelayMs(retryCount + 1);
+            _logger.LogInformation("Scheduling message {DeliveryTag} for retry #{RetryCount} after {DelayMs}ms", ea.DeliveryTag, retryCount + 1, delayMs);
+            await ScheduleRetryAsync(ea, delayMs, cancellationToken);
+            await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken);
         }
     }
 
