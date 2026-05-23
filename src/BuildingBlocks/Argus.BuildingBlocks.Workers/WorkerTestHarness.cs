@@ -46,18 +46,42 @@ public sealed class WorkerTestHarness<TWorker> where TWorker : class, IReconWork
         WorkerExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
-        var ctx = context ?? CreateContext();
         _progressReports.Clear();
-        return await _worker.ProcessAsync(task, ctx, cancellationToken);
+        var execContext = context ?? ConvertToExecutionContext(CreateContext());
+        return await _worker.ProcessAsync(task, execContext, cancellationToken);
+    }
+
+    private static WorkerExecutionContext ConvertToExecutionContext(WorkerTestContext testContext) =>
+        new(
+            testContext.WorkerId,
+            testContext.ReportProgressAsync,
+            testContext.RequestRateLimitTokenAsync,
+            testContext.SignalBackpressureAsync);
+
+    internal async Task<WorkerProcessResult> ExecuteWithTestContextAsync(
+        ReconTaskDto task,
+        WorkerTestContext testContext,
+        CancellationToken cancellationToken = default)
+    {
+        _progressReports.Clear();
+        return await _worker.ProcessAsync(
+            task,
+            new WorkerExecutionContext(
+                testContext.WorkerId,
+                testContext.ReportProgressAsync,
+                testContext.RequestRateLimitTokenAsync,
+                testContext.SignalBackpressureAsync),
+            cancellationToken);
     }
 
     public async Task<WorkerProcessResult> ExecuteAsync(
         Guid programId,
         string taskType,
-        Dictionary<string, string>? payload = null,
-        string? workerId = null,
-        CancellationToken cancellationToken = default)
+        Dictionary<string, string>? payload,
+        string? workerId,
+        CancellationToken cancellationToken)
     {
+        var testCtx = CreateContext(workerId);
         var payloadJson = payload != null ? JsonSerializer.Serialize(payload) : null;
         var task = new ReconTaskDto(
             TaskId: Guid.NewGuid(),
@@ -84,7 +108,7 @@ public sealed class WorkerTestHarness<TWorker> where TWorker : class, IReconWork
             DedupeHash: null,
             ScopeSnapshotJson: null);
 
-        return await ExecuteAsync(task, CreateContext(workerId), cancellationToken);
+        return await ExecuteWithTestContextAsync(task, testCtx, cancellationToken);
     }
 }
 
@@ -94,8 +118,7 @@ public sealed record WorkerTestContext(
     string WorkerId,
     Func<int, string, string?, Task> ReportProgressAsync,
     Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync,
-    Func<RateLimitBackpressureSignal, Task> SignalBackpressureAsync)
-    : WorkerExecutionContext(WorkerId, ReportProgressAsync, RequestRateLimitTokenAsync, SignalBackpressureAsync);
+    Func<RateLimitBackpressureSignal, Task> SignalBackpressureAsync);
 
 public sealed class WorkerTestFixtures
 {

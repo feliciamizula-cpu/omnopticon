@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Argus.Contracts.Assets;
 
 namespace Argus.AssetService.Scoring;

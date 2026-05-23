@@ -1,9 +1,13 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Argus.AssetService.Data;
+using Argus.AssetService.Normalization;
+using Argus.AssetService.Scoring;
 using Argus.Contracts.Assets;
 
 namespace Argus.AssetService.Stores;
+
+public sealed record BulkOperationResult(IReadOnlyCollection<AssetDto> Results, int SuccessCount, int FailureCount, IReadOnlyCollection<string> Errors);
 
 public sealed class InMemoryAssetStore : IAssetStore
 {
@@ -38,11 +42,20 @@ public sealed class InMemoryAssetStore : IAssetStore
         if (query.MinRiskScore is not null)
             assets = assets.Where(asset => asset.RiskScore >= query.MinRiskScore);
 
+        if (query.MinStalenessScore is not null)
+            assets = assets.Where(asset => asset.StalenessScore >= query.MinStalenessScore);
+
+        if (query.MaxStalenessScore is not null)
+            assets = assets.Where(asset => asset.StalenessScore <= query.MaxStalenessScore);
+
         var sort = query.Sort?.ToLowerInvariant() ?? "lastseenat";
         var direction = query.Direction?.ToLowerInvariant() == "asc" ? "asc" : "desc";
 
         assets = sort switch
         {
+            "staleness_score" => direction == "asc"
+                ? assets.OrderBy(asset => asset.StalenessScore)
+                : assets.OrderByDescending(asset => asset.StalenessScore),
             "interesting_score" => direction == "asc"
                 ? assets.OrderBy(asset => asset.InterestingScore)
                 : assets.OrderByDescending(asset => asset.InterestingScore),
@@ -160,6 +173,7 @@ public sealed class InMemoryAssetStore : IAssetStore
             var updated = existing with
             {
                 LastSeenAt = now,
+                StalenessScore = 0,
                 Metadata = AssetSerialization.MergeMetadata(existing.Metadata, request.Metadata),
                 Tags = AssetSerialization.MergeTags(existing.Tags, request.Tags)
             };
@@ -183,7 +197,7 @@ public sealed class InMemoryAssetStore : IAssetStore
             FirstSeenAt: now,
             LastSeenAt: now,
             LastScannedAt: null,
-            StalenessScore: 100,
+            StalenessScore: 0,
             DiscoveredByTaskId: request.DiscoveredByTaskId,
             Metadata: request.Metadata ?? new Dictionary<string, string>(),
             Tags: request.Tags ?? []);
@@ -507,6 +521,6 @@ public sealed class InMemoryAssetStore : IAssetStore
             results.Add(asset);
         }
 
-        return Task.FromResult(Program.BulkOperationResult(results, results.Count, request.AssetIds.Count - results.Count, errors));
+        return Task.FromResult(new BulkOperationResult(results, results.Count, request.AssetIds.Count - results.Count, errors));
     }
 }

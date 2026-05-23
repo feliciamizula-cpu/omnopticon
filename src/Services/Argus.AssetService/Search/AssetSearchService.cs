@@ -2,6 +2,7 @@ using System.Text.Json;
 using Argus.AssetService.Data;
 using Argus.Contracts.Assets;
 using Microsoft.EntityFrameworkCore;
+using System.Linq;
 
 namespace Argus.AssetService.Search;
 
@@ -45,10 +46,10 @@ public sealed class AssetSearchService
             query = query.Where(a => request.Types.Contains(a.Type));
 
         if (request.Categories?.Count > 0)
-            query = query.Where(a => a.Category != null && request.Categories.Contains(a.Category));
+            query = query.Where(a => request.Categories.Contains(a.Category));
 
         if (request.Subcategories?.Count > 0)
-            query = query.Where(a => a.Subcategory != null && request.Subcategories.Contains(a.Subcategory));
+            query = query.Where(a => a.Subcategory != null && request.Subcategories.Any(s => s == a.Subcategory));
 
         if (request.TypeKeys?.Count > 0)
             query = query.Where(a => a.TypeKey != null && request.TypeKeys.Contains(a.TypeKey));

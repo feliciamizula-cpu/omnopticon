@@ -1,9 +1,13 @@
 using System.Text;
 using System.Text.Json;
 using Argus.AssetService.Data;
+using Argus.AssetService.Normalization;
+using Argus.AssetService.Scoring;
 using Argus.AssetService.Search;
 using Argus.Contracts.Assets;
 using Microsoft.EntityFrameworkCore;
+using Dapper;
+using Argus.AssetService;
 
 namespace Argus.AssetService.Stores;
 
@@ -38,29 +42,41 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         var sort = query.Sort?.ToLowerInvariant() ?? "lastseenat";
         var direction = query.Direction?.ToLowerInvariant() == "asc" ? "asc" : "desc";
 
-        assets = sort switch
+        var allRecords = await assets.ToArrayAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var scoredRecords = allRecords.Select(r => new { Record = r, StalenessScore = ComputeStalenessScore(r, now) }).ToList();
+
+        if (query.MinStalenessScore is not null)
+            scoredRecords = scoredRecords.Where(x => x.StalenessScore >= query.MinStalenessScore.Value).ToList();
+
+        if (query.MaxStalenessScore is not null)
+            scoredRecords = scoredRecords.Where(x => x.StalenessScore <= query.MaxStalenessScore.Value).ToList();
+
+        var filteredCount = scoredRecords.Count;
+
+        var ordered = sort switch
         {
+            "staleness_score" => direction == "asc"
+                ? scoredRecords.OrderBy(x => x.StalenessScore)
+                : scoredRecords.OrderByDescending(x => x.StalenessScore),
             "interesting_score" => direction == "asc"
-                ? assets.OrderBy(asset => asset.InterestingScore)
-                : assets.OrderByDescending(asset => asset.InterestingScore),
+                ? scoredRecords.OrderBy(x => x.Record.InterestingScore)
+                : scoredRecords.OrderByDescending(x => x.Record.InterestingScore),
             "risk_score" => direction == "asc"
-                ? assets.OrderBy(asset => asset.RiskScore)
-                : assets.OrderByDescending(asset => asset.RiskScore),
+                ? scoredRecords.OrderBy(x => x.Record.RiskScore)
+                : scoredRecords.OrderByDescending(x => x.Record.RiskScore),
             "firstseenat" => direction == "asc"
-                ? assets.OrderBy(asset => asset.FirstSeenAt)
-                : assets.OrderByDescending(asset => asset.FirstSeenAt),
+                ? scoredRecords.OrderBy(x => x.Record.FirstSeenAt)
+                : scoredRecords.OrderByDescending(x => x.Record.FirstSeenAt),
             "value" => direction == "asc"
-                ? assets.OrderBy(asset => asset.Value)
-                : assets.OrderByDescending(asset => asset.Value),
-            _ => assets.OrderByDescending(asset => asset.LastSeenAt)
+                ? scoredRecords.OrderBy(x => x.Record.Value)
+                : scoredRecords.OrderByDescending(x => x.Record.Value),
+            _ => scoredRecords.OrderByDescending(x => x.Record.LastSeenAt)
         };
 
-        var records = await assets
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToArrayAsync(cancellationToken);
+        var pagedRecords = ordered.Skip((page - 1) * pageSize).Take(pageSize).Select(x => x.Record).ToArray();
 
-        return new PagedResult<AssetDto>(records.Select(asset => asset.ToDto()).ToArray(), page, pageSize, totalCount);
+        return new PagedResult<AssetDto>(pagedRecords.Select(asset => asset.ToDto()).ToArray(), page, pageSize, filteredCount > totalCount ? filteredCount : totalCount);
     }
 
     public Task<AssetSearchResult> SearchAsync(AssetSearchRequest request, CancellationToken cancellationToken)
@@ -621,7 +637,7 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         if (results.Count > 0)
             await dbContext.SaveChangesAsync(cancellationToken);
 
-        return new Program.BulkOperationResult(results, successCount, failureCount, errors);
+        return new BulkOperationResult(results, successCount, failureCount, errors);
     }
 
     private static string? ExtractHost(string value)
@@ -666,6 +682,37 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         }
 
         return false;
+    }
+
+    private static int ComputeStalenessScore(AssetRecord record, DateTimeOffset now)
+    {
+        var effectiveLastSeen = record.LastScannedAt ?? record.LastSeenAt;
+        var interval = now - effectiveLastSeen;
+        if (interval < TimeSpan.Zero) return 0;
+
+        var expectedInterval = record.Type switch
+        {
+            AssetType.Subdomain => TimeSpan.FromDays(1),
+            AssetType.Domain => TimeSpan.FromDays(7),
+            AssetType.Ip => TimeSpan.FromDays(7),
+            AssetType.Url => TimeSpan.FromDays(3),
+            AssetType.HttpResponse => TimeSpan.FromDays(7),
+            AssetType.HtmlPage => TimeSpan.FromDays(7),
+            AssetType.JavaScriptFile => TimeSpan.FromDays(14),
+            AssetType.CssFile => TimeSpan.FromDays(30),
+            AssetType.JsonDocument => TimeSpan.FromDays(30),
+            AssetType.ApiEndpoint => TimeSpan.FromDays(3),
+            AssetType.Technology => TimeSpan.FromDays(14),
+            AssetType.Finding => TimeSpan.FromDays(30),
+            AssetType.FindingCandidate => TimeSpan.FromDays(30),
+            AssetType.Port => TimeSpan.FromDays(7),
+            AssetType.DnsRecord => TimeSpan.FromDays(7),
+            _ => TimeSpan.FromDays(7)
+        };
+
+        if (interval >= TimeSpan.FromDays(90)) return 100;
+        var score = (int)((interval.TotalHours / expectedInterval.TotalHours) * 100);
+        return Math.Min(score, 100);
     }
 }
 

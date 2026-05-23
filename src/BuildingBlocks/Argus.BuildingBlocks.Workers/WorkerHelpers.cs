@@ -16,6 +16,37 @@ public static class WorkerHelpers
         return document.RootElement.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
     }
 
+    public static bool? GetBool(string? payloadJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(payloadJson);
+        if (document.RootElement.TryGetProperty(propertyName, out var value))
+        {
+            if (value.ValueKind == JsonValueKind.True) return true;
+            if (value.ValueKind == JsonValueKind.False) return false;
+        }
+        return null;
+    }
+
+    public static int? GetInt(string? payloadJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(payloadJson);
+        if (document.RootElement.TryGetProperty(propertyName, out var value))
+        {
+            if (value.ValueKind == JsonValueKind.Number) return value.GetInt32();
+        }
+        return null;
+    }
+
     public static string? GetRegisteredDomain(string host)
     {
         var parts = host.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

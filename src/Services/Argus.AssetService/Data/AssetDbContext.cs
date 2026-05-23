@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Assets;
 using Microsoft.EntityFrameworkCore;
 

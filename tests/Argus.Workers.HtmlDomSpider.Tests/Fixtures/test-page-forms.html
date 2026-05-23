@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Page - Forms</title>
+</head>
+<body>
+    <h1>Form Test Page</h1>
+
+    <form action="/api/submit" method="POST">
+        <input type="text" name="name" id="name">
+        <input type="email" name="email" id="email">
+        <textarea name="message"></textarea>
+        <button type="submit">Submit</button>
+    </form>
+
+    <form action="/user/register" method="POST" id="register-form">
+        <input type="text" name="username">
+        <input type="password" name="password">
+        <input type="password" name="confirm_password">
+        <input type="checkbox" name="terms">
+        <button type="submit">Register</button>
+    </form>
+
+    <form action="/search" method="GET" class="search-form">
+        <input type="search" name="q" placeholder="Search...">
+        <button type="submit">Search</button>
+    </form>
+
+    <form action="/api/upload" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <input type="hidden" name="csrf_token" value="abc123">
+        <button type="submit">Upload</button>
+    </form>
+
+    <form method="POST" class="no-action-form">
+        <input type="text" name="field1">
+        <button type="submit">Submit (uses base URL)</button>
+    </form>
+</body>
+</html>

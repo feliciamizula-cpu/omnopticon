@@ -16,6 +16,14 @@ internal sealed class HttpProbeWorkerFixture
         return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>());
     }
 
+    public HttpProbeWorker CreateWorker(Func<HttpRequestMessage, HttpResponseMessage> handler)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(new HttpClient(new MockHttpMessageHandler(handler))));
+        var provider = services.BuildServiceProvider();
+        return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>());
+    }
+
     public static HttpProbeWorkerFixture Instance => new();
 
     private sealed class StubHttpClientFactory : IHttpClientFactory
@@ -155,6 +163,226 @@ public sealed class HttpProbeWorkerTests
         Assert.False(result.IsSuccess);
         Assert.True(result.Result.PartiallySucceeded);
     }
+
+    [Fact]
+    public async Task ProcessAsync_WithHtmlResponse_ProducesHtmlPageAsset()
+    {
+        var html = "<html><head><title>Test Page</title></head><body>Hello World</body></html>";
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Content = new StringContent(html, System.Text.Encoding.UTF8, "text/html");
+            response.Content.Headers.ContentLength = html.Length;
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(result.ProducedAssets);
+        Assert.Contains(result.ProducedAssets, a => a.AssetType == "HtmlPage");
+        Assert.Contains(result.ProducedAssets, a => a.AssetType == "Observation" && a.Subtype == "HtmlTitle");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithJsonResponse_ProducesJsonDocumentAsset()
+    {
+        var json = "{\"status\":\"ok\",\"data\":{\"id\":1}}";
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            response.Content.Headers.ContentLength = json.Length;
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "api.example.com", ["follow_redirects"] = "false" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(result.ProducedAssets);
+        Assert.Contains(result.ProducedAssets, a => a.AssetType == "JsonDocument");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_With302Redirect_FollowsRedirect()
+    {
+        var redirectTarget = "https://example.com/final";
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var uri = request.RequestUri?.ToString() ?? "";
+            if (uri.EndsWith("/"))
+            {
+                var response = new HttpResponseMessage(System.Net.HttpStatusCode.Found);
+                response.Headers.Location = new Uri("https://example.com/final");
+                return response;
+            }
+
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Content = new StringContent("<html><title>Final Page</title></html>", System.Text.Encoding.UTF8, "text/html");
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "true" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(result.ProducedAssets);
+        var urlAssets = result.ProducedAssets.Where(a => a.AssetType == "Url").ToList();
+        Assert.True(urlAssets.Count >= 1);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_With429Status_SignalsBackpressure()
+    {
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage((System.Net.HttpStatusCode)429);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(120));
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        harness.SetExpectedBackpressureSignal(new RateLimitBackpressureSignal(
+            "example.com",
+            "host:example.com",
+            TimeSpan.FromSeconds(120),
+            429));
+
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(result.ProducedAssets);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithCustomTimeout_UsesConfiguredTimeout()
+    {
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Content = new StringContent("<html><title>Test</title></html>", System.Text.Encoding.UTF8, "text/html");
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com", ["timeout_seconds"] = "15" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(result.ProducedAssets);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithNoRedirectOption_SkipsRedirectFollowing()
+    {
+        var redirected = false;
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.Found);
+            response.Headers.Location = new Uri("https://example.com/final");
+            redirected = true;
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(redirected);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ProducesHttpHeadersObservation()
+    {
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Headers.Add("Server", "nginx/1.18");
+            response.Headers.Add("X-Request-Id", "abc123");
+            response.Content = new StringContent("<html><title>Test</title></html>", System.Text.Encoding.UTF8, "text/html");
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Contains(result.ProducedAssets, a => a.AssetType == "Observation" && a.Subtype == "HttpHeaders");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithCharsetDetection_ExtractsCharset()
+    {
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Content = new StringContent("<html><title>Test</title></html>", System.Text.Encoding.UTF8, "text/html; charset=utf-8");
+            response.Content.Headers.ContentLength = 50;
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Contains(result.ProducedAssets, a => a.AssetType == "HttpResponse");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_HttpFallback_WhenHttpsFails()
+    {
+        var attempts = new List<string>();
+        var worker = _fixture.CreateWorker(request =>
+        {
+            var scheme = request.RequestUri?.Scheme ?? "http";
+            attempts.Add(scheme);
+
+            if (scheme == "https")
+            {
+                throw new HttpRequestException("Connection refused");
+            }
+
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            response.Content = new StringContent("<html><title>HTTP Fallback</title></html>", System.Text.Encoding.UTF8, "text/html");
+            return response;
+        });
+
+        var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
+        var result = await harness.ExecuteAsync(
+            programId: Guid.NewGuid(),
+            taskType: "HttpProbe",
+            payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Contains(attempts, s => s == "https");
+        Assert.Contains(attempts, s => s == "http");
+        Assert.NotEmpty(result.ProducedAssets);
+    }
 }
 
 internal sealed class MockHttpMessageHandler : HttpMessageHandler
@@ -175,6 +403,11 @@ internal sealed class MockHttpMessageHandler : HttpMessageHandler
         }
 
         _handler = _ => Task.FromResult(responseMessage);
+    }
+
+    public MockHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> handler)
+    {
+        _handler = request => Task.FromResult(handler(request));
     }
 
     public MockHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler)

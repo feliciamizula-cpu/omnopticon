@@ -1,4 +1,5 @@
 @page "/assets"
+@using System.Text.Json
 @inject HttpClient Http
 
 <PageHeader Title="Assets" Subtitle="@($" {(_assets?.Count ?? 0):N0} total")" />
@@ -170,6 +171,7 @@
     private bool _loading = true;
     private bool _showBulkTagModal;
     private bool _showBulkEnqueueModal;
+    private JsonSerializerOptions JsonOptions { get; set; } = new(JsonSerializerDefaults.Web);
     private string _bulkTagInput = "";
     private string _bulkEnqueueTaskType = "";
     private string _bulkEnqueueCapability = "";
@@ -186,9 +188,39 @@
         try
         {
             var state = await Http.GetFromJsonAsync<UiState>("/ui/state");
-            _assets = state?.Assets?.AsObject()?.GetValue("_embedded")?.AsArray()?.Select(n => n.Deserialize<AssetDto>()).Where(a => a != null).Cast<AssetDto>().ToList()
-                ?? state?.Assets?.AsArray()?.Select(n => n.Deserialize<AssetDto>()).Where(a => a != null).Cast<AssetDto>().ToList()
-                ?? new List<AssetDto>();
+            if (state?.Assets is null)
+            {
+                _assets = new List<AssetDto>();
+                _loading = false;
+                return;
+            }
+            JsonElement assetsRoot = state.Assets?.RootElement ?? default;
+            JsonElement assetsArray;
+            if (assetsRoot.ValueKind == JsonValueKind.Object && assetsRoot.TryGetProperty("_embedded", out var embedded))
+            {
+                assetsArray = embedded;
+            }
+            else
+            {
+                assetsArray = assetsRoot;
+            }
+            if (assetsArray.ValueKind != JsonValueKind.Array)
+            {
+                _assets = new List<AssetDto>();
+                _loading = false;
+                return;
+            }
+            var list = new List<AssetDto>();
+            foreach (var item in assetsArray.EnumerateArray())
+            {
+                try
+                {
+                    var dto = item.Deserialize<AssetDto>(JsonOptions);
+                    if (dto is not null) list.Add(dto);
+                }
+                catch { }
+            }
+            _assets = list;
         }
         catch (Exception ex)
         {
@@ -242,7 +274,7 @@
 
         try
         {
-            var response = await Http.PostAsJsonAsync("/ui/assets/bulk/tag", request);
+            var response = await Http.PostAsJsonAsync("/assets/bulk/tag", request);
             if (response.IsSuccessStatusCode)
             {
                 _showBulkTagModal = false;
@@ -285,7 +317,7 @@
 
         try
         {
-            var response = await Http.PostAsJsonAsync("/ui/assets/bulk/enqueue", request);
+            var response = await Http.PostAsJsonAsync("/assets/bulk/enqueue", request);
             if (response.IsSuccessStatusCode)
             {
                 _showBulkEnqueueModal = false;
@@ -315,6 +347,7 @@
         public int RiskScore { get; set; }
         public int InterestingScore { get; set; }
         public DateTimeOffset LastSeenAt { get; set; }
+        public int StalenessScore { get; set; }
         public List<string>? Tags { get; set; }
     }
 }

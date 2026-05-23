@@ -145,7 +145,9 @@ public enum AssetType
     FindingCandidate,
     Finding,
     Port,
-    DnsRecord
+    DnsRecord,
+    Secret,
+    Vulnerability
 }
 
 public enum AssetStatus

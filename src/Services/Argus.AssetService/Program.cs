@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Argus.AssetService.Data;
+using Argus.AssetService.Stores;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
@@ -266,6 +268,7 @@ internal static class AssetEndpoints
                 return Results.BadRequest("Worker capability is required.");
             }
 
+            var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var taskClient = httpClientFactory.CreateClient();
             taskClient.BaseAddress = new Uri(ServiceUriHelper.GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
 
@@ -288,7 +291,7 @@ internal static class AssetEndpoints
                     Priority: request.Priority,
                     DedupeHash: dedupeHash);
 
-                using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions, cancellationToken);
+                using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, jsonOptions, cancellationToken);
                 if (createResponse.IsSuccessStatusCode)
                 {
                     var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);

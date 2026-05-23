@@ -70,15 +70,14 @@ builder.Services.AddHostedService<WebhookService>();
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+var dbContextFactory = app.Services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
     await dbContext.Database.EnsureCreatedAsync();
 }
 
-using (var scope = app.Services.CreateScope())
+await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
     await dbContext.Database.EnsureCreatedAsync();
 }
 
@@ -149,8 +148,8 @@ app.MapPost("/workers/register", (WorkerRegistrationRequest request, RealtimeSto
     return Results.Created($"/workers/{worker.WorkerId}", worker);
 });
 
-app.MapPost("/workers/heartbeat", (WorkerHeartbeatRequest request, RealtimeStore store) =>
-    store.Heartbeat(request));
+app.MapPost("/workers/heartbeat", async (WorkerHeartbeatRequest request, RealtimeStore store, CancellationToken cancellationToken) =>
+    await store.Heartbeat(request, cancellationToken));
 
 var deadLetterConnection = app.Services.GetService<IConnection>();
 var deadLetterChannel = app.Services.GetService<IChannel>();
@@ -471,7 +470,7 @@ internal sealed class RealtimeStore
         return worker;
     }
 
-    public WorkerStatusDto Heartbeat(WorkerHeartbeatRequest request)
+public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, CancellationToken cancellationToken = default)
     {
         var worker = _workers.AddOrUpdate(
             request.WorkerId,
@@ -491,47 +490,23 @@ internal sealed class RealtimeStore
                 IsOnline = true
             });
 
-        RecordEvent(new EventIngestRequest(
+        await RecordEventAsync(new EventIngestRequest(
             "WorkerHeartbeat",
             "Argus.RealtimeService",
             null,
             null,
-            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
+            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"), cancellationToken);
 
-        try
+        _pendingWorkers.Enqueue(new WorkerRecord
         {
-            using var scope = _services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
-
-            var existing = dbContext.Workers.Find(request.WorkerId);
-            if (existing is null)
-            {
-                dbContext.Workers.Add(new WorkerRecord
-                {
-                    WorkerId = request.WorkerId,
-                    WorkerType = request.WorkerType,
-                    Version = null,
-                    RunningTasks = request.RunningTasks,
-                    MaxConcurrency = request.MaxConcurrency,
-                    LastSeenAt = request.SeenAt,
-                    IsOnline = true
-                });
-            }
-            else
-            {
-                existing.WorkerType = request.WorkerType;
-                existing.RunningTasks = request.RunningTasks;
-                existing.MaxConcurrency = request.MaxConcurrency;
-                existing.LastSeenAt = request.SeenAt;
-                existing.IsOnline = true;
-            }
-
-            dbContext.SaveChanges();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to persist worker heartbeat {WorkerId}", request.WorkerId);
-        }
+            WorkerId = request.WorkerId,
+            WorkerType = request.WorkerType,
+            Version = null,
+            RunningTasks = request.RunningTasks,
+            MaxConcurrency = request.MaxConcurrency,
+            LastSeenAt = request.SeenAt,
+            IsOnline = true
+        });
 
         return worker;
     }

@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "018",
-  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
-  "context": "RealtimeService: immediate sync durability for events and workers, removed background persist loop",
-  "status": "committed",
-  "pid": 2656054,
-  "startedAt": "2026-05-23T04:47:43.179Z",
-  "lastRunAt": "2026-05-23T04:47:43.218Z",
-  "lastHeartbeatAt": "2026-05-23T04:48:23.706Z",
+  "currentTaskId": "055",
+  "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
+  "context": null,
+  "status": "working",
+  "pid": 2827245,
+  "startedAt": "2026-05-23T05:03:23.121Z",
+  "lastRunAt": "2026-05-23T05:03:23.121Z",
+  "lastHeartbeatAt": "2026-05-23T05:22:32.699Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:48:23.706Z"
+  "updatedAt": "2026-05-23T05:22:32.699Z"
 }
