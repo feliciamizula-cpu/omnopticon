@@ -1,13 +1,13 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": "T05230228",
-  "currentTaskDescription": "This script that shows menu options has malformed text (bad encoding?) that appears in the menu options",
-  "context": "Replaced → (right arrow) Unicode chars with ASCII -> in team-control.sh menu options",
+  "currentTaskId": "050",
+  "currentTaskDescription": "Enhancement #15: Scheduled/recurring scan plans - Add CronExpression field to ScanPlanDto. Create RecurrencePolicy entity. Build ScanSchedulerBackgroundService checking for due recurrences every 60s, auto-creates scan plans from template. Track LastRunAt and NextRunAt on scan plan. Use NCrontab or Cronos NuGet (lightweight, avoid Hangfire/Quartz). File: src/Services/Argus.ScanOrchestratorService/",
+  "context": null,
   "status": "working",
-  "pid": 446639,
-  "startedAt": "2026-05-23T02:45:12.579Z",
-  "lastRunAt": "2026-05-23T02:48:31.331Z",
-  "lastHeartbeatAt": "2026-05-23T02:48:31.331Z",
+  "pid": 467756,
+  "startedAt": "2026-05-23T02:49:42.127Z",
+  "lastRunAt": "2026-05-23T02:49:42.127Z",
+  "lastHeartbeatAt": "2026-05-23T02:49:42.127Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T02:48:59.299Z"
+  "updatedAt": "2026-05-23T02:49:52.476Z"
 }

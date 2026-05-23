@@ -20,6 +20,7 @@ public enum AssetType
     ApiEndpoint,
     Technology,
     FindingCandidate,
+    Finding,
     Port,
     DnsRecord
 }

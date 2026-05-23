@@ -42,6 +42,7 @@ public sealed record IntegrationEventEnvelope<T>
 public sealed record ProgramCreated(Guid ProgramId, string Name);
 public sealed record ScopeCreated(Guid ProgramId, Guid ScopeId, string Pattern, string ScopeType);
 public sealed record AssetDiscovered(Guid AssetId, Guid ProgramId, string AssetType, string Value);
+public sealed record FindingCandidateCreated(Guid AssetId, Guid ProgramId, string AssetType, string Value, int InterestingScore);
 public sealed record AssetConfirmed(Guid AssetId, Guid ProgramId, string AssetType, string Value, Guid? ConfirmedByTaskId);
 public sealed record AssetUpdated(Guid AssetId, Guid ProgramId, string AssetType, string Value);
 public sealed record AssetRelationshipDiscovered(Guid FromAssetId, Guid ToAssetId, string EdgeType);

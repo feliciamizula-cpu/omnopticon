@@ -81,6 +81,15 @@ app.MapPost("/assets", async (
             eventType,
             "Argus.AssetService",
             cancellationToken: cancellationToken);
+
+        if (asset.Type == AssetType.FindingCandidate)
+        {
+            await events.PublishAsync(
+                new FindingCandidateCreated(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value, asset.InterestingScore),
+                nameof(FindingCandidateCreated),
+                "Argus.AssetService",
+                cancellationToken: cancellationToken);
+        }
     }
     else
     {
