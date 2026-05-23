@@ -1,6 +1,7 @@
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
+using Argus.RealtimeService;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
@@ -310,8 +311,8 @@ internal sealed class RealtimeStore
                 payload,
                 evt.EventType,
                 evt.SourceService ?? "unknown",
-                evt.CorrelationId,
-                evt.CausationId).WithEventId(evt.EventId);
+                correlationId: evt.CorrelationId,
+                causationId: evt.CausationId).WithEventId(evt.EventId);
             _events.Enqueue(envelope);
         }
 
@@ -337,8 +338,11 @@ internal sealed class RealtimeStore
 
             _workerCapabilities[cap.WorkerId] = new WorkerCapabilityDescriptor(
                 cap.WorkerType,
-                cap.MaxConcurrency,
-                types);
+                types,
+                [],
+                RequiresHttp: false,
+                SupportsCheckpoint: false,
+                cap.MaxConcurrency);
         }
 
         _ = Task.Run(PersistWorkerLoop);
@@ -437,8 +441,8 @@ internal sealed class RealtimeStore
             payload,
             request.EventType.Trim(),
             request.SourceService ?? "unknown",
-            request.CorrelationId,
-            request.CausationId);
+            correlationId: request.CorrelationId,
+            causationId: request.CausationId);
 
         _events.Enqueue(envelope);
 
@@ -609,8 +613,8 @@ internal sealed class RealtimeStore
                     payload,
                     evt.EventType,
                     evt.SourceService ?? "unknown",
-                    evt.CorrelationId,
-                    evt.CausationId).WithEventId(evt.EventId);
+                    correlationId: evt.CorrelationId,
+                    causationId: evt.CausationId).WithEventId(evt.EventId);
             })
             .ToArray();
     }
@@ -641,21 +645,3 @@ internal sealed record EventIngestRequest(
     Guid? CorrelationId,
     Guid? CausationId,
     string? PayloadJson);
-
-public sealed record EventRecord(
-    Guid EventId,
-    string EventType,
-    string SourceService,
-    DateTimeOffset RecordedAt,
-    Guid CorrelationId,
-    Guid CausationId,
-    string PayloadJson);
-
-public sealed record WorkerRecord(
-    string WorkerId,
-    string WorkerType,
-    string? Version,
-    int RunningTasks,
-    int MaxConcurrency,
-    DateTimeOffset LastSeenAt,
-    bool IsOnline);

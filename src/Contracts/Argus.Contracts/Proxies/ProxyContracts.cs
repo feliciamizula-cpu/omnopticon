@@ -5,7 +5,6 @@ public sealed record ProxyDto(
     string Url,
     string Protocol,
     string? Username,
-    string? Password,
     string? Country,
     string? City,
     bool IsActive,

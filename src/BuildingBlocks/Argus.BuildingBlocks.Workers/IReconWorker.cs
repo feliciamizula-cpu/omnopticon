@@ -52,4 +52,16 @@ public sealed record WorkerProducedAsset(
     decimal? Confidence,
     IReadOnlyDictionary<string, string>? Metadata,
     IReadOnlyCollection<string>? Tags,
-    IReadOnlyCollection<ArtifactReference>? ArtifactReferences = null);
+    IReadOnlyCollection<ArtifactReference>? ArtifactReferences = null)
+{
+    public WorkerProducedAsset(
+        string assetType,
+        string value,
+        string? subtype,
+        IReadOnlyDictionary<string, string>? metadata,
+        IReadOnlyCollection<string>? tags,
+        IReadOnlyCollection<ArtifactReference>? artifactReferences = null)
+        : this(assetType, value, subtype, null, metadata, tags, artifactReferences)
+    {
+    }
+}

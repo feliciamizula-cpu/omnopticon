@@ -2,56 +2,56 @@
   "agents": [
     {
       "status": "active",
-      "currentTask": "D05230334",
+      "currentTask": "053",
       "name": "Agent 1",
       "id": "agent-1",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:04:31.305Z",
       "workStatus": "working",
-      "currentTaskDescription": "DevOps: Analyze all code review output for any outstanding questions, action items, etc., that i need to be aware of, and create and push notifications.md so I can review it. We will be creating todo items based off of this document soon",
-      "lastRunAt": "2026-05-23T03:42:58.638Z",
-      "lastHeartbeatAt": "2026-05-23T03:42:58.638Z",
+      "currentTaskDescription": "Enhancement #19: Webhook notifications - Add WebhookService with configurable webhook targets: url, event-type filters (FindingCandidateCreated, AssetConfirmed, etc.), filters (programId, minInterestingScore). Fire via SSE subscription mechanism. Retry with exponential backoff. Store webhook configs in PostgreSQL. UI for CRUD webhook configs. File: src/Services/Argus.RealtimeService/",
+      "lastRunAt": "2026-05-23T03:59:39.708Z",
+      "lastHeartbeatAt": "2026-05-23T04:04:31.305Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
         "application implementation"
       ],
       "context": null,
-      "pid": null,
-      "startedAt": null
+      "pid": 1808545,
+      "startedAt": "2026-05-23T03:54:09.682Z"
     },
     {
       "status": "active",
       "currentTask": "034",
       "name": "Agent 2",
       "id": "agent-2",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:04:34.542Z",
       "workStatus": "working",
       "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
-      "lastRunAt": "2026-05-23T03:17:15.427Z",
-      "lastHeartbeatAt": "2026-05-23T03:17:15.427Z",
+      "lastRunAt": "2026-05-23T03:17:15.468Z",
+      "lastHeartbeatAt": "2026-05-23T04:04:34.542Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
         "application implementation"
       ],
       "context": null,
-      "pid": null,
-      "startedAt": null
+      "pid": 977093,
+      "startedAt": "2026-05-23T03:00:50.390Z"
     },
     {
       "status": "active",
       "currentTask": "054",
       "name": "Agent 3",
       "id": "agent-3",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:04:29.578Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
-      "lastRunAt": "2026-05-23T03:05:00.548Z",
-      "lastHeartbeatAt": "2026-05-23T03:05:00.548Z",
+      "lastRunAt": "2026-05-23T03:05:00.681Z",
+      "lastHeartbeatAt": "2026-05-23T04:04:29.578Z",
       "lastError": null,
       "context": null,
-      "pid": null,
-      "startedAt": null,
+      "pid": 737133,
+      "startedAt": "2026-05-23T03:05:00.636Z",
       "role": "development",
       "responsibilities": [
         "application implementation"
@@ -62,15 +62,15 @@
       "currentTask": "043",
       "name": "Agent 4",
       "id": "agent-4",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:04:33.056Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
-      "lastRunAt": "2026-05-23T03:05:48.111Z",
-      "lastHeartbeatAt": "2026-05-23T03:05:48.111Z",
+      "lastRunAt": "2026-05-23T03:05:48.152Z",
+      "lastHeartbeatAt": "2026-05-23T04:04:33.056Z",
       "lastError": null,
       "context": null,
-      "pid": null,
-      "startedAt": null,
+      "pid": 756359,
+      "startedAt": "2026-05-23T03:05:47.674Z",
       "role": "development",
       "responsibilities": [
         "application implementation"
@@ -81,19 +81,19 @@
       "currentTask": "055",
       "name": "Agent 5",
       "id": "agent-5",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:04:37.938Z",
       "workStatus": "working",
       "currentTaskDescription": "Enhancement #21: Bulk asset tag and enqueue endpoints - Wire up POST /assets/bulk/tag (BulkTagRequest) and POST /assets/bulk/enqueue (BulkEnqueueRequest). DTOs and store interfaces already defined in AssetContracts.cs. Add UI multi-select in asset grid with contextual tag/enqueue actions. Prerequisite: deduplication already completed. Files: src/Services/Argus.AssetService/, src/BuildingBlocks/Argus.Contracts/",
-      "lastRunAt": "2026-05-23T03:03:40.171Z",
-      "lastHeartbeatAt": "2026-05-23T03:03:40.171Z",
+      "lastRunAt": "2026-05-23T03:03:40.221Z",
+      "lastHeartbeatAt": "2026-05-23T04:04:37.938Z",
       "lastError": null,
       "role": "development",
       "responsibilities": [
         "application implementation"
       ],
       "context": null,
-      "pid": null,
-      "startedAt": null
+      "pid": 704161,
+      "startedAt": "2026-05-23T03:03:40.221Z"
     },
     {
       "id": "devops-1",
@@ -107,13 +107,13 @@
       ],
       "currentTask": null,
       "workStatus": "idle",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:00:27.637Z",
       "pid": null,
-      "lastHeartbeatAt": "2026-05-23T03:28:39.522Z",
+      "lastHeartbeatAt": "2026-05-23T03:28:39.490Z",
       "currentTaskDescription": null,
       "context": null,
       "lastError": null,
-      "lastRunAt": "2026-05-23T03:25:04.373Z",
+      "lastRunAt": "2026-05-23T03:28:39.490Z",
       "startedAt": null
     },
     {
@@ -128,13 +128,13 @@
       ],
       "currentTask": null,
       "workStatus": "idle",
-      "lastUpdated": "2026-05-23T03:47:23.340Z",
+      "lastUpdated": "2026-05-23T04:00:27.637Z",
       "pid": null,
-      "lastHeartbeatAt": "2026-05-23T03:29:41.166Z",
+      "lastHeartbeatAt": "2026-05-23T03:29:41.135Z",
       "currentTaskDescription": null,
       "context": null,
       "lastError": null,
-      "lastRunAt": "2026-05-23T03:25:04.505Z",
+      "lastRunAt": "2026-05-23T03:29:41.135Z",
       "startedAt": null
     }
   ],
@@ -785,8 +785,8 @@
       "id": "053",
       "description": "Enhancement #19: Webhook notifications - Add WebhookService with configurable webhook targets: url, event-type filters (FindingCandidateCreated, AssetConfirmed, etc.), filters (programId, minInterestingScore). Fire via SSE subscription mechanism. Retry with exponential backoff. Store webhook configs in PostgreSQL. UI for CRUD webhook configs. File: src/Services/Argus.RealtimeService/",
       "priority": "medium",
-      "assignedTo": null,
-      "status": "pending",
+      "assignedTo": "agent-1",
+      "status": "in_progress",
       "createdAt": "2026-05-23T02:38:11.290740841Z",
       "claimedAt": "2026-05-23T03:02:47.579Z",
       "attempts": 2,
@@ -846,13 +846,15 @@
       "id": "D05230334",
       "description": "DevOps: Analyze all code review output for any outstanding questions, action items, etc., that i need to be aware of, and create and push notifications.md so I can review it. We will be creating todo items based off of this document soon",
       "priority": "high",
-      "assignedTo": "agent-1",
-      "status": "in_progress",
+      "assignedTo": null,
+      "status": "pending",
       "createdAt": "2026-05-23T03:34:21.851618870Z",
       "claimedAt": "2026-05-23T03:42:58.638Z",
-      "attempts": 1
+      "attempts": 1,
+      "requeuedAt": "2026-05-23T04:04:39.694Z",
+      "requeueReason": "restored after coordinator state repair"
     }
   ],
   "version": "1.0",
-  "lastPullAt": "2026-05-23T03:43:50.610Z"
+  "lastPullAt": "2026-05-23T04:04:39.694Z"
 }

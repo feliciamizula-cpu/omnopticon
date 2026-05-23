@@ -32,6 +32,9 @@
     <Project Path="src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj" />
     <Project Path="src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Argus.Workers.HttpProbe.Tests/Argus.Workers.HttpProbe.Tests.csproj" />
+  </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path="Directory.Packages.props" />

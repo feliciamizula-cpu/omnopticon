@@ -2,6 +2,7 @@ using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
+using Argus.ProgramScopeService;
 using Argus.ProgramScopeService.Providers;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
@@ -13,9 +14,6 @@ builder.AddServiceDefaults();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.ProgramScopeService");
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
-builder.Services.AddSingleton<IScopeProvider, HackerOneScopeProvider>();
-builder.Services.AddSingleton<IScopeProvider, BugcrowdScopeProvider>();
-builder.Services.AddHostedService<ScopeSyncService>();
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
 {
@@ -233,13 +231,13 @@ internal interface IProgramScopeStore
 
 internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
 {
-    private readonly ConcurrentDictionary<Guid, ProgramRecord> _programs = new();
+    private readonly ConcurrentDictionary<Guid, InMemoryProgramRecord> _programs = new();
 
     public Task<IReadOnlyCollection<ProgramDto>> GetProgramsAsync(CancellationToken cancellationToken)
     {
         IReadOnlyCollection<ProgramDto> programs = _programs.Values
             .OrderBy(program => program.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(ToDto)
+            .Select(program => program.ToDto())
             .ToArray();
 
         return Task.FromResult(programs);
@@ -247,24 +245,22 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
 
     public Task<ProgramDto?> FindProgramAsync(Guid programId, CancellationToken cancellationToken)
     {
-        var program = _programs.TryGetValue(programId, out var record) ? ToDto(record) : null;
+        var program = _programs.TryGetValue(programId, out var record) ? record.ToDto() : null;
         return Task.FromResult(program);
     }
 
     public Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var record = new ProgramRecord(
-            Guid.NewGuid(),
-            request.Name.Trim(),
-            string.IsNullOrWhiteSpace(request.Source) ? "custom" : request.Source.Trim(),
-            request.ExternalUrl,
-            now,
-            now,
-            [],
-            [],
-            [],
-            []);
+        var record = new InMemoryProgramRecord
+        {
+            ProgramId = Guid.NewGuid(),
+            Name = request.Name.Trim(),
+            Source = string.IsNullOrWhiteSpace(request.Source) ? "custom" : request.Source.Trim(),
+            ExternalUrl = request.ExternalUrl,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
 
         _programs[record.ProgramId] = record;
 
@@ -437,6 +433,25 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         string.IsNullOrWhiteSpace(scopeType) ? "domain" : scopeType.Trim();
 
     private static string NormalizePattern(string pattern) => pattern.Trim().ToLowerInvariant();
+
+    private static ProgramDto ToDto(InMemoryProgramRecord record) => record.ToDto();
+}
+
+internal sealed class InMemoryProgramRecord
+{
+    public Guid ProgramId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Source { get; set; } = "custom";
+    public string? ExternalUrl { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public List<ProgramScopeDto> Scopes { get; } = [];
+    public List<ProgramRuleRevisionDto> RuleRevisions { get; } = [];
+    public List<ScopeExclusionRecord> ScopeExclusions { get; } = [];
+    public List<RateLimitPolicyRecord> RateLimitPolicies { get; } = [];
+
+    public ProgramDto ToDto() =>
+        new(ProgramId, Name, Source, ExternalUrl, CreatedAt, UpdatedAt, Scopes.ToArray());
 }
 
 internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IProgramScopeStore

@@ -552,7 +552,7 @@ internal sealed class InMemoryAssetStore : IAssetStore
 
     public Task<IReadOnlyCollection<AssetDto>> GetSubgraphAsync(Guid assetId, int? maxDepth, IReadOnlyCollection<AssetType>? assetTypes, CancellationToken cancellationToken)
     {
-        var visited = new HashSet<Guid> { assetId };
+        var visited = new HashSet<Guid>();
         var queue = new Queue<(Guid AssetId, int Depth)>();
         queue.Enqueue((assetId, 0));
 
@@ -560,6 +560,9 @@ internal sealed class InMemoryAssetStore : IAssetStore
 
         while (queue.TryDequeue(out var current))
         {
+            if (!visited.Add(current.AssetId))
+                continue;
+
             if (maxDepth.HasValue && current.Depth >= maxDepth.Value)
                 continue;
 
@@ -570,7 +573,6 @@ internal sealed class InMemoryAssetStore : IAssetStore
 
             foreach (var neighbor in neighbors)
             {
-                visited.Add(neighbor);
                 resultIds.Add(neighbor);
                 queue.Enqueue((neighbor, current.Depth + 1));
             }

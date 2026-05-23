@@ -54,12 +54,16 @@ public sealed class ProxyRecord
             r.Url,
             r.Protocol,
             r.Username,
-            r.IsActive,
-            r.IsOnline,
             r.Country,
             r.City,
-            r.MaxRequestsPerSecond,
-            r.MaxConcurrentRequests,
+            r.IsActive,
+            r.IsOnline,
+            new Argus.Contracts.Proxies.ProxyRateLimitDto(
+                r.MaxRequestsPerSecond,
+                r.MaxConcurrentRequests,
+                0,
+                0,
+                null),
             r.CreatedAt,
             r.UpdatedAt);
 }

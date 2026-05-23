@@ -25,8 +25,9 @@ app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, Cancellatio
     var workersTask = gateway.GetJsonAsync(endpoints.Realtime, "/workers", cancellationToken);
     var rateLimitsTask = gateway.GetJsonAsync(endpoints.RateLimit, "/rate-limits", cancellationToken);
     var scanPlansTask = gateway.GetJsonAsync(endpoints.ScanOrchestrator, "/scan-plans", cancellationToken);
+    var webhooksTask = gateway.GetJsonAsync(endpoints.Realtime, "/webhooks", cancellationToken);
 
-    await Task.WhenAll(assetsTask, tasksTask, programsTask, scopesTask, eventsTask, workersTask, rateLimitsTask, scanPlansTask);
+    await Task.WhenAll(assetsTask, tasksTask, programsTask, scopesTask, eventsTask, workersTask, rateLimitsTask, scanPlansTask, webhooksTask);
 
     return Results.Json(new
     {
@@ -38,7 +39,8 @@ app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, Cancellatio
         events = eventsTask.Result,
         workers = workersTask.Result,
         rateLimits = rateLimitsTask.Result,
-        scanPlans = scanPlansTask.Result
+        scanPlans = scanPlansTask.Result,
+        webhooks = webhooksTask.Result
     });
 });
 
@@ -104,6 +106,59 @@ app.MapPost("/ui/assets/bulk/enqueue", async (
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/enqueue", payload, cancellationToken);
+});
+
+app.MapGet("/ui/webhooks/{id:guid}/logs", async (
+    Guid id,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Realtime, $"/webhooks/{id}/logs", cancellationToken);
+    return result is not null ? Results.Ok(result as object) : Results.NotFound();
+});
+
+app.MapPost("/ui/webhooks", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Realtime, "/webhooks", payload, cancellationToken);
+});
+
+app.MapPut("/ui/webhooks/{id:guid}", async (
+    Guid id,
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Realtime, $"/webhooks/{id}", payload, cancellationToken);
+});
+
+app.MapDelete("/ui/webhooks/{id:guid}", async (
+    Guid id,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    try
+    {
+        var client = httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(endpoints.Realtime);
+        var response = await client.DeleteAsync($"/webhooks/{id}", cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return Results.Content(content, "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Unable to reach backend service: {ex.Message}");
+    }
 });
 
 app.MapGet("/ui/events/stream", async (
@@ -356,6 +411,7 @@ app.MapGet("/", () => Results.Content("""
       <button data-view="scanPlans">Scan Plans</button>
       <button data-view="scopes">Scope Explorer</button>
       <button data-view="programs">Programs</button>
+      <button data-view="webhooks">Webhooks</button>
     </nav>
     <section>
       <div class="toolbar">
@@ -487,6 +543,7 @@ app.MapGet("/", () => Results.Content("""
         : state.view === "rateLimits" ? (data.rateLimits ?? [])
         : state.view === "scanPlans" ? (data.scanPlans ?? [])
         : state.view === "scopes" ? (data.scopes ?? [])
+        : state.view === "webhooks" ? (data.webhooks ?? [])
         : (data.programs ?? []);
 
       if (state.view === "assets" && state.assetType) {
@@ -544,6 +601,23 @@ app.MapGet("/", () => Results.Content("""
         program.name, program.source, (program.scopes ?? []).length, formatTime(program.createdAt), formatTime(program.updatedAt)
       ]));
     }
+      if (view === "webhooks") {
+        if (!rows.length) return renderTable(["Name","URL","Events","Program","MinScore","Active","Retry","Timeout","Actions"], []);
+        return `<table><thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Program</th><th>MinScore</th><th>Active</th><th>Retry</th><th>Timeout</th><th>Actions</th></tr></thead><tbody>
+          ${rows.map(webhook => `<tr data-row-index="${rows.indexOf(webhook)}">
+            <td>${escapeHtml(webhook.name ?? "")}</td>
+            <td>${escapeHtml(webhook.url ?? "")}</td>
+            <td>${escapeHtml((webhook.eventTypes ?? []).join(", "))}</td>
+            <td>${webhook.programId ? programName(webhook.programId) : ""}</td>
+            <td>${webhook.minInterestingScore ?? ""}</td>
+            <td>${webhook.isActive ? "yes" : "no"}</td>
+            <td>${webhook.retryCount}</td>
+            <td>${webhook.timeoutSeconds}</td>
+            <td><button type="button" data-edit-webhook='${encodeURIComponent(JSON.stringify(webhook))}'>edit</button> <button type="button" onclick="deleteWebhook('${webhook.id}')">del</button></td>
+          </tr>`).join("")}
+        </tbody></table>`;
+      }
+    }
 
     function controlsFor(view) {
       if (view === "programs") {
@@ -572,6 +646,12 @@ app.MapGet("/", () => Results.Content("""
           <button type="submit">Start Discovery</button>
         </form>`;
       }
+      if (view === "webhooks") {
+        return `<div class="toolbar">
+          <button type="button" data-action="create-webhook">Create Webhook</button>
+          <button type="button" data-action="refresh-webhooks">Refresh</button>
+        </div>`;
+      }
       return "";
     }
 
@@ -594,6 +674,10 @@ app.MapGet("/", () => Results.Content("""
           response = await postJson(`/ui/programs/${encodeURIComponent(payload.programId)}/scopes`, payload);
         } else if (command === "start-domain-discovery") {
           response = await postJson("/ui/scan-plans/domain-discovery", payload);
+        } else if (command === "create-webhook") {
+          response = await postJson("/ui/webhooks", payload);
+        } else if (command === "edit-webhook") {
+          response = await putJson(`/ui/webhooks/${encodeURIComponent(payload.webhookId)}`, payload);
         }
 
         if (!response?.ok) {
@@ -629,7 +713,62 @@ app.MapGet("/", () => Results.Content("""
       return program?.name ?? programId;
     }
 
-    function normalizeFormValue(value) {
+    function handleWebhookAction(event) {
+      const button = event.target.closest("[data-action]");
+      if (!button) return;
+      const action = button.dataset.action;
+
+      if (action === "create-webhook") {
+        showModal(`<h2>Create Webhook</h2>
+          <form data-command="create-webhook">
+            <label>Name</label><input name="name" placeholder="My Webhook" required>
+            <label>URL (https://...)</label><input name="url" placeholder="https://example.com/hook" required type="url">
+            <label>Event Types (comma-separated)</label><input name="eventTypes" placeholder="FindingCandidateCreated, AssetConfirmed">
+            <label>Program Filter (optional)</label>${programSelect("programId")}
+            <label>Min Interesting Score (optional)</label><input name="minInterestingScore" type="number" min="0" max="100">
+            <label>Secret Header (optional)</label><input name="secretHeader" placeholder="X-Webhook-Secret">
+            <label>Secret Value (optional)</label><input name="secretValue" placeholder="secret-value">
+            <label>Retry Count</label><input name="retryCount" type="number" value="3" min="1" max="10">
+            <label>Timeout (seconds)</label><input name="timeoutSeconds" type="number" value="30" min="5" max="120">
+            <div class="modal-actions">
+              <button type="button" onclick="closeModal()">Cancel</button>
+              <button type="submit">Create</button>
+            </div>
+          </form>`);
+      } else if (action === "refresh-webhooks") {
+        load();
+      }
+    }
+
+    content.addEventListener("click", event => {
+      const button = event.target.closest("[data-action]");
+      if (!button || state.view !== "webhooks") return;
+      handleWebhookAction(event);
+    });
+
+    content.addEventListener("click", event => {
+      const editBtn = event.target.closest("[data-edit-webhook]");
+      if (!editBtn) return;
+      const webhook = JSON.parse(decodeURIComponent(editBtn.dataset.editWebhook));
+      showModal(`<h2>Edit Webhook</h2>
+        <form data-command="edit-webhook">
+          <input type="hidden" name="webhookId" value="${escapeHtml(webhook.id)}">
+          <label>Name</label><input name="name" value="${escapeHtml(webhook.name ?? "")}" required>
+          <label>URL</label><input name="url" value="${escapeHtml(webhook.url ?? "")}" required type="url">
+          <label>Event Types</label><input name="eventTypes" value="${escapeHtml((webhook.eventTypes ?? []).join(", "))}">
+          <label>Program Filter</label>${programSelect("programId")}
+          <label>Min Interesting Score</label><input name="minInterestingScore" type="number" value="${webhook.minInterestingScore ?? ""}" min="0" max="100">
+          <label>Active</label><select name="isActive"><option value="true" ${webhook.isActive ? "selected" : ""}>Yes</option><option value="false" ${!webhook.isActive ? "selected" : ""}>No</option></select>
+          <label>Secret Header</label><input name="secretHeader" value="${escapeHtml(webhook.secretHeader ?? "")}">
+          <label>Secret Value</label><input name="secretValue" value="${escapeHtml(webhook.secretValue ?? "")}">
+          <label>Retry Count</label><input name="retryCount" type="number" value="${webhook.retryCount}" min="1" max="10">
+          <label>Timeout (seconds)</label><input name="timeoutSeconds" type="number" value="${webhook.timeoutSeconds}" min="5" max="120">
+          <div class="modal-actions">
+            <button type="button" onclick="closeModal()">Cancel</button>
+            <button type="submit">Save</button>
+          </div>
+        </form>`);
+    });
       const stringValue = String(value).trim();
       return stringValue.length ? stringValue : null;
     }
@@ -640,6 +779,21 @@ app.MapGet("/", () => Results.Content("""
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload)
       });
+    }
+
+    function putJson(url, payload) {
+      return fetch(url, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    function deleteWebhook(webhookId) {
+      if (!confirm("Delete this webhook?")) return;
+      fetch(`/ui/webhooks/${encodeURIComponent(webhookId)}`, { method: "DELETE" })
+        .then(response => { if (response.ok) load(); else alert("Delete failed"); })
+        .catch(error => alert("Error: " + error.message));
     }
 
     function renderTable(headers, rows) {

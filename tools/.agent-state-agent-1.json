@@ -1,13 +1,13 @@
 {
   "agentId": "agent-1",
-  "currentTaskId": "D05230334",
-  "currentTaskDescription": "DevOps: Analyze all code review output for any outstanding questions, action items, etc., that i need to be aware of, and create and push notifications.md so I can review it. We will be creating todo items based off of this document soon",
-  "context": "Analyzed the issue: immediate requeue with BasicNack causes infinite retry loop without delay. Need to: 1) Use delay queues for retry with DLX/TTL, 2) Add persistent poison message store, 3) Add inspection/replay endpoint",
   "status": "working",
-  "pid": 1537816,
-  "startedAt": "2026-05-23T02:23:54.949Z",
-  "lastRunAt": "2026-05-23T03:42:58.678Z",
-  "lastHeartbeatAt": "2026-05-23T03:47:06.680Z",
+  "currentTaskId": "053",
+  "currentTaskDescription": "Enhancement #19: Webhook notifications - Add WebhookService with configurable webhook targets: url, event-type filters (FindingCandidateCreated, AssetConfirmed, etc.), filters (programId, minInterestingScore). Fire via SSE subscription mechanism. Retry with exponential backoff. Store webhook configs in PostgreSQL. UI for CRUD webhook configs. File: src/Services/Argus.RealtimeService/",
+  "pid": 1808545,
   "lastError": null,
-  "updatedAt": "2026-05-23T03:47:23.340Z"
+  "lastHeartbeatAt": "2026-05-23T04:04:31.305Z",
+  "updatedAt": "2026-05-23T04:04:31.305Z",
+  "startedAt": "2026-05-23T03:54:09.682Z",
+  "lastRunAt": "2026-05-23T03:59:39.708Z",
+  "context": null
 }

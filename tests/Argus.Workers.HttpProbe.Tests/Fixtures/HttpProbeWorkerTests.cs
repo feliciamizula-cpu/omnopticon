@@ -2,10 +2,11 @@ using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Tasks;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Xunit;
 
 namespace Argus.Workers.HttpProbe.Tests.Fixtures;
 
-public sealed class HttpProbeWorkerFixture
+internal sealed class HttpProbeWorkerFixture
 {
     public HttpProbeWorker CreateWorker(HttpClient httpClient)
     {
@@ -42,7 +43,8 @@ public sealed class HttpProbeWorkerTests
         var result = await harness.ExecuteAsync(
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
-            payload: new Dictionary<string, string> { ["host"] = "example.com" });
+            payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
         Assert.NotEmpty(result.ProducedAssets);
@@ -62,7 +64,8 @@ public sealed class HttpProbeWorkerTests
         var result = await harness.ExecuteAsync(
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
-            payload: new Dictionary<string, string> { ["host"] = "example.com" });
+            payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.PartiallySucceeded);
         Assert.Empty(result.ProducedAssets);
@@ -80,7 +83,8 @@ public sealed class HttpProbeWorkerTests
             harness.ExecuteAsync(
                 programId: Guid.NewGuid(),
                 taskType: "HttpProbe",
-                payload: new Dictionary<string, string>()));
+                payload: new Dictionary<string, string>(),
+                cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -105,7 +109,8 @@ public sealed class HttpProbeWorkerTests
         var result = await harness.ExecuteAsync(
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
-            payload: new Dictionary<string, string> { ["host"] = "example.com" });
+            payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.ProducedAssets);
     }
@@ -123,7 +128,8 @@ public sealed class HttpProbeWorkerTests
             .ExecuteAsync(
                 Guid.NewGuid(),
                 "HttpProbe",
-                new Dictionary<string, string> { ["host"] = "example.com" });
+                new Dictionary<string, string> { ["host"] = "example.com" },
+                TestContext.Current.CancellationToken);
 
         Assert.True(result.HasAssets);
         Assert.Equal(2, result.AssetCount);
@@ -143,7 +149,8 @@ public sealed class HttpProbeWorkerTests
             .ExecuteAsync(
                 Guid.NewGuid(),
                 "HttpProbe",
-                new Dictionary<string, string> { ["host"] = "example.com" });
+                new Dictionary<string, string> { ["host"] = "example.com" },
+                TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.True(result.Result.PartiallySucceeded);
