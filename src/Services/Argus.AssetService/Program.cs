@@ -19,20 +19,30 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddBasicServiceDefaults();
 
 var JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+var argusDbConnectionString = builder.Configuration.GetConnectionString("argusdb");
 
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
+if (!string.IsNullOrWhiteSpace(argusDbConnectionString))
 {
     builder.Services.AddDbContext<AssetDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
+        options.UseNpgsql(argusDbConnectionString));
+
     builder.Services.AddArgusEfCoreOutbox<AssetDbContext>();
     builder.Services.AddArgusInboxConsumer<AssetDbContext>();
+
     builder.Services.AddHealthChecks()
-        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
+        .AddNpgSql(argusDbConnectionString, name: "argusdb", tags: ["db", "sql", "postgres"]);
+
     builder.Services.AddScoped<IAssetStore, EfAssetStore>();
     builder.Services.AddScoped<TaskCompletedConsumer>();
 }
 else
 {
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "Missing required connection string 'argusdb'. In-memory asset storage is allowed only in Development.");
+    }
+
     builder.Services.AddSingleton<IAssetStore, InMemoryAssetStore>();
 }
 
@@ -43,6 +53,7 @@ builder.Services.AddProblemDetails();
 var app = builder.Build();
 
 await app.InitializeAssetStoreAsync();
+
 app.MapDefaultEndpoints();
 
 AssetEndpoints.MapRoutes(app);
@@ -68,7 +79,24 @@ internal static class AssetEndpoints
             IAssetStore store,
             CancellationToken cancellationToken) =>
         {
-            var query = new AssetQuery(ProgramId: programId, Type: type, Status: status, Search: search, Tag: tag, MinInterestingScore: minInterestingScore, MinRiskScore: minRiskScore, MinStalenessScore: null, MaxStalenessScore: null, Sort: sort, Direction: direction, Page: page ?? 1, PageSize: pageSize ?? 100);
+            var safePage = Math.Max(page ?? 1, 1);
+            var safePageSize = Math.Clamp(pageSize ?? 100, 1, 500);
+
+            var query = new AssetQuery(
+                ProgramId: programId,
+                Type: type,
+                Status: status,
+                Search: search,
+                Tag: tag,
+                MinInterestingScore: minInterestingScore,
+                MinRiskScore: minRiskScore,
+                MinStalenessScore: null,
+                MaxStalenessScore: null,
+                Sort: sort,
+                Direction: direction,
+                Page: safePage,
+                PageSize: safePageSize);
+
             return store.QueryAsync(query, cancellationToken);
         });
 
@@ -139,16 +167,22 @@ internal static class AssetEndpoints
             CancellationToken cancellationToken) =>
         {
             IReadOnlyCollection<AssetType>? types = null;
+
             if (!string.IsNullOrWhiteSpace(assetTypes))
             {
                 var parts = assetTypes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var parsed = new List<AssetType>(parts.Length);
+
                 foreach (var part in parts)
                 {
                     if (!Enum.TryParse<AssetType>(part, ignoreCase: true, out var type))
+                    {
                         return Results.BadRequest($"Invalid asset type: '{part}'.");
+                    }
+
                     parsed.Add(type);
                 }
+
                 types = parsed;
             }
 
@@ -170,6 +204,7 @@ internal static class AssetEndpoints
             try
             {
                 var relationship = await store.AddRelationshipAsync(request, cancellationToken);
+
                 await events.PublishAsync(
                     new AssetRelationshipDiscovered(relationship.FromAssetId, relationship.ToAssetId, relationship.EdgeType),
                     nameof(AssetRelationshipDiscovered),
@@ -245,7 +280,13 @@ internal static class AssetEndpoints
                 }
             }
 
-            return Results.Ok(new { UpdatedAssets = updatedAssets, UpdatedCount = updatedAssets.Count, ErrorCount = errors.Count, Errors = errors });
+            return Results.Ok(new
+            {
+                UpdatedAssets = updatedAssets,
+                UpdatedCount = updatedAssets.Count,
+                ErrorCount = errors.Count,
+                Errors = errors
+            });
         });
 
         app.MapPost("/assets/bulk/enqueue", async (
@@ -292,6 +333,7 @@ internal static class AssetEndpoints
                     DedupeHash: dedupeHash);
 
                 using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, jsonOptions, cancellationToken);
+
                 if (createResponse.IsSuccessStatusCode)
                 {
                     var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
@@ -313,7 +355,7 @@ internal static class TaskDedupeHash
     public static string Compute(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
     {
         var input = $"{programId:N}:{scopeId:N}:{taskType}:{inputAssetId:N}:{workerCapability}";
-        var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 }
@@ -323,8 +365,12 @@ internal static class ServiceUriHelper
     public static string GetServiceUri(string configKey, string fallback)
     {
         var envValue = Environment.GetEnvironmentVariable(configKey);
+
         if (!string.IsNullOrWhiteSpace(envValue) && Uri.TryCreate(envValue, UriKind.Absolute, out var uri))
+        {
             return uri.ToString();
+        }
+
         return fallback;
     }
 }
@@ -353,10 +399,13 @@ internal sealed class TaskCompletedConsumer : IIntegrationEventConsumer<TaskComp
         try
         {
             using var response = await client.PatchAsync($"/assets/{envelope.Payload.InputAssetId}/last-scanned", null, cancellationToken);
+
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogDebug("Updated LastScannedAt for asset {AssetId} after task {TaskId} completed",
-                    envelope.Payload.InputAssetId, envelope.Payload.TaskId);
+                _logger.LogDebug(
+                    "Updated LastScannedAt for asset {AssetId} after task {TaskId} completed",
+                    envelope.Payload.InputAssetId,
+                    envelope.Payload.TaskId);
             }
         }
         catch (Exception ex)

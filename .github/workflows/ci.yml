@@ -7,8 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +17,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Restore
         run: dotnet restore eShop.slnx
@@ -24,21 +25,26 @@ jobs:
       - name: Build
         run: dotnet build eShop.slnx --configuration Release --no-restore
 
+      - name: Test
+        run: dotnet test eShop.slnx --configuration Release --no-build --logger trx
+
       - name: Validate Compose Config
         run: docker compose --env-file deploy/argus.env.example -f deploy/compose.yaml config --quiet
 
   compose-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: build-test
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
-      - name: Build services
+      - name: Build AppHost
         run: dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release
 
       - name: Start containers

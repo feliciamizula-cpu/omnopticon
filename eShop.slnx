@@ -5,38 +5,51 @@
     <Project Path="src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj" />
     <Project Path="src/Argus.Web/Argus.Web.csproj" />
   </Folder>
+
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj" />
     <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj" />
   </Folder>
+
   <Folder Name="/src/Contracts/">
     <Project Path="src/Contracts/Argus.Contracts/Argus.Contracts.csproj" />
   </Folder>
+
   <Folder Name="/src/Services/">
     <Project Path="src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj" />
     <Project Path="src/Services/Argus.AssetService/Argus.AssetService.csproj" />
+    <Project Path="src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj" />
     <Project Path="src/Services/Argus.FindingService/Argus.FindingService.csproj" />
     <Project Path="src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj" />
+    <Project Path="src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj" />
     <Project Path="src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj" />
     <Project Path="src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj" />
     <Project Path="src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj" />
     <Project Path="src/Services/Argus.TaskService/Argus.TaskService.csproj" />
   </Folder>
+
   <Folder Name="/src/Workers/">
     <Project Path="src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj" />
     <Project Path="src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj" />
     <Project Path="src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj" />
+    <Project Path="src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj" />
     <Project Path="src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj" />
     <Project Path="src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj" />
     <Project Path="src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj" />
     <Project Path="src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj" />
     <Project Path="src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj" />
     <Project Path="src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj" />
+    <Project Path="src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj" />
     <Project Path="src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj" />
   </Folder>
+
   <Folder Name="/tests/">
+    <Project Path="tests/Argus.ApiGateway.Tests/Argus.ApiGateway.Tests.csproj" />
+    <Project Path="tests/Argus.Workers.AssetScoring.Tests/Argus.Workers.AssetScoring.Tests.csproj" />
+    <Project Path="tests/Argus.Workers.HtmlDomSpider.Tests/Argus.Workers.HtmlDomSpider.Tests.csproj" />
     <Project Path="tests/Argus.Workers.HttpProbe.Tests/Argus.Workers.HttpProbe.Tests.csproj" />
   </Folder>
+
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
     <File Path="Directory.Packages.props" />

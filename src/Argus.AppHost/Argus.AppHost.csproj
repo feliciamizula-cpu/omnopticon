@@ -1,5 +1,4 @@
 <Project Sdk="Aspire.AppHost.Sdk/13.2.0">
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -17,25 +16,29 @@
   <ItemGroup>
     <ProjectReference Include="..\Argus.ApiGateway\Argus.ApiGateway.csproj" />
     <ProjectReference Include="..\Argus.Web\Argus.Web.csproj" />
-    <ProjectReference Include="..\Services\Argus.AgentService\Argus.AgentService.csproj" />
+
+    <ProjectReference Include="..\Services\Argus.ArtifactService\Argus.ArtifactService.csproj" />
     <ProjectReference Include="..\Services\Argus.AssetService\Argus.AssetService.csproj" />
+    <ProjectReference Include="..\Services\Argus.EventRouterService\Argus.EventRouterService.csproj" />
+    <ProjectReference Include="..\Services\Argus.FindingService\Argus.FindingService.csproj" />
     <ProjectReference Include="..\Services\Argus.ProgramScopeService\Argus.ProgramScopeService.csproj" />
+    <ProjectReference Include="..\Services\Argus.ProxyRegistryService\Argus.ProxyRegistryService.csproj" />
     <ProjectReference Include="..\Services\Argus.RateLimitService\Argus.RateLimitService.csproj" />
     <ProjectReference Include="..\Services\Argus.RealtimeService\Argus.RealtimeService.csproj" />
-    <ProjectReference Include="..\Services\Argus.ProxyRegistryService\Argus.ProxyRegistryService.csproj" />
     <ProjectReference Include="..\Services\Argus.ScanOrchestratorService\Argus.ScanOrchestratorService.csproj" />
     <ProjectReference Include="..\Services\Argus.TaskService\Argus.TaskService.csproj" />
+
     <ProjectReference Include="..\Workers\Argus.Workers.Amass\Argus.Workers.Amass.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.AssetScoring\Argus.Workers.AssetScoring.csproj" />
-    <ProjectReference Include="..\Workers\Argus.Workers.Validation\Argus.Workers.Validation.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.DnsResolver\Argus.Workers.DnsResolver.csproj" />
+    <ProjectReference Include="..\Workers\Argus.Workers.FindingDeduper\Argus.Workers.FindingDeduper.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.Fingerprint\Argus.Workers.Fingerprint.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.HeadlessSpider\Argus.Workers.HeadlessSpider.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.HtmlDomSpider\Argus.Workers.HtmlDomSpider.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.HttpProbe\Argus.Workers.HttpProbe.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.JsExtractor\Argus.Workers.JsExtractor.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.Subfinder\Argus.Workers.Subfinder.csproj" />
+    <ProjectReference Include="..\Workers\Argus.Workers.Validation\Argus.Workers.Validation.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.WordlistDiscovery\Argus.Workers.WordlistDiscovery.csproj" />
   </ItemGroup>
-
 </Project>

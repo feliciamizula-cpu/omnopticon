@@ -1,12 +1,21 @@
 {
-  "name": "eshop",
+  "name": "argus-omnopticon",
   "version": "1.0.0",
-  "description": "A reference .NET application implementing an eCommerce web site using a services-based architecture.",
+  "description": "Argus Recon Platform UI and E2E test tooling.",
+  "private": true,
   "directories": {
     "test": "tests"
   },
-  "scripts": {},
-  "keywords": [],
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "keywords": [
+    "argus",
+    "recon",
+    "aspire",
+    "playwright"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
