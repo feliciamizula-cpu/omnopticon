@@ -426,7 +426,7 @@ public sealed class HtmlParseResultTests
             Links = ((List<string>?)type.GetProperty("Links")?.GetValue(result))?.ToList() ?? new List<string>(),
             ScriptSources = ((List<string>?)type.GetProperty("ScriptSources")?.GetValue(result))?.ToList() ?? new List<string>(),
             CssLinks = ((List<string>?)type.GetProperty("CssLinks")?.GetValue(result))?.ToList() ?? new List<string>(),
-            Forms = ((List<FormInfoProxy>?)type.GetProperty("Forms")?.GetValue(result))?.Select(f => new FormInfoProxy
+            Forms = ((System.Collections.IEnumerable?)type.GetProperty("Forms")?.GetValue(result))?.Cast<object>().Select(f => new FormInfoProxy
             {
                 Action = (string?)f.GetType().GetProperty("Action")?.GetValue(f),
                 Method = (string?)f.GetType().GetProperty("Method")?.GetValue(f)

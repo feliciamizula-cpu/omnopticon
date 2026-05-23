@@ -1,5 +1,6 @@
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Tasks;
+using System.Text.Json;
 using Xunit;
 
 namespace Argus.Workers.AssetScoring.Tests;
@@ -97,7 +98,9 @@ public sealed class AssetScoringWorkerTests
         var debugAsset = result.ProducedAssets.FirstOrDefault(a =>
             a.Metadata?["signal"] == "debug-info-detected");
         Assert.NotNull(debugAsset);
-        Assert.Equal(88, int.Parse(debugAsset.Metadata?["signal"].Length.ToString()));
+
+        using var summaryDoc = JsonDocument.Parse(result.OutputSummaryJson!);
+        Assert.Equal(88, summaryDoc.RootElement.GetProperty("highestScore").GetInt32());
     }
 
     [Fact]

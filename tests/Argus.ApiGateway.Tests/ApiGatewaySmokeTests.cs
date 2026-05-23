@@ -35,8 +35,8 @@ public sealed class ApiGatewaySmokeTests
         Assert.True(response.IsSuccessStatusCode);
 
         var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains("\"Name\"", content);
-        Assert.Contains("\"Routes\"", content);
+        Assert.Contains("\"name\"", content);
+        Assert.Contains("\"routes\"", content);
     }
 }
 
