@@ -136,15 +136,14 @@ public sealed class HttpProbeWorkerTests
         var scenarioBuilder = new WorkerScenarioBuilder<HttpProbeWorker>(worker);
 
         var result = await scenarioBuilder
-            .WithRateLimitAllowed(true)
-            .ExecuteAsync(
-                Guid.NewGuid(),
-                "HttpProbe",
-                new Dictionary<string, string> { ["host"] = "example.com" },
-                TestContext.Current.CancellationToken);
+                .ExecuteAsync(
+                    Guid.NewGuid(),
+                    "HttpProbe",
+                    new Dictionary<string, string> { ["host"] = "example.com" },
+                    TestContext.Current.CancellationToken);
 
         Assert.True(result.HasAssets);
-        Assert.Equal(2, result.AssetCount);
+        Assert.Equal(4, result.AssetCount); // Url, HttpResponse, HtmlPage, Observation
         Assert.True(result.IsSuccess);
     }
 

@@ -74,6 +74,7 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         foreach (var scheme in schemes)
         {
             var probeUrl = $"{scheme}://{host}/";
+            await context.ReportProgressAsync(10, $"Attempting {scheme} probe for {host}", null);
             var currentUri = new Uri(probeUrl);
             var redirectCount = 0;
             bool schemeSucceeded = false;
@@ -82,6 +83,7 @@ internal sealed partial class HttpProbeWorker : IReconWorker
             {
                 try
                 {
+                    await context.ReportProgressAsync(20, $"Requesting {currentUri} (redirect: {redirectCount})", null);
                     using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
                     request.Headers.Accept.ParseAdd("*/*");
                     request.Headers.UserAgent.ParseAdd("Argus-HttpProbe/1.0");
