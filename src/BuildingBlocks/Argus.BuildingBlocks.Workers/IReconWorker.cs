@@ -16,7 +16,14 @@ public interface IReconWorker
 public sealed record WorkerExecutionContext(
     string WorkerId,
     Func<int, string, string?, Task> ReportProgressAsync,
-    Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync);
+    Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync,
+    Func<RateLimitBackpressureSignal, Task> SignalBackpressureAsync);
+
+public sealed record RateLimitBackpressureSignal(
+    string Host,
+    string BucketKey,
+    TimeSpan RetryAfter,
+    int ObservedStatusCode);
 
 public sealed record RateLimitRequest(
     Guid ProgramId,

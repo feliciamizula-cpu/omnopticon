@@ -46,6 +46,7 @@ public sealed record TaskFailed(Guid TaskId, string ErrorCode, string ErrorMessa
 public sealed record WorkerHeartbeat(Guid WorkerId, string WorkerType, DateTimeOffset SeenAt);
 public sealed record RateLimitTokenGranted(string BucketKey, Guid TokenId, DateTimeOffset ExpiresAt);
 public sealed record RateLimitDelayed(string BucketKey, TimeSpan RetryAfter);
+public sealed record RateLimitBackpressureSignaled(string Host, string BucketKey, TimeSpan RetryAfter, int ObservedStatusCode);
 public sealed record ProgramScopeChanged(Guid ProgramId, Guid ScopeId, string ChangeType);
 public sealed record AssetPropertyChanged(
     Guid AssetId,

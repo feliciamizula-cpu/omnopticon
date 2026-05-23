@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
+using Argus.Contracts.Programs;
 using Argus.Contracts.RateLimits;
 using Argus.ServiceDefaults;
 using StackExchange.Redis;
@@ -10,6 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.RateLimitService");
 builder.Services.AddProblemDetails();
+builder.Services.AddHttpClient();
+
+var programScopeServiceUri = builder.Configuration.GetValue<string>("ARGUS_PROGRAM_SCOPE_SERVICE") ?? "http://program-scope-service";
+builder.Services.AddSingleton<ProgramScopeServiceClient>(new ProgramScopeServiceClient(programScopeServiceUri));
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("redis")))
 {
@@ -31,10 +37,12 @@ app.MapGet("/rate-limits", (IRateLimitStore store, CancellationToken cancellatio
 app.MapPost("/rate-limits/check", async (
     RateLimitCheckRequest request,
     IRateLimitStore store,
+    ProgramScopeServiceClient programScopeClient,
     IIntegrationEventPublisher events,
     CancellationToken cancellationToken) =>
 {
-    var decision = await store.CheckAsync(request, cancellationToken);
+    var policies = await programScopeClient.GetRateLimitPoliciesAsync(request.ProgramId, cancellationToken);
+    var decision = await store.CheckAsync(request, policies, cancellationToken);
     var tightestBucket = decision.Buckets.OrderBy(bucket => bucket.Remaining).FirstOrDefault();
 
     if (decision.IsAllowed && decision.TokenId is not null && decision.ExpiresAt is not null && tightestBucket is not null)
@@ -57,12 +65,38 @@ app.MapPost("/rate-limits/check", async (
     return decision;
 });
 
+app.MapPost("/rate-limits/backpressure", async (
+    RateLimitBackpressureRequest request,
+    IRateLimitStore store,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    var backpressureExpiry = DateTimeOffset.UtcNow.Add(request.RetryAfter);
+
+    if (store is InMemoryRateLimitStore inMemoryStore)
+    {
+        inMemoryStore.ApplyBackpressure(request.BucketKey, backpressureExpiry);
+    }
+    else if (store is RedisRateLimitStore redisStore)
+    {
+        await redisStore.ApplyBackpressureAsync(request.BucketKey, backpressureExpiry, cancellationToken);
+    }
+
+    await events.PublishAsync(
+        new RateLimitBackpressureSignaled(request.Host, request.BucketKey, request.RetryAfter, request.ObservedStatusCode),
+        nameof(RateLimitBackpressureSignaled),
+        "Argus.RateLimitService",
+        cancellationToken: cancellationToken);
+
+    return Results.Ok();
+});
+
 app.Run();
 
 internal interface IRateLimitStore
 {
     Task<IReadOnlyCollection<RateLimitBucketDto>> GetBucketsAsync(CancellationToken cancellationToken);
-    Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, CancellationToken cancellationToken);
+    Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, IReadOnlyCollection<RateLimitPolicyDto>? policies, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryRateLimitStore : IRateLimitStore
@@ -86,19 +120,19 @@ internal sealed class InMemoryRateLimitStore : IRateLimitStore
         }
     }
 
-    public Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, CancellationToken cancellationToken)
+    public Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, IReadOnlyCollection<RateLimitPolicyDto>? policies, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
             var now = DateTimeOffset.UtcNow;
             RefreshExpiredBuckets(now);
 
-            var bucketKeys = RateLimitBuckets.BuildBucketKeys(request).ToArray();
+            var bucketKeys = RateLimitBuckets.BuildBucketKeys(request, policies).ToArray();
             var decisions = new List<RateLimitBucketDecision>(bucketKeys.Length);
 
             foreach (var bucketKey in bucketKeys)
             {
-                var bucket = _buckets.GetOrAdd(bucketKey, key => new BucketState(RateLimitBuckets.GetCapacity(key), RateLimitBuckets.GetCapacity(key), now.Add(Window)));
+                var bucket = _buckets.GetOrAdd(bucketKey, key => new BucketState(RateLimitBuckets.GetCapacity(key, policies), RateLimitBuckets.GetCapacity(key, policies), now.Add(Window)));
                 var allowed = bucket.Remaining >= request.PermitCount;
                 decisions.Add(new RateLimitBucketDecision(
                     bucketKey,
@@ -130,6 +164,19 @@ internal sealed class InMemoryRateLimitStore : IRateLimitStore
             }).ToArray();
 
             return Task.FromResult(new RateLimitDecision(true, tokenId, now.AddSeconds(30), null, finalDecisions));
+        }
+    }
+
+    public void ApplyBackpressure(string bucketKey, DateTimeOffset expiry)
+    {
+        lock (_gate)
+        {
+            if (_buckets.TryGetValue(bucketKey, out var bucket))
+            {
+                var newCapacity = Math.Max(1, bucket.Remaining - 1);
+                bucket.Remaining = newCapacity;
+                bucket.ResetsAt = expiry;
+            }
         }
     }
 
@@ -193,12 +240,12 @@ internal sealed class RedisRateLimitStore(IConnectionMultiplexer redis) : IRateL
             .ToArray();
     }
 
-    public async Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, CancellationToken cancellationToken)
+    public async Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, IReadOnlyCollection<RateLimitPolicyDto>? policies, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var bucketKeys = RateLimitBuckets.BuildBucketKeys(request).ToArray();
+        var bucketKeys = RateLimitBuckets.BuildBucketKeys(request, policies).ToArray();
         var redisKeys = bucketKeys.Select(ToRedisKey).ToArray();
-        var arguments = BuildArguments(request, bucketKeys, now);
+        var arguments = BuildArguments(request, bucketKeys, policies, now);
 
         var scriptResult = await _database.ScriptEvaluateAsync(CheckAndConsumeScript, redisKeys, arguments);
         var values = (RedisResult[])scriptResult!;
@@ -226,7 +273,29 @@ internal sealed class RedisRateLimitStore(IConnectionMultiplexer redis) : IRateL
             : new RateLimitDecision(false, null, null, TimeSpan.FromMilliseconds(Math.Max(0, retryAfterMilliseconds)), bucketResults);
     }
 
-    private static RedisValue[] BuildArguments(RateLimitCheckRequest request, IReadOnlyCollection<string> bucketKeys, DateTimeOffset now)
+    public async Task ApplyBackpressureAsync(string bucketKey, DateTimeOffset expiry, CancellationToken cancellationToken)
+    {
+        var redisKey = ToRedisKey(bucketKey);
+        var resetUnixMs = expiry.ToUnixTimeMilliseconds();
+
+        var capacity = await _database.HashGetAsync(redisKey, "capacity");
+        var currentRemaining = await _database.HashGetAsync(redisKey, "remaining");
+
+        var currentRemainingInt = currentRemaining.TryParse(out int r) ? r : 1;
+        var newRemaining = Math.Max(1, currentRemainingInt - 1);
+
+        await _database.HashSetAsync(redisKey, new[]
+        {
+            new HashEntry("remaining", newRemaining),
+            new HashEntry("reset", resetUnixMs)
+        });
+
+        var ttl = Math.Max(1000, (long)(expiry - DateTimeOffset.UtcNow).TotalMilliseconds + 1000);
+        await _database.KeyExpireAsync(redisKey, TimeSpan.FromMilliseconds(ttl));
+        await _database.SetAddAsync(BucketIndexKey, redisKey.ToString());
+    }
+
+    private static RedisValue[] BuildArguments(RateLimitCheckRequest request, IReadOnlyCollection<string> bucketKeys, IReadOnlyCollection<RateLimitPolicyDto>? policies, DateTimeOffset now)
     {
         var values = new List<RedisValue>
         {
@@ -239,7 +308,7 @@ internal sealed class RedisRateLimitStore(IConnectionMultiplexer redis) : IRateL
         foreach (var bucketKey in bucketKeys)
         {
             values.Add(bucketKey);
-            values.Add(RateLimitBuckets.GetCapacity(bucketKey));
+            values.Add(RateLimitBuckets.GetCapacity(bucketKey, policies));
         }
 
         return values.ToArray();
@@ -317,7 +386,9 @@ return response
 
 internal static class RateLimitBuckets
 {
-    public static IEnumerable<string> BuildBucketKeys(RateLimitCheckRequest request)
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public static IEnumerable<string> BuildBucketKeys(RateLimitCheckRequest request, IReadOnlyCollection<RateLimitPolicyDto>? policies = null)
     {
         yield return $"program:{request.ProgramId:N}";
         yield return $"worker-type:{request.WorkerType.Trim().ToLowerInvariant()}";
@@ -348,8 +419,20 @@ internal static class RateLimitBuckets
         }
     }
 
-    public static int GetCapacity(string bucketKey) =>
-        bucketKey switch
+    public static int GetCapacity(string bucketKey, IReadOnlyCollection<RateLimitPolicyDto>? policies = null)
+    {
+        if (policies is not null)
+        {
+            var matchingPolicy = policies.FirstOrDefault(p =>
+                bucketKey.StartsWith(p.BucketKey.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(bucketKey, p.BucketKey.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (matchingPolicy is not null)
+            {
+                return matchingPolicy.Capacity;
+            }
+        }
+
+        return bucketKey switch
         {
             var key when key.StartsWith("host:", StringComparison.OrdinalIgnoreCase) => 1,
             var key when key.StartsWith("registered-domain:", StringComparison.OrdinalIgnoreCase) => 1,
@@ -357,4 +440,33 @@ internal static class RateLimitBuckets
             var key when key.StartsWith("worker-type:", StringComparison.OrdinalIgnoreCase) => 25,
             _ => 100
         };
+    }
+}
+
+internal sealed class ProgramScopeServiceClient
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly HttpClient _httpClient = new();
+
+    public ProgramScopeServiceClient(string baseAddress)
+    {
+        _httpClient.BaseAddress = new Uri(baseAddress);
+    }
+
+    public async Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync($"/programs/{programId:N}/rate-limit-policies", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                var policies = await response.Content.ReadFromJsonAsync<List<RateLimitPolicyDto>>(JsonOptions, cancellationToken);
+                return policies ?? [];
+            }
+        }
+        catch
+        {
+        }
+        return [];
+    }
 }

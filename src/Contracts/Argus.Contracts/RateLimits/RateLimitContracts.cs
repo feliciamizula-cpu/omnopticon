@@ -28,3 +28,9 @@ public sealed record RateLimitBucketDto(
     int Capacity,
     int Remaining,
     DateTimeOffset ResetsAt);
+
+public sealed record RateLimitBackpressureRequest(
+    string Host,
+    string BucketKey,
+    TimeSpan RetryAfter,
+    int ObservedStatusCode);

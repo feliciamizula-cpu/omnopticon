@@ -81,6 +81,33 @@ internal sealed class HttpProbeWorker : IReconWorker
                 var statusCode = (int)response.StatusCode;
                 var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
 
+                if ((statusCode == 429 || statusCode == 503) && !string.IsNullOrWhiteSpace(host))
+                {
+                    TimeSpan retryAfter;
+                    var retryAfterHeader = response.Headers.RetryAfter;
+                    if (retryAfterHeader?.Delta.HasValue == true)
+                    {
+                        retryAfter = retryAfterHeader.Delta.Value;
+                    }
+                    else if (retryAfterHeader?.Date.HasValue == true)
+                    {
+                        retryAfter = retryAfterHeader.Date.Value - DateTimeOffset.UtcNow;
+                        if (retryAfter < TimeSpan.Zero)
+                        {
+                            retryAfter = TimeSpan.FromSeconds(10);
+                        }
+                    }
+                    else
+                    {
+                        retryAfter = TimeSpan.FromSeconds(10);
+                    }
+                    await context.SignalBackpressureAsync(new RateLimitBackpressureSignal(
+                        host,
+                        $"host:{host.Trim().ToLowerInvariant()}",
+                        retryAfter,
+                        statusCode));
+                }
+
                 await context.ReportProgressAsync(70, $"Received {statusCode} from {host}", null);
 
                 producedAssets.Add(new WorkerProducedAsset(
