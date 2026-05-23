@@ -73,12 +73,12 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
     await dbContext.Database.EnsureCreatedAsync();
+}
 
-    var webhookDb = scope.ServiceProvider.GetService<WebhookDbContext>();
-    if (webhookDb is not null)
-    {
-        await webhookDb.Database.EnsureCreatedAsync();
-    }
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
+    await dbContext.Database.EnsureCreatedAsync();
 }
 
 var store = app.Services.GetRequiredService<RealtimeStore>();
@@ -156,20 +156,21 @@ var deadLetterChannel = app.Services.GetService<IChannel>();
 
 if (deadLetterConnection is not null && deadLetterChannel is not null)
 {
-    app.MapGet("/admin/dead-letters", (int? take, IPoisonMessageStore store) =>
+    app.MapGet("/admin/dead-letters", async (int? take, IPoisonMessageStore store, CancellationToken ct) =>
     {
-        return Results.Ok(store.GetMessages(take ?? 100));
+        var messages = await store.GetMessagesAsync(take ?? 100, ct);
+        return Results.Ok(messages);
     });
 
-    app.MapGet("/admin/dead-letters/{eventId}", (Guid eventId, IPoisonMessageStore store) =>
+    app.MapGet("/admin/dead-letters/{eventId}", async (Guid eventId, IPoisonMessageStore store, CancellationToken ct) =>
     {
-        var record = store.GetMessage(eventId);
+        var record = await store.GetMessageAsync(eventId, ct);
         return record is null ? Results.NotFound() : Results.Ok(record);
     });
 
-    app.MapPost("/admin/dead-letters/{eventId}/replay", async (Guid eventId, IPoisonMessageStore store, IChannel channel) =>
+    app.MapPost("/admin/dead-letters/{eventId}/replay", async (Guid eventId, IPoisonMessageStore store, IChannel channel, CancellationToken ct) =>
     {
-        var record = store.GetMessage(eventId);
+        var record = await store.GetMessageAsync(eventId, ct);
         if (record is null) return Results.NotFound();
 
         var properties = new BasicProperties
@@ -183,15 +184,15 @@ if (deadLetterConnection is not null && deadLetterChannel is not null)
 
         var body = Encoding.UTF8.GetBytes(record.PayloadJson);
         var routingKey = record.EventType;
-        await channel.BasicPublishAsync("argus.integration.events", routingKey, false, properties, body);
+        await channel.BasicPublishAsync("argus.integration.events", routingKey, false, properties, body, ct);
 
-        store.MarkReplayed(eventId);
+        await store.MarkReplayedAsync(eventId, ct);
         return Results.Ok(new { eventId, replayed = true });
     });
 
-    app.MapDelete("/admin/dead-letters/{eventId}", (Guid eventId, IPoisonMessageStore store) =>
+    app.MapDelete("/admin/dead-letters/{eventId}", async (Guid eventId, IPoisonMessageStore store, CancellationToken ct) =>
     {
-        var removed = store.RemoveMessage(eventId);
+        var removed = await store.RemoveMessageAsync(eventId, ct);
         return removed ? Results.Ok(new { removed = true }) : Results.NotFound();
     });
 }

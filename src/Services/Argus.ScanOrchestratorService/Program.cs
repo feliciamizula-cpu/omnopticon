@@ -56,6 +56,92 @@ app.MapPost("/scan-plans/domain-discovery", async (
     return Results.Created($"/scan-plans/{plan.ScanPlanId}", plan);
 });
 
+app.MapGet("/scan-plans/{scanPlanId:guid}", async (
+    Guid scanPlanId,
+    IScanPlanStore store,
+    CancellationToken cancellationToken) =>
+{
+    var plan = await store.GetPlanByIdAsync(scanPlanId, cancellationToken);
+    return plan is not null ? Results.Ok(plan) : Results.NotFound();
+});
+
+app.MapGet("/scan-plans/{scanPlanId:guid}/coverage", async (
+    Guid scanPlanId,
+    IScanPlanStore store,
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    CancellationToken cancellationToken) =>
+{
+    var plan = await store.GetPlanByIdAsync(scanPlanId, cancellationToken);
+    if (plan is null) return Results.NotFound();
+
+    var taskDetails = new List<TaskCoverageEntry>(plan.PlannedTasks.Count);
+
+    foreach (var planned in plan.PlannedTasks)
+    {
+        taskDetails.Add(new TaskCoverageEntry(
+            planned.TaskType,
+            planned.WorkerCapability,
+            IsCreated: false,
+            TaskId: null,
+            TaskState: null,
+            ProgressPercent: null));
+    }
+
+    if (plan.State == "Seeded" && plan.CreatedTaskIds.Count > 0 && plan.PlannedTasks.Count > 0)
+    {
+        var taskSvc = Uri.TryCreate(configuration["ARGUS_TASK_SERVICE"], UriKind.Absolute, out var uri)
+            ? uri : new Uri("http://task-service");
+
+        try
+        {
+            using var client = httpClientFactory.CreateClient();
+            client.BaseAddress = taskSvc;
+            client.Timeout = TimeSpan.FromSeconds(5);
+
+            for (int i = 0; i < plan.CreatedTaskIds.Count && i < taskDetails.Count; i++)
+            {
+                var taskId = plan.CreatedTaskIds.ElementAt(i);
+                taskDetails[i] = taskDetails[i] with { IsCreated = true, TaskId = taskId };
+
+                try
+                {
+                    using var response = await client.GetAsync($"/tasks/{taskId}", cancellationToken);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var dto = await response.Content
+                            .ReadFromJsonAsync<ReconTaskDto>(ScanPlanJson.Options, cancellationToken);
+                        if (dto is not null)
+                            taskDetails[i] = taskDetails[i] with
+                            {
+                                TaskState = dto.State.ToString(),
+                                ProgressPercent = dto.ProgressPercent
+                            };
+                    }
+                }
+                catch { /* individual task fetch failure is non-fatal */ }
+            }
+        }
+        catch { /* task service unavailable -- fall back to created-but-no-state */ }
+    }
+
+    var createdCount = taskDetails.Count(t => t.IsCreated);
+    var coveragePct = taskDetails.Count > 0
+        ? Math.Round((double)createdCount / taskDetails.Count * 100, 1)
+        : 0;
+
+    return Results.Ok(new ScanCoverageReport(
+        plan.ScanPlanId,
+        plan.Target,
+        plan.State,
+        plan.WorkflowType,
+        plan.CreatedAt,
+        taskDetails.Count,
+        createdCount,
+        coveragePct,
+        taskDetails));
+});
+
 app.MapGet("/workflow-types", () => new[]
 {
     new WorkflowTypeDto(
@@ -285,6 +371,12 @@ internal sealed class InMemoryScanPlanStore : IScanPlanStore
 
         return Task.FromResult(updated);
     }
+
+    public Task<ScanPlanDto?> GetPlanByIdAsync(Guid scanPlanId, CancellationToken cancellationToken)
+    {
+        _plans.TryGetValue(scanPlanId, out var plan);
+        return Task.FromResult(plan);
+    }
 }
 
 internal sealed class EfScanPlanStore(ScanOrchestratorDbContext dbContext) : IScanPlanStore
@@ -325,6 +417,15 @@ internal sealed class EfScanPlanStore(ScanOrchestratorDbContext dbContext) : ISc
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return record.ToDto();
+    }
+
+    public async Task<ScanPlanDto?> GetPlanByIdAsync(Guid scanPlanId, CancellationToken cancellationToken)
+    {
+        var record = await dbContext.ScanPlans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(plan => plan.ScanPlanId == scanPlanId, cancellationToken);
+
+        return record?.ToDto();
     }
 }
 

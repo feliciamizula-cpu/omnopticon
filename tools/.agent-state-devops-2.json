@@ -1,13 +1,13 @@
 {
   "agentId": "devops-2",
-  "currentTaskId": "045",
-  "currentTaskDescription": "DevOps: Keep AI agents and coordination systems healthy",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": "build=ok,1warning(missing ref proj);compose=valid;agents=7active,3busy,26pending;reconcile=clean;no issues",
-  "status": "crashed",
+  "status": "idle",
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T03:05:00.074Z",
-  "lastHeartbeatAt": "2026-05-23T03:05:09.594Z",
-  "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T03:05:09.594Z"
+  "lastHeartbeatAt": "2026-05-23T03:05:16.331Z",
+  "lastError": "Task 045 requeued during reconciliation",
+  "updatedAt": "2026-05-23T03:18:12.096Z"
 }

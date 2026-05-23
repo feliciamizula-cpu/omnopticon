@@ -21,6 +21,7 @@
     <ProjectReference Include="..\Services\Argus.ProgramScopeService\Argus.ProgramScopeService.csproj" />
     <ProjectReference Include="..\Services\Argus.RateLimitService\Argus.RateLimitService.csproj" />
     <ProjectReference Include="..\Services\Argus.RealtimeService\Argus.RealtimeService.csproj" />
+    <ProjectReference Include="..\Services\Argus.ProxyRegistryService\Argus.ProxyRegistryService.csproj" />
     <ProjectReference Include="..\Services\Argus.ScanOrchestratorService\Argus.ScanOrchestratorService.csproj" />
     <ProjectReference Include="..\Services\Argus.TaskService\Argus.TaskService.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.Amass\Argus.Workers.Amass.csproj" />

@@ -1,13 +1,13 @@
 {
   "agentId": "devops-1",
-  "currentTaskId": "044",
-  "currentTaskDescription": "DevOps: Keep the application and deployed components healthy",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
   "context": "Standing DevOps agent for application, deployed component, and release readiness health.",
-  "status": "crashed",
+  "status": "idle",
   "pid": null,
   "startedAt": null,
   "lastRunAt": "2026-05-23T03:04:53.210Z",
-  "lastHeartbeatAt": "2026-05-23T03:04:53.805Z",
-  "lastError": "agent process exited unexpectedly",
-  "updatedAt": "2026-05-23T03:04:53.805Z"
+  "lastHeartbeatAt": "2026-05-23T03:05:16.331Z",
+  "lastError": "Task 044 requeued during reconciliation",
+  "updatedAt": "2026-05-23T03:18:12.096Z"
 }

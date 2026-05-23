@@ -16,7 +16,6 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     where TDbContext : DbContext
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IPoisonMessageStore _poisonStore;
     private readonly IOptions<ArgusEventBusOptions> _options;
     private readonly ILogger _logger;
     private readonly string _consumerName;
@@ -29,12 +28,10 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
 
     public RabbitMqConsumerService(
         IServiceScopeFactory scopeFactory,
-        IPoisonMessageStore poisonStore,
         IOptions<ArgusEventBusOptions> options,
         ILogger<RabbitMqConsumerService<TDbContext>> logger)
     {
         _scopeFactory = scopeFactory;
-        _poisonStore = poisonStore;
         _options = options;
         _logger = logger;
         _consumerName = $"{options.Value.SourceService}_{typeof(TDbContext).Name}";
@@ -92,8 +89,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 var retryArgs = new Dictionary<string, object?>
                 {
                     ["x-dead-letter-exchange"] = _options.Value.ExchangeName,
-                    ["x-dead-letter-routing-key"] = eventType,
-                    ["x-message-ttl"] = GetRetryDelayMs(1)
+                    ["x-dead-letter-routing-key"] = eventType
                 };
                 await _channel.QueueDeclareAsync(retryQueueName, durable: true, exclusive: false, autoDelete: false, arguments: retryArgs, cancellationToken: stoppingToken);
                 await _channel.QueueBindAsync(retryQueueName, RetryExchange, eventType, cancellationToken: stoppingToken);
@@ -171,7 +167,8 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             DeliveryMode = DeliveryModes.Persistent,
             MessageId = ea.BasicProperties.MessageId ?? Guid.NewGuid().ToString(),
             CorrelationId = ea.BasicProperties.CorrelationId ?? "",
-            Type = ea.BasicProperties.Type ?? ""
+            Type = ea.BasicProperties.Type ?? "",
+            Expiration = delayMs.ToString()
         };
 
         if (ea.BasicProperties.Headers is null)
@@ -183,18 +180,15 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             properties.Headers = new Dictionary<string, object>(ea.BasicProperties.Headers);
         }
 
-        if (!properties.Headers.ContainsKey("x-death"))
-        {
-            properties.Headers["x-death"] = new List<object>
-            {
-                new Dictionary<string, object> { ["count"] = 1, ["time"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
-            };
-        }
-        else if (properties.Headers["x-death"] is IList<object> deaths)
-        {
-            var newDeath = new Dictionary<string, object> { ["count"] = deaths.Count + 1, ["time"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
-            deaths.Add(newDeath);
-        }
+        var retryCount = GetRetryCount(ea.BasicProperties);
+        properties.Headers["x-retry-count"] = retryCount + 1;
+
+        var body = ea.Body.ToArray();
+        var eventType = ea.BasicProperties.Type ?? "unknown";
+
+        await _channel!.BasicPublishAsync(RetryExchange, eventType, false, properties, body, cancellationToken);
+    }
+        };
 
         var body = ea.Body.ToArray();
         var eventType = ea.BasicProperties.Type ?? "unknown";
@@ -327,19 +321,12 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     private static int GetRetryCount(IReadOnlyBasicProperties? properties)
     {
         if (properties?.Headers is null) return 0;
-        if (properties.Headers.TryGetValue("x-death", out var deathObj) && deathObj is IList<object> deaths)
+        if (properties.Headers.TryGetValue("x-retry-count", out var countObj))
         {
-            var count = 0;
-            foreach (var death in deaths)
-            {
-                if (death is IDictionary<string, object> deathInfo &&
-                    deathInfo.TryGetValue("count", out var countObj))
-                {
-                    count = Convert.ToInt32(countObj);
-                }
-            }
-            return count;
+            return Convert.ToInt32(countObj);
         }
+        return 0;
+    }
         return 0;
     }
 

@@ -1,13 +1,13 @@
 {
   "agentId": "agent-2",
-  "currentTaskId": "054",
-  "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
-  "context": "Added DI registrations for HackerOneScopeProvider, BugcrowdScopeProvider, and ScopeSyncService in Program.cs",
-  "status": "stalled",
-  "pid": null,
+  "currentTaskId": "034",
+  "currentTaskDescription": "Bug #1: Poison message infinite retry loop - needs DLX + inspection/replay endpoint",
+  "context": "Starting task: implement DLX (Dead Letter Exchange) for poison messages and inspection/replay endpoint. Exploring codebase to understand existing messaging infrastructure.",
+  "status": "working",
+  "pid": 977093,
   "startedAt": "2026-05-23T03:00:50.390Z",
-  "lastRunAt": "2026-05-23T03:04:48.391Z",
-  "lastHeartbeatAt": "2026-05-23T03:04:48.391Z",
-  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
-  "updatedAt": "2026-05-23T03:04:48.391Z"
+  "lastRunAt": "2026-05-23T03:17:15.468Z",
+  "lastHeartbeatAt": "2026-05-23T03:18:10.721Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T03:18:12.096Z"
 }

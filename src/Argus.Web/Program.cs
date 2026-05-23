@@ -792,89 +792,9 @@ app.MapGet("/", () => Results.Content("""
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
     }
-
-  <div class="modal-overlay" id="modalOverlay">
-    <div class="modal-box" id="modalBox"></div>
-  </div>
-  <div id="notification"></div>
-  <script>
-    const NOTIFICATION_DURATION = 4000;
-    let notificationTimer = null;
-
-    function showNotification(message, type) {
-      const el = document.querySelector("#notification");
-      el.textContent = message;
-      el.className = "show " + (type || "success");
-      clearTimeout(notificationTimer);
-      notificationTimer = setTimeout(() => { el.className = ""; }, NOTIFICATION_DURATION);
-    }
-
-    function showModal(html) {
-      document.querySelector("#modalBox").innerHTML = html;
-      document.querySelector("#modalOverlay").classList.add("open");
-    }
-
-    function closeModal() {
-      document.querySelector("#modalOverlay").classList.remove("open");
-    }
-
-    document.querySelector("#modalOverlay").addEventListener("click", event => {
-      if (event.target === event.currentTarget) closeModal();
-    });
-
-    const state = { view: "assets", data: null, filter: "", assetType: "", currentRows: [], selected: null, selectedIds: new Set() };
-    const content = document.querySelector("#content");
-    const search = document.querySelector("#search");
-    const assetType = document.querySelector("#assetType");
-
-    document.querySelector("#tabs").addEventListener("click", event => {
-      const button = event.target.closest("button[data-view]");
-      if (!button) return;
-      state.view = button.dataset.view;
-      document.querySelectorAll("#tabs button").forEach(tab => tab.classList.toggle("active", tab === button));
-      state.selected = null;
-      state.selectedIds = new Set();
-      render();
-    });
-
-    document.querySelector("#refreshButton").addEventListener("click", load);
-    search.addEventListener("input", () => { state.filter = search.value.toLowerCase(); render(); });
-    assetType.addEventListener("change", () => { state.assetType = assetType.value; render(); });
-    content.addEventListener("submit", submitCommand);
-    content.addEventListener("click", handleContentClick);
-
-    function handleContentClick(event) {
-      const checkbox = event.target.closest("input[type=checkbox][data-asset-id]");
-      if (checkbox) {
-        const assetId = checkbox.dataset.assetId;
-        if (checkbox.checked) {
-          state.selectedIds.add(assetId);
-        } else {
-          state.selectedIds.delete(assetId);
-        }
-        if (document.querySelector("th.chk-col input[type=checkbox]")) {
-          const allCheckboxes = content.querySelectorAll("input[type=checkbox][data-asset-id]");
-          const checkedCount = content.querySelectorAll("input[type=checkbox][data-asset-id]:checked").length;
-          document.querySelector("th.chk-col input[type=checkbox]").checked = checkedCount > 0 && checkedCount === allCheckboxes.length;
-          document.querySelector("th.chk-col input[type=checkbox]").indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
-        }
-        renderToolbar();
-        return;
-      }
-      const selectAll = event.target.closest("th.chk-col input[type=checkbox]");
-      if (selectAll) {
-        const checked = selectAll.checked;
-        content.querySelectorAll("input[type=checkbox][data-asset-id]").forEach(cb => {
-          cb.checked = checked;
-          const id = cb.dataset.assetId;
-          if (checked) state.selectedIds.add(id);
-          else state.selectedIds.delete(id);
-        });
-        renderToolbar();
-        return;
-      }
-      selectRow(event);
-    }
+  </script>
+</body>
+</html>
 """, "text/html"));
 
 app.Run();
