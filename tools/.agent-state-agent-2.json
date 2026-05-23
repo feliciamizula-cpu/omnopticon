@@ -3,11 +3,11 @@
   "currentTaskId": "010",
   "currentTaskDescription": "Critical #1: Workers poll instead of subscribing to events - need event-driven architecture",
   "context": null,
-  "status": "working",
+  "status": "unresponsive",
   "pid": 204569,
   "startedAt": "2026-05-23T00:55:45.557Z",
   "lastRunAt": "2026-05-23T01:05:29.536Z",
-  "lastHeartbeatAt": "2026-05-23T01:07:01.232Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T01:07:13.311Z"
+  "lastHeartbeatAt": "2026-05-23T01:11:30.633Z",
+  "lastError": "heartbeat timeout",
+  "updatedAt": "2026-05-23T01:11:30.633Z"
 }
