@@ -4,10 +4,9 @@ using Argus.AssetService.Data;
 using Argus.AssetService.Normalization;
 using Argus.AssetService.Scoring;
 using Argus.Contracts.Assets;
+using BulkOp = Argus.AssetService.Stores.EfAssetStore.BulkOperationResult;
 
 namespace Argus.AssetService.Stores;
-
-public sealed record BulkOperationResult(IReadOnlyCollection<AssetDto> Results, int SuccessCount, int FailureCount, IReadOnlyCollection<string> Errors);
 
 public sealed class InMemoryAssetStore : IAssetStore
 {

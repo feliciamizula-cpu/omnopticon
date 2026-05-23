@@ -1,14 +1,14 @@
 {
   "agentId": "devops-1",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "context": "Coordination healthy: 7 active agents, 1 pending, 55 completed. No critical alerts. Compose.yaml YAML syntax valid. Docker compose CLI not available in this environment (expected). Standing task #052 export/import enhancement ready.",
-  "status": "idle",
-  "pid": null,
-  "startedAt": null,
-  "lastRunAt": "2026-05-23T05:24:21.089Z",
-  "lastHeartbeatAt": "2026-05-23T05:24:21.089Z",
+  "currentTaskId": "052",
+  "currentTaskDescription": "Enhancement #18: Program/scope export and import - GET /programs/{programId}/export returns JSON with program, scopes, exclusions, rules, rate limit policies. POST /programs/import reconstructs full config. Enables backup/restore, sharing scope templates between programmes, migration between environments, and a scope library. File: src/Services/Argus.ProgramScopeService/",
+  "context": "Healthy: 7 agents active, 0 pending, 55 done. Compose.yaml valid. dotnet not in PATH (expected). Standing task #052 (export/import) in progress across 7 agents.",
+  "status": "working",
+  "pid": 3068377,
+  "startedAt": "2026-05-23T05:30:47.568Z",
+  "lastRunAt": "2026-05-23T05:30:47.568Z",
+  "lastHeartbeatAt": "2026-05-23T05:33:48.003Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T05:24:33.559Z",
+  "updatedAt": "2026-05-23T05:33:48.003Z",
   "workStatus": "idle"
 }
