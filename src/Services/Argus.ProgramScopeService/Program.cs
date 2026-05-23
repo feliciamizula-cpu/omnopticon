@@ -459,7 +459,7 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         return Task.FromResult(new RateLimitPolicyDto(policy.PolicyId, policy.ProgramId, policy.ScopeId, policy.BucketKey, policy.Capacity, policy.RefillRate, policy.Source));
     }
 
-    public Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+public Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken)
     {
         if (!_programs.TryGetValue(programId, out var program))
         {
@@ -491,10 +491,10 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
             program.ExternalUrl,
             program.CreatedAt,
             program.UpdatedAt,
-            program.Scopes.ToArray(),
-            program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToArray(),
-            program.RuleRevisions.Select(r => new ProgramRuleRevisionDto(r.RevisionId, r.ProgramId, r.Version, r.ChangeType, r.OldValue, r.NewValue, r.ChangedBy, r.CreatedAt)).ToArray(),
-            program.RateLimitPolicies.Select(p => new RateLimitPolicyDto(p.PolicyId, p.ProgramId, p.ScopeId, p.BucketKey, p.Capacity, p.RefillRate, p.Source)).ToArray(),
+            program.Scopes,
+            program.ScopeExclusions.Select(e => new ScopeExclusionDto(e.ExclusionId, e.ProgramId, e.Pattern, e.Reason, e.CreatedAt, e.ExpiresAt)).ToList(),
+            program.RuleRevisions.Select(r => new ProgramRuleRevisionDto(r.RevisionId, r.ProgramId, r.Version, r.ChangeType, r.OldValue, r.NewValue, r.ChangedBy, r.CreatedAt)).ToList(),
+            program.RateLimitPolicies.Select(p => new RateLimitPolicyDto(p.PolicyId, p.ProgramId, p.ScopeId, p.BucketKey, p.Capacity, p.RefillRate, p.Source)).ToList(),
             DateTimeOffset.UtcNow.ToString("O"),
             null);
 
@@ -504,90 +504,45 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
     public Task<ProgramDto> ImportProgramAsync(ProgramImportRequest request, CancellationToken cancellationToken)
     {
         var export = request.Export;
-        var existingProgram = _programs.TryGetValue(export.ProgramId, out var existing) && request.ForceOverwrite;
+        var existingProgramId = request.ForceOverwrite && export.ProgramId != Guid.Empty ? export.ProgramId : Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
 
-        if (existingProgram)
+        var record = new InMemoryProgramRecord
         {
-            existing.Name = export.Name;
-            existing.Source = export.Source;
-            existing.ExternalUrl = export.ExternalUrl;
-            existing.UpdatedAt = DateTimeOffset.UtcNow;
-            existing.Scopes.Clear();
-            existing.RuleRevisions.Clear();
-            existing.ScopeExclusions.Clear();
-            existing.RateLimitPolicies.Clear();
-
-            foreach (var scope in export.Scopes)
-            {
-                existing.Scopes.Add(scope);
-            }
-
-            foreach (var revision in export.RuleRevisions)
-            {
-                existing.RuleRevisions.Add(new ProgramRuleRevisionRecord
-                {
-                    RevisionId = revision.RevisionId,
-                    ProgramId = revision.ProgramId,
-                    Version = revision.Version,
-                    ChangeType = revision.ChangeType,
-                    OldValue = revision.OldValue,
-                    NewValue = revision.NewValue,
-                    ChangedBy = revision.ChangedBy,
-                    CreatedAt = revision.CreatedAt
-                });
-            }
-
-            foreach (var exclusion in export.Exclusions)
-            {
-                existing.ScopeExclusions.Add(new ScopeExclusionRecord
-                {
-                    ExclusionId = exclusion.ExclusionId,
-                    ProgramId = exclusion.ProgramId,
-                    Pattern = exclusion.Pattern,
-                    Reason = exclusion.Reason,
-                    CreatedAt = exclusion.CreatedAt,
-                    ExpiresAt = exclusion.ExpiresAt
-                });
-            }
-
-            foreach (var policy in export.RateLimitPolicies)
-            {
-                existing.RateLimitPolicies.Add(new RateLimitPolicyRecord
-                {
-                    PolicyId = policy.PolicyId,
-                    ProgramId = policy.ProgramId,
-                    ScopeId = policy.ScopeId,
-                    BucketKey = policy.BucketKey,
-                    Capacity = policy.Capacity,
-                    RefillRate = policy.RefillRate,
-                    Source = policy.Source
-                });
-            }
-
-            return Task.FromResult(existing.ToDto());
-        }
-
-        var newProgram = new InMemoryProgramRecord
-        {
-            ProgramId = export.ProgramId != Guid.Empty ? export.ProgramId : Guid.NewGuid(),
+            ProgramId = existingProgramId,
             Name = export.Name,
             Source = export.Source,
             ExternalUrl = export.ExternalUrl,
-            CreatedAt = DateTimeOffset.TryParse(export.ExportedAt, out var parsed) ? parsed : DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
+            CreatedAt = export.CreatedAt,
+            UpdatedAt = now,
+            Scopes = export.Scopes.ToList(),
+            ScopeExclusions = export.Exclusions.Select(e => new ScopeExclusionRecord
+            {
+                ExclusionId = e.ExclusionId != Guid.Empty ? e.ExclusionId : Guid.NewGuid(),
+                ProgramId = existingProgramId,
+                Pattern = e.Pattern,
+                Reason = e.Reason,
+                CreatedAt = e.CreatedAt,
+                ExpiresAt = e.ExpiresAt
+            }).ToList(),
+            RateLimitPolicies = export.RateLimitPolicies.Select(p => new RateLimitPolicyRecord
+            {
+                PolicyId = p.PolicyId != Guid.Empty ? p.PolicyId : Guid.NewGuid(),
+                ProgramId = existingProgramId,
+                ScopeId = p.ScopeId,
+                BucketKey = p.BucketKey,
+                Capacity = p.Capacity,
+                RefillRate = p.RefillRate,
+                Source = p.Source
+            }).ToList()
         };
-
-        foreach (var scope in export.Scopes)
-        {
-            newProgram.Scopes.Add(scope);
-        }
 
         foreach (var revision in export.RuleRevisions)
         {
-            newProgram.RuleRevisions.Add(new ProgramRuleRevisionRecord
+            record.RuleRevisions.Add(new ProgramRuleRevisionRecord
             {
-                RevisionId = revision.RevisionId,
-                ProgramId = revision.ProgramId,
+                RevisionId = revision.RevisionId != Guid.Empty ? revision.RevisionId : Guid.NewGuid(),
+                ProgramId = existingProgramId,
                 Version = revision.Version,
                 ChangeType = revision.ChangeType,
                 OldValue = revision.OldValue,
@@ -597,35 +552,8 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
             });
         }
 
-        foreach (var exclusion in export.Exclusions)
-        {
-            newProgram.ScopeExclusions.Add(new ScopeExclusionRecord
-            {
-                ExclusionId = exclusion.ExclusionId,
-                ProgramId = exclusion.ProgramId,
-                Pattern = exclusion.Pattern,
-                Reason = exclusion.Reason,
-                CreatedAt = exclusion.CreatedAt,
-                ExpiresAt = exclusion.ExpiresAt
-            });
-        }
-
-        foreach (var policy in export.RateLimitPolicies)
-        {
-            newProgram.RateLimitPolicies.Add(new RateLimitPolicyRecord
-            {
-                PolicyId = policy.PolicyId,
-                ProgramId = policy.ProgramId,
-                ScopeId = policy.ScopeId,
-                BucketKey = policy.BucketKey,
-                Capacity = policy.Capacity,
-                RefillRate = policy.RefillRate,
-                Source = policy.Source
-            });
-        }
-
-        _programs[newProgram.ProgramId] = newProgram;
-        return Task.FromResult(newProgram.ToDto());
+        _programs[existingProgramId] = record;
+        return Task.FromResult(record.ToDto());
     }
 
     private static string NormalizeScopeType(string scopeType) =>

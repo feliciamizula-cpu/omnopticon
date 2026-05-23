@@ -1,4 +1,12 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Channels;
+using Argus.BuildingBlocks.Artifacts;
 using Argus.Contracts.Assets;
+using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
 using Argus.Contracts.RateLimits;
 using Argus.Contracts.Tasks;
@@ -7,11 +15,6 @@ using Argus.ServiceDefaults;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Collections.Concurrent;
-using System.Diagnostics;
 
 namespace Argus.BuildingBlocks.Workers;
 
