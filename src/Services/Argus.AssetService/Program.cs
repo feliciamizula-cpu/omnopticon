@@ -6,7 +6,9 @@ using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
 using Argus.Contracts.Tasks;
 using Argus.ServiceDefaults;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 
 Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 
@@ -23,7 +25,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddArgusEfCoreOutbox<AssetDbContext>();
     builder.Services.AddArgusInboxConsumer<AssetDbContext>();
     builder.Services.AddHealthChecks()
-        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
+        .AddNpgSql(builder.Configuration.GetConnectionString("argdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<IAssetStore, EfAssetStore>();
     builder.Services.AddScoped<TaskCompletedConsumer>();
 }
@@ -44,6 +46,264 @@ app.MapDefaultEndpoints();
 AssetEndpoints.MapRoutes(app);
 
 app.Run();
+
+internal static class AssetEndpoints
+{
+    public static void MapRoutes(WebApplication app)
+    {
+        app.MapGet("/assets", (
+            Guid? programId,
+            AssetType? type,
+            AssetStatus? status,
+            string? search,
+            string? tag,
+            int? minInterestingScore,
+            int? minRiskScore,
+            string? sort,
+            string? direction,
+            int? page,
+            int? pageSize,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var query = new AssetQuery(ProgramId: programId, Type: type, Status: status, Search: search, Tag: tag, MinInterestingScore: minInterestingScore, MinRiskScore: minRiskScore, MinStalenessScore: null, MaxStalenessScore: null, Sort: sort, Direction: direction, Page: page ?? 1, PageSize: pageSize ?? 100);
+            return store.QueryAsync(query, cancellationToken);
+        });
+
+        app.MapPost("/assets", async (
+            CreateAssetRequest request,
+            IAssetStore store,
+            IIntegrationEventPublisher events,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Value))
+            {
+                return Results.BadRequest("Asset value is required.");
+            }
+
+            var result = await store.UpsertAsync(request, cancellationToken);
+            var asset = result.Asset;
+            var eventType = result.WasCreated ? nameof(AssetDiscovered) : nameof(AssetUpdated);
+
+            if (result.WasCreated)
+            {
+                await events.PublishAsync(
+                    new AssetDiscovered(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value),
+                    eventType,
+                    "Argus.AssetService",
+                    cancellationToken: cancellationToken);
+
+                if (asset.Type == AssetType.FindingCandidate)
+                {
+                    await events.PublishAsync(
+                        new FindingCandidateCreated(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value, asset.InterestingScore),
+                        nameof(FindingCandidateCreated),
+                        "Argus.AssetService",
+                        cancellationToken: cancellationToken);
+                }
+            }
+            else
+            {
+                await events.PublishAsync(
+                    new AssetUpdated(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value),
+                    eventType,
+                    "Argus.AssetService",
+                    cancellationToken: cancellationToken);
+            }
+
+            return Results.Created($"/assets/{asset.AssetId}", asset);
+        });
+
+        app.MapGet("/assets/{assetId:guid}", async (
+            Guid assetId,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var asset = await store.FindAsync(assetId, cancellationToken);
+            return asset is not null ? Results.Ok(asset) : Results.NotFound();
+        });
+
+        app.MapGet("/assets/{assetId:guid}/relationships", (
+            Guid assetId,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+            store.GetRelationshipsAsync(assetId, cancellationToken));
+
+        app.MapGet("/assets/{assetId:guid}/subgraph", async (
+            Guid assetId,
+            int? maxDepth,
+            string? assetTypes,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            IReadOnlyCollection<AssetType>? types = null;
+            if (!string.IsNullOrWhiteSpace(assetTypes))
+            {
+                var parts = assetTypes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var parsed = new List<AssetType>(parts.Length);
+                foreach (var part in parts)
+                {
+                    if (!Enum.TryParse<AssetType>(part, ignoreCase: true, out var type))
+                        return Results.BadRequest($"Invalid asset type: '{part}'.");
+                    parsed.Add(type);
+                }
+                types = parsed;
+            }
+
+            return Results.Ok(await store.GetSubgraphAsync(assetId, maxDepth, types, cancellationToken));
+        });
+
+        app.MapPost("/assets/relationships", async (
+            CreateAssetRelationshipRequest request,
+            IAssetStore store,
+            IIntegrationEventPublisher events,
+            CancellationToken cancellationToken) =>
+        {
+            if (!await store.ContainsAsync(request.FromAssetId, cancellationToken)
+                || !await store.ContainsAsync(request.ToAssetId, cancellationToken))
+            {
+                return Results.NotFound("Both assets must exist before a relationship can be created.");
+            }
+
+            try
+            {
+                var relationship = await store.AddRelationshipAsync(request, cancellationToken);
+                await events.PublishAsync(
+                    new AssetRelationshipDiscovered(relationship.FromAssetId, relationship.ToAssetId, relationship.EdgeType),
+                    nameof(AssetRelationshipDiscovered),
+                    "Argus.AssetService",
+                    cancellationToken: cancellationToken);
+
+                return Results.Created($"/assets/{request.FromAssetId}/relationships", relationship);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
+            {
+                return Results.Conflict(ex.Message);
+            }
+        });
+
+        app.MapPatch("/assets/{assetId:guid}/status", async (
+            Guid assetId,
+            UpdateAssetStatusRequest request,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var asset = await store.UpdateStatusAsync(assetId, request.Status, cancellationToken);
+            return Results.Ok(asset);
+        });
+
+        app.MapPost("/assets/{assetId:guid}/tags", async (
+            Guid assetId,
+            AddAssetTagsRequest request,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var asset = await store.AddTagsAsync(assetId, request.Tags, cancellationToken);
+            return Results.Ok(asset);
+        });
+
+        app.MapDelete("/assets/{assetId:guid}/tags/{tag}", async (
+            Guid assetId,
+            string tag,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            var asset = await store.RemoveTagAsync(assetId, tag, cancellationToken);
+            return Results.Ok(asset);
+        });
+
+        app.MapPost("/assets/bulk/tag", async (
+            BulkTagRequest request,
+            IAssetStore store,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.AssetIds.Count == 0)
+            {
+                return Results.BadRequest("At least one asset ID is required.");
+            }
+
+            if (request.Tags.Count == 0)
+            {
+                return Results.BadRequest("At least one tag is required.");
+            }
+
+            var updatedAssets = new List<AssetDto>();
+            var errors = new List<string>();
+
+            foreach (var assetId in request.AssetIds)
+            {
+                try
+                {
+                    var asset = await store.AddTagsAsync(assetId, request.Tags, cancellationToken);
+                    updatedAssets.Add(asset);
+                }
+                catch (InvalidOperationException)
+                {
+                    errors.Add($"Asset {assetId} not found.");
+                }
+            }
+
+            return Results.Ok(new { UpdatedAssets = updatedAssets, UpdatedCount = updatedAssets.Count, ErrorCount = errors.Count, Errors = errors });
+        });
+
+        app.MapPost("/assets/bulk/enqueue", async (
+            BulkEnqueueRequest request,
+            IHttpClientFactory httpClientFactory,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.AssetIds.Count == 0)
+            {
+                return Results.BadRequest("At least one asset ID is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.TaskType))
+            {
+                return Results.BadRequest("Task type is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.WorkerCapability))
+            {
+                return Results.BadRequest("Worker capability is required.");
+            }
+
+            var taskClient = httpClientFactory.CreateClient();
+            taskClient.BaseAddress = new Uri(ServiceUriHelper.GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
+
+            var createdCount = 0;
+            var results = new List<ReconTaskDto>();
+
+            foreach (var assetId in request.AssetIds)
+            {
+                var dedupeHash = TaskDedupeHash.Compute(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability);
+
+                var createRequest = new CreateReconTaskRequest(
+                    TaskType: request.TaskType,
+                    ProgramId: request.ProgramId,
+                    ScopeId: request.ScopeId,
+                    InputAssetId: assetId,
+                    InputPayloadJson: null,
+                    WorkerCapability: request.WorkerCapability,
+                    RequiredAssetType: null,
+                    MaxAttempts: request.MaxAttempts,
+                    Priority: request.Priority,
+                    DedupeHash: dedupeHash);
+
+                using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions, cancellationToken);
+                if (createResponse.IsSuccessStatusCode)
+                {
+                    var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
+                    if (createdTask is not null)
+                    {
+                        createdCount++;
+                        results.Add(createdTask);
+                    }
+                }
+            }
+
+            return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, 0));
+        });
+    }
+}
 
 internal static class TaskDedupeHash
 {
@@ -115,38 +375,10 @@ internal static class AssetStoreInitialization
             await dbContext.Database.EnsureCreatedAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
             await dbContext.Database.EnsureArgusInboxCreatedAsync();
-            await SeedAssetTypeDefinitionsAsync(dbContext);
         }
-    }
-
-    private static async Task SeedAssetTypeDefinitionsAsync(AssetDbContext dbContext)
-    {
-        if (await dbContext.AssetTypeDefinitions.AnyAsync())
-            return;
-
-        var definitions = new AssetTypeDefinitionRecord[]
-        {
-            new() { TypeKey = "domain", DisplayName = "Domain", Category = AssetCategory.Domain, IsEnabled = true, ConfidenceWeight = 1.0m, InterestingScoreBase = 5 },
-            new() { TypeKey = "subdomain", DisplayName = "Subdomain", Category = AssetCategory.Subdomain, IsEnabled = true, ConfidenceWeight = 0.9m, InterestingScoreBase = 10 },
-            new() { TypeKey = "ip", DisplayName = "IP Address", Category = AssetCategory.Ip, IsEnabled = true, ConfidenceWeight = 1.0m, InterestingScoreBase = 5 },
-            new() { TypeKey = "cidr", DisplayName = "CIDR Block", Category = AssetCategory.Network, IsEnabled = true, ConfidenceWeight = 0.8m, InterestingScoreBase = 3 },
-            new() { TypeKey = "url", DisplayName = "URL", Category = AssetCategory.Url, IsEnabled = true, ConfidenceWeight = 0.95m, InterestingScoreBase = 15 },
-            new() { TypeKey = "http_response", DisplayName = "HTTP Response", Category = AssetCategory.HttpResponse, IsEnabled = true, ConfidenceWeight = 0.85m, InterestingScoreBase = 20 },
-            new() { TypeKey = "html_page", DisplayName = "HTML Page", Category = AssetCategory.Document, IsEnabled = true, ConfidenceWeight = 0.8m, InterestingScoreBase = 10 },
-            new() { TypeKey = "javascript", DisplayName = "JavaScript File", Category = AssetCategory.Script, IsEnabled = true, ConfidenceWeight = 0.75m, InterestingScoreBase = 20 },
-            new() { TypeKey = "css", DisplayName = "CSS File", Category = AssetCategory.Style, IsEnabled = true, ConfidenceWeight = 0.7m, InterestingScoreBase = 5 },
-            new() { TypeKey = "json", DisplayName = "JSON Document", Category = AssetCategory.Document, IsEnabled = true, ConfidenceWeight = 0.8m, InterestingScoreBase = 15 },
-            new() { TypeKey = "api_endpoint", DisplayName = "API Endpoint", Category = AssetCategory.Api, IsEnabled = true, ConfidenceWeight = 0.9m, InterestingScoreBase = 40 },
-            new() { TypeKey = "technology", DisplayName = "Technology", Category = AssetCategory.Technology, IsEnabled = true, ConfidenceWeight = 0.75m, InterestingScoreBase = 25 },
-            new() { TypeKey = "port", DisplayName = "Port", Category = AssetCategory.Port, IsEnabled = true, ConfidenceWeight = 0.85m, InterestingScoreBase = 15 },
-            new() { TypeKey = "dns_record", DisplayName = "DNS Record", Category = AssetCategory.Network, IsEnabled = true, ConfidenceWeight = 0.8m, InterestingScoreBase = 10 },
-            new() { TypeKey = "finding", DisplayName = "Finding", Category = AssetCategory.Finding, IsEnabled = true, ConfidenceWeight = 1.0m, InterestingScoreBase = 85 },
-            new() { TypeKey = "finding_candidate", DisplayName = "Finding Candidate", Category = AssetCategory.Finding, IsEnabled = true, ConfidenceWeight = 0.9m, InterestingScoreBase = 70 },
-        };
-
-        dbContext.AssetTypeDefinitions.AddRange(definitions);
-        await dbContext.SaveChangesAsync();
     }
 }
 
 internal sealed record AssetUpsertResult(AssetDto Asset, bool WasCreated);
+
+internal sealed record BulkOperationResult(int SuccessCount, int FailureCount, IReadOnlyList<string> Errors);

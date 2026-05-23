@@ -25,13 +25,23 @@ public sealed class ArgusWorkerBackgroundService(
     ILogger<ArgusWorkerBackgroundService> logger,
     ArgusMetrics metrics) : BackgroundService
 {
-private readonly ArgusWorkerOptions _options = options.Value;
+    private readonly ArgusWorkerOptions _options = options.Value;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
     };
-    private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);
-    private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
+    private readonly int _effectiveMaxConcurrency = DetermineEffectiveMaxConcurrency(options.Value, worker.Capability);
+    private readonly SemaphoreSlim _concurrencyLimiter = new(0, int.MaxValue);
+    private readonly ConcurrentDictionary<Guid, TaskRunState> _runningTasks = new();
+    private readonly Channel<ReconTaskDto> _taskChannel = Channel.CreateBounded<ReconTaskDto>(new BoundedChannelOptions(_effectiveMaxConcurrency)
+    {
+        SingleReader = false,
+        SingleWriter = true,
+        FullMode = BoundedChannelFullMode.Wait
+    });
+    private IArtifactStore? _artifactStore;
+    private volatile int _runningTaskCount;
+    private volatile bool _isShuttingDown;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
