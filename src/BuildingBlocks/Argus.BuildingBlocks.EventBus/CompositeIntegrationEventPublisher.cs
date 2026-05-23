@@ -8,7 +8,7 @@ public sealed class CompositeIntegrationEventPublisher(
     IEnumerable<RabbitMqIntegrationEventPublisher> rabbitMqPublishers,
     ILogger<CompositeIntegrationEventPublisher> logger) : IIntegrationEventPublisher
 {
-    private readonly RabbitMqIntegrationEventPublisher? _rabbitMqPublisher = rabbitMqPublishers.SingleOrDefault();
+    private readonly RabbitMqIntegrationEventPublisher? _rabbitMqPublisher = rabbitMqPublishers.FirstOrDefault();
 
     public async Task PublishAsync<T>(
         IntegrationEventEnvelope<T> envelope,
