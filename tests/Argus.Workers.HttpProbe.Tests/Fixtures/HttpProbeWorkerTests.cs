@@ -52,6 +52,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
@@ -73,6 +74,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.PartiallySucceeded);
@@ -92,6 +94,7 @@ public sealed class HttpProbeWorkerTests
                 programId: Guid.NewGuid(),
                 taskType: "HttpProbe",
                 payload: new Dictionary<string, string>(),
+                workerId: null,
                 cancellationToken: TestContext.Current.CancellationToken));
     }
 
@@ -118,6 +121,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.ProducedAssets);
@@ -181,6 +185,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.ProducedAssets);
@@ -205,6 +210,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "api.example.com", ["follow_redirects"] = "false" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.ProducedAssets);
@@ -214,20 +220,19 @@ public sealed class HttpProbeWorkerTests
     [Fact]
     public async Task ProcessAsync_With302Redirect_FollowsRedirect()
     {
-        var redirectTarget = "https://example.com/final";
         var worker = _fixture.CreateWorker(request =>
         {
             var uri = request.RequestUri?.ToString() ?? "";
             if (uri.EndsWith("/"))
             {
-                var response = new HttpResponseMessage(System.Net.HttpStatusCode.Found);
-                response.Headers.Location = new Uri("https://example.com/final");
-                return response;
+                var redirectResponse = new HttpResponseMessage(System.Net.HttpStatusCode.Found);
+                redirectResponse.Headers.Location = new Uri("https://example.com/final");
+                return redirectResponse;
             }
 
-            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
-            response.Content = new StringContent("<html><title>Final Page</title></html>", System.Text.Encoding.UTF8, "text/html");
-            return response;
+            var okResponse = new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+            okResponse.Content = new StringContent("<html><title>Final Page</title></html>", System.Text.Encoding.UTF8, "text/html");
+            return okResponse;
         });
 
         var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
@@ -235,6 +240,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "true" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.ProducedAssets);
@@ -253,19 +259,16 @@ public sealed class HttpProbeWorkerTests
         });
 
         var harness = new WorkerTestHarness<HttpProbeWorker>(worker);
-        harness.SetExpectedBackpressureSignal(new RateLimitBackpressureSignal(
-            "example.com",
-            "host:example.com",
-            TimeSpan.FromSeconds(120),
-            429));
 
         var result = await harness.ExecuteAsync(
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.NotEmpty(result.ProducedAssets);
+        Assert.Contains(harness.BackpressureSignals, s => s.Host == "example.com" && s.ObservedStatusCode == 429);
+        Assert.True(result.PartiallySucceeded);
     }
 
     [Fact]
@@ -283,6 +286,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com", ["timeout_seconds"] = "15" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.ProducedAssets);
@@ -305,6 +309,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(redirected);
@@ -327,6 +332,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(result.ProducedAssets, a => a.AssetType == "Observation" && a.Subtype == "HttpHeaders");
@@ -348,6 +354,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com", ["follow_redirects"] = "false" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(result.ProducedAssets, a => a.AssetType == "HttpResponse");
@@ -377,6 +384,7 @@ public sealed class HttpProbeWorkerTests
             programId: Guid.NewGuid(),
             taskType: "HttpProbe",
             payload: new Dictionary<string, string> { ["host"] = "example.com" },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(attempts, s => s == "https");

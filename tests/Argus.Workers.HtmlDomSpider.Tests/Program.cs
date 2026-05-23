@@ -144,7 +144,8 @@ public sealed class HtmlDomSpiderWorkerTests
     [Fact]
     public async Task ProcessAsync_WhenRateLimited_ReturnsDelayedResult()
     {
-        var harness = new WorkerTestHarness<HtmlDomSpiderWorker>(new HtmlDomSpiderWorker());
+        var worker = new HtmlDomSpiderWorker(new StubHttpClientFactory());
+        var harness = new WorkerTestHarness<HtmlDomSpiderWorker>(worker);
         harness.SetRateLimitAllowed(false);
 
         var result = await harness.ExecuteAsync(
@@ -468,6 +469,7 @@ internal static class HtmlDomSpiderTestExtensions
             programId,
             "HtmlDomSpider",
             new Dictionary<string, string> { ["url"] = url },
+            workerId: null,
             cancellationToken: cancellationToken);
     }
 

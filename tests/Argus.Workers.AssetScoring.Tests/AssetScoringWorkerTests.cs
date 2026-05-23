@@ -28,6 +28,7 @@ public sealed class AssetScoringWorkerTests
                 ["assetType"] = assetType,
                 ["targetId"] = Guid.NewGuid().ToString()
             },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
@@ -50,6 +51,7 @@ public sealed class AssetScoringWorkerTests
                 ["value"] = url,
                 ["assetType"] = assetType
             },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
@@ -66,6 +68,7 @@ public sealed class AssetScoringWorkerTests
                 ["value"] = "https://api.example.com/graphql",
                 ["assetType"] = "Url"
             },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
@@ -86,6 +89,7 @@ public sealed class AssetScoringWorkerTests
                 ["value"] = "https://example.com/.env",
                 ["assetType"] = "Url"
             },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
@@ -107,6 +111,7 @@ public sealed class AssetScoringWorkerTests
                 ["value"] = "https://example.com/static/app.js",
                 ["assetType"] = "JavaScriptFile"
             },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
@@ -123,6 +128,7 @@ public sealed class AssetScoringWorkerTests
                 ["value"] = "https://example.com/static/app.min.js",
                 ["assetType"] = "JavaScriptFile"
             },
+            workerId: null,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.PartiallySucceeded);
