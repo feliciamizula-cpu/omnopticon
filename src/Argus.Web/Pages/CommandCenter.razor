@@ -1,0 +1,38 @@
+@page "/command-center"
+@page "/"
+
+<PageHeader Title="Command Center" Subtitle="Reconnaissance overview" />
+
+<div class="page-body">
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <h2 style="margin: 0 0 var(--space-4); font-size: 14px; color: var(--text-secondary);">System Status</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4);">
+      <div>
+        <div class="text-muted" style="font-size: 12px; margin-bottom: var(--space-1);">Total Assets</div>
+        <div style="font-size: 28px; font-weight: 700;">—</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 12px; margin-bottom: var(--space-1);">Active Workers</div>
+        <div style="font-size: 28px; font-weight: 700;">—</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 12px; margin-bottom: var(--space-1);">Running Tasks</div>
+        <div style="font-size: 28px; font-weight: 700;">—</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size: 12px; margin-bottom: var(--space-1);">Queue Depth</div>
+        <div style="font-size: 28px; font-weight: 700;">—</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2 style="margin: 0 0 var(--space-4); font-size: 14px; color: var(--text-secondary);">Quick Actions</h2>
+    <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+      <a href="/targets" class="btn">View Targets</a>
+      <a href="/assets" class="btn">Browse Assets</a>
+      <a href="/findings" class="btn">Review Findings</a>
+      <a href="/events" class="btn">Live Events</a>
+    </div>
+  </div>
+</div>

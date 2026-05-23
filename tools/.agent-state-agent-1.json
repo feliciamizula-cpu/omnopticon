@@ -1,14 +1,14 @@
 {
   "agentId": "agent-1",
-  "status": "idle",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "workStatus": "idle",
-  "pid": null,
-  "lastError": "Task 054 requeued during reconciliation",
-  "lastHeartbeatAt": "2026-05-23T04:38:42.449Z",
-  "updatedAt": "2026-05-23T04:38:42.449Z",
-  "startedAt": "2026-05-23T04:38:35.179Z",
-  "lastRunAt": "2026-05-23T04:38:38.205Z",
-  "context": "Implementation complete - IScopeProvider interface, HackerOneScopeProvider, BugcrowdScopeProvider, ScopeSyncService (6h sync), ProgramScopeChanged events all in place"
+  "currentTaskId": "043",
+  "currentTaskDescription": "Enhancement #11: Scan coverage reporting - GET /scan-plans/{id}/coverage for gap analysis",
+  "context": "Resuming task 043 - investigating current state of Enhancement #11 implementation",
+  "status": "working",
+  "pid": 2495769,
+  "startedAt": "2026-05-23T04:39:10.432Z",
+  "lastRunAt": "2026-05-23T04:39:10.479Z",
+  "lastHeartbeatAt": "2026-05-23T04:39:24.846Z",
+  "lastError": null,
+  "updatedAt": "2026-05-23T04:39:24.846Z",
+  "workStatus": "idle"
 }

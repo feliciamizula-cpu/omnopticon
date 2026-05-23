@@ -1,14 +1,14 @@
 {
   "agentId": "devops-1",
-  "currentTaskId": "046",
-  "currentTaskDescription": "Core: Reimplement AI agent framework (tools/agent-*.sh, auto-run-agents.sh, watchdog) as a .NET Core console project named Argus.AgentCoordinator in src/Tools/. Must support: 1) configurable agent pool with MAX_CONCURRENT=5 dev, 2 devops, 2 reviewers via env vars or config file; 2) JSON-based task board at tools/.agent-tasks.json; 3) per-agent state files at tools/.agent-state-*.json; 4) heartbeat monitoring every 45s per agent; 5) crash detection via PID check; 6) automatic task assignment from pending queue sorted by priority then ID; 7) agent prompt writing to tools/.agent-prompt-*.txt; 8) opencode run --dir <workdir> invocation to execute tasks; 9) devops standing-task sweep every 120s; 10) reviewer cycle on new git commits; 11) watchdog auto-restart on supervisor death; 12) SIGTERM/SIGINT handling for graceful shutdown. Output: src/Tools/Argus.AgentCoordinator/ with .csproj + Program.cs",
-  "context": "task 046 complete: Argus.AgentCoordinator implemented at src/Tools/Argus.AgentCoordinator/; csproj targets net10.0; Program.cs 854 lines with all 12 requirements: configurable pool, JSON task board, per-agent state files, 45s heartbeat, PID crash detection, priority-sorted task assignment, agent prompt files, opencode invocation, devops 120s sweep, reviewer git-cycle, watchdog restart, SIGTERM/SIGINT shutdown; no critical alerts",
-  "status": "working",
-  "pid": 2467430,
-  "startedAt": "2026-05-23T04:38:19.834Z",
-  "lastRunAt": "2026-05-23T04:38:19.834Z",
-  "lastHeartbeatAt": "2026-05-23T04:38:19.834Z",
+  "currentTaskId": null,
+  "currentTaskDescription": null,
+  "context": "stale lock removed; reconcile succeeded; agent-1 crashed (pid 2248741 gone, marked idle); devops-2 unresponsive (pid 2030773 alive but no heartbeat since 04:32); build/dotnet unavailable in PATH",
+  "status": "idle",
+  "pid": null,
+  "startedAt": null,
+  "lastRunAt": "2026-05-23T04:38:49.830Z",
+  "lastHeartbeatAt": "2026-05-23T04:38:49.830Z",
   "lastError": null,
-  "updatedAt": "2026-05-23T04:38:40.666Z",
+  "updatedAt": "2026-05-23T04:39:15.207Z",
   "workStatus": "idle"
 }

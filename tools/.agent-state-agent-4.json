@@ -1,13 +1,14 @@
 {
   "agentId": "agent-4",
-  "currentTaskId": null,
-  "currentTaskDescription": null,
-  "context": "Resuming task 055: Bulk asset tag and enqueue endpoints - starting fresh",
-  "status": "idle",
-  "pid": null,
-  "startedAt": "2026-05-23T03:05:47.674Z",
-  "lastRunAt": "2026-05-23T04:38:26.102Z",
-  "lastHeartbeatAt": "2026-05-23T04:38:25.692Z",
-  "lastError": "Task 055 requeued during reconciliation",
-  "updatedAt": "2026-05-23T04:38:40.666Z"
+  "status": "working",
+  "currentTaskId": "054",
+  "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
+  "workStatus": "idle",
+  "pid": 2482670,
+  "lastError": null,
+  "lastHeartbeatAt": "2026-05-23T04:39:06.114Z",
+  "updatedAt": "2026-05-23T04:39:15.207Z",
+  "startedAt": "2026-05-23T04:38:44.891Z",
+  "lastRunAt": "2026-05-23T04:38:45.113Z",
+  "context": "Implementation complete - IScopeProvider interface, HackerOneScopeProvider, BugcrowdScopeProvider, ScopeSyncService (6h sync), ProgramScopeChanged events all in place"
 }
