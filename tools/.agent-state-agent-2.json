@@ -5,10 +5,10 @@
   "context": null,
   "status": "idle",
   "pid": null,
-  "startedAt": "2026-05-23T18:26:07.812Z",
-  "lastRunAt": "2026-05-23T18:26:10.854Z",
-  "lastHeartbeatAt": "2026-05-23T18:26:26.895Z",
+  "startedAt": "2026-05-23T19:35:47.218Z",
+  "lastRunAt": "2026-05-23T19:35:49.961Z",
+  "lastHeartbeatAt": "2026-05-23T19:36:04.868Z",
   "lastError": "Task 052 requeued during reconciliation",
-  "updatedAt": "2026-05-23T18:26:26.895Z",
+  "updatedAt": "2026-05-23T19:36:04.868Z",
   "workStatus": "idle"
 }

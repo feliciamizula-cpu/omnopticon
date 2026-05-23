@@ -12,8 +12,10 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+app.UseStaticFiles();
+app.UseAntiforgery();
 
-app.MapRazorComponents<Argus.Web.Components.Routes>()
+app.MapRazorComponents<Argus.Web.App>()
     .AddInteractiveServerRenderMode();
 
 app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>

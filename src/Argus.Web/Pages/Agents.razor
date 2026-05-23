@@ -1,5 +1,5 @@
 @page "/agents"
-@rendermode @(new InteractiveServerRenderMode())
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Argus.Contracts.Agents
 @using System.Text.Json
 @using System.Text.Json.Serialization

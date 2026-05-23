@@ -4,6 +4,8 @@ using Argus.Contracts.Findings;
 using Argus.ServiceDefaults;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 
 Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
@@ -100,7 +102,7 @@ app.MapPatch("/findings/{findingId:guid}/triage", async (
     if (result is null) return Results.NotFound();
 
     await events.PublishAsync(
-        new FindingTriaged(findingId, result.OldStatus.ToString(), result.NewStatus.ToString(), request.Reason ?? ""),
+        new FindingTriaged(findingId, result.OldStatus.ToString(), request.NewStatus.ToString(), request.Reason ?? ""),
         nameof(FindingTriaged),
         "Argus.FindingService",
         cancellationToken: cancellationToken);
@@ -327,7 +329,7 @@ internal sealed class EfFindingStore(FindingDbContext dbContext) : IFindingStore
         if (!string.IsNullOrWhiteSpace(request.Search))
             query = query.Where(f => EF.Functions.ILike(f.Title, $"%{request.Search}%") || EF.Functions.ILike(f.Description, $"%{request.Search}%"));
         if (request.Tags.Count > 0)
-            query = query.Where(f => f.TagsJson.Contains(request.Tags[0]));
+            query = query.Where(f => f.TagsJson.Contains(request.Tags.First()));
 
         var total = await query.CountAsync(cancellationToken);
         var page = Math.Max(1, request.Page);

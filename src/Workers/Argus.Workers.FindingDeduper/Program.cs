@@ -2,6 +2,7 @@ using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Events;
 using Argus.Contracts.Findings;
+using Argus.Contracts.Tasks;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
 using System.Text.Json;
@@ -54,7 +55,7 @@ internal sealed class FindingDeduperWorker : IReconWorker, IIntegrationEventCons
             AssetType: "FindingCandidate",
             Value: $"{signal}:{observationValue}",
             Subtype: observationSubtype,
-            ParentAssetId: task.InputAssetId,
+            Confidence: score / 100m,
             Metadata: new Dictionary<string, string>
             {
                 ["signal"] = signal,
@@ -71,9 +72,6 @@ internal sealed class FindingDeduperWorker : IReconWorker, IIntegrationEventCons
 
         return new WorkerProcessResult(
             PartiallySucceeded: false,
-            HasMoreWork: false,
-            NextTaskPayloadJson: null,
-            ProducedAssets: [findingCandidate],
             OutputSummaryJson: JsonSerializer.Serialize(new
             {
                 created = true,
@@ -81,7 +79,8 @@ internal sealed class FindingDeduperWorker : IReconWorker, IIntegrationEventCons
                 signal,
                 score,
                 dedupeKey
-            }));
+            }),
+            ProducedAssets: [findingCandidate]);
     }
 
     public async Task HandleAsync(IntegrationEventEnvelope<ObservationCreated> envelope, CancellationToken cancellationToken)

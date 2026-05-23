@@ -4,6 +4,7 @@ using Argus.Contracts.Artifacts;
 using Argus.ServiceDefaults;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;

@@ -15,41 +15,35 @@ var argusDb = postgres.AddDatabase("argusdb");
 var programScope = builder.AddProject<Projects.Argus_ProgramScopeService>("program-scope-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var asset = builder.AddProject<Projects.Argus_AssetService>("asset-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var artifact = builder.AddProject<Projects.Argus_ArtifactService>("artifact-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var finding = builder.AddProject<Projects.Argus_FindingService>("finding-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var task = builder.AddProject<Projects.Argus_TaskService>("task-service")
     .WithReference(argusDb)
     .WithReference(redis)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var rateLimit = builder.AddProject<Projects.Argus_RateLimitService>("rate-limit-service")
     .WithReference(redis)
     .WithReference(rabbitMq)
     .WithReference(programScope)
     .WaitFor(rabbitMq)
-    .WaitFor(programScope)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(programScope);
 
 var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("scan-orchestrator-service")
     .WithReference(argusDb)
@@ -63,26 +57,29 @@ var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("s
 var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var eventRouter = builder.AddProject<Projects.Argus_EventRouterService>("event-router-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
 
 var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("proxy-registry-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
-    .WithHttpHealthCheck("/health");
+    .WaitFor(rabbitMq);
+
+var agentService = builder.AddProject<Projects.Argus_AgentService>("agent-service")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq)
+    .WaitFor(rabbitMq);
 
 asset.WithReference(realtime);
 task.WithReference(realtime);
 rateLimit.WithReference(realtime);
 orchestrator.WithReference(realtime);
 proxyRegistry.WithReference(realtime);
+agentService.WithReference(realtime);
 artifact.WithReference(realtime);
 finding.WithReference(realtime);
 eventRouter.WithReference(realtime);
@@ -226,10 +223,11 @@ builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithReference(rateLimit)
     .WithReference(orchestrator)
     .WithReference(realtime)
+    .WithReference(agentService)
     .WithReference(eventRouter);
 
 builder.AddProject<Projects.Argus_Web>("argus-web")
-    .WithExternalHttpEndpoints()
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8081")
     .WithReference(programScope)
     .WithReference(asset)
     .WithReference(artifact)
@@ -238,6 +236,7 @@ builder.AddProject<Projects.Argus_Web>("argus-web")
     .WithReference(rateLimit)
     .WithReference(orchestrator)
     .WithReference(realtime)
+    .WithReference(agentService)
     .WithReference(eventRouter);
 
 redis.WithParentRelationship(rateLimit);

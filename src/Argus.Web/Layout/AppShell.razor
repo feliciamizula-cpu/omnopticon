@@ -18,9 +18,13 @@
 @code {
   private bool _sidebarCollapsed;
   
-  protected override async Task OnInitializedAsync()
+  protected override async Task OnAfterRenderAsync(bool firstRender)
   {
-    _sidebarCollapsed = await JS.InvokeAsync<bool>("eval", "localStorage.getItem('sidebar-collapsed') === 'true'");
+    if (firstRender)
+    {
+      _sidebarCollapsed = await JS.InvokeAsync<bool>("eval", "localStorage.getItem('sidebar-collapsed') === 'true'");
+      StateHasChanged();
+    }
   }
   
   private async Task ToggleSidebar()
