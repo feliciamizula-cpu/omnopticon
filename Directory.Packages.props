@@ -96,5 +96,6 @@
     <!-- Before license change -->
     <PackageVersion Include="MediatR" Version="13.0.0" />
     <PackageVersion Include="Cronos" Version="0.8.4" />
+    <PackageVersion Include="AWSSDK.S3" Version="3.7.415.3" />
   </ItemGroup>
 </Project>

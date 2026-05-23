@@ -12,6 +12,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />
     <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Argus.BuildingBlocks.Artifacts\Argus.BuildingBlocks.Artifacts.csproj" />
   </ItemGroup>
 
 </Project>

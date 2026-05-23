@@ -22,6 +22,18 @@ var dbPath = builder.Configuration.GetConnectionString("realtimedb")
 builder.Services.AddDbContext<RealtimeDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
+var webhookDbConnStr = builder.Configuration.GetConnectionString("argusdb");
+if (!string.IsNullOrWhiteSpace(webhookDbConnStr))
+{
+    builder.Services.AddDbContext<WebhookDbContext>(options =>
+        options.UseNpgsql(webhookDbConnStr));
+}
+else
+{
+    builder.Services.AddDbContext<WebhookDbContext>(options =>
+        options.UseSqlite($"Data Source={dbPath}"));
+}
+
 builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
 builder.Services.AddSingleton(sp =>
 {
@@ -61,6 +73,12 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
     await dbContext.Database.EnsureCreatedAsync();
+
+    var webhookDb = scope.ServiceProvider.GetService<WebhookDbContext>();
+    if (webhookDb is not null)
+    {
+        await webhookDb.Database.EnsureCreatedAsync();
+    }
 }
 
 var store = app.Services.GetRequiredService<RealtimeStore>();
@@ -180,19 +198,19 @@ if (deadLetterConnection is not null && deadLetterChannel is not null)
 
 var webhooks = app.MapGroup("/webhooks").WithTags("Webhooks");
 
-webhooks.MapGet("/", async (RealtimeDbContext db) =>
+webhooks.MapGet("/", async (WebhookDbContext db) =>
 {
     var configs = await db.WebhookConfigs.OrderBy(c => c.Name).ToListAsync();
     return Results.Ok(configs.Select(c => c.ToDto()).ToArray());
 });
 
-webhooks.MapGet("/{id:guid}", async (Guid id, RealtimeDbContext db) =>
+webhooks.MapGet("/{id:guid}", async (Guid id, WebhookDbContext db) =>
 {
     var config = await db.WebhookConfigs.FindAsync(id);
     return config is null ? Results.NotFound() : Results.Ok(config.ToDto());
 });
 
-webhooks.MapPost("/", async (CreateWebhookRequest request, RealtimeDbContext db) =>
+webhooks.MapPost("/", async (CreateWebhookRequest request, WebhookDbContext db) =>
 {
     if (string.IsNullOrWhiteSpace(request.Name))
         return Results.BadRequest("Name is required.");
@@ -208,7 +226,7 @@ webhooks.MapPost("/", async (CreateWebhookRequest request, RealtimeDbContext db)
     return Results.Created($"/webhooks/{config.Id}", config.ToDto());
 });
 
-webhooks.MapPut("/{id:guid}", async (Guid id, UpdateWebhookRequest request, RealtimeDbContext db) =>
+webhooks.MapPut("/{id:guid}", async (Guid id, UpdateWebhookRequest request, WebhookDbContext db) =>
 {
     var config = await db.WebhookConfigs.FindAsync(id);
     if (config is null)
@@ -222,7 +240,7 @@ webhooks.MapPut("/{id:guid}", async (Guid id, UpdateWebhookRequest request, Real
     return Results.Ok(config.ToDto());
 });
 
-webhooks.MapDelete("/{id:guid}", async (Guid id, RealtimeDbContext db) =>
+webhooks.MapDelete("/{id:guid}", async (Guid id, WebhookDbContext db) =>
 {
     var config = await db.WebhookConfigs.FindAsync(id);
     if (config is null)
@@ -233,7 +251,7 @@ webhooks.MapDelete("/{id:guid}", async (Guid id, RealtimeDbContext db) =>
     return Results.Ok(new { deleted = true });
 });
 
-webhooks.MapGet("/{id:guid}/logs", async (Guid id, int? take, int? skip, RealtimeDbContext db) =>
+webhooks.MapGet("/{id:guid}/logs", async (Guid id, int? take, int? skip, WebhookDbContext db) =>
 {
     var query = db.WebhookDeliveryLogs
         .Where(l => l.WebhookConfigId == id)

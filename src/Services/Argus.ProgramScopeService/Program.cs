@@ -2,6 +2,7 @@ using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
+using Argus.ProgramScopeService.Providers;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
@@ -11,6 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.ProgramScopeService");
 builder.Services.AddProblemDetails();
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IScopeProvider, HackerOneScopeProvider>();
+builder.Services.AddSingleton<IScopeProvider, BugcrowdScopeProvider>();
+builder.Services.AddHostedService<ScopeSyncService>();
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
 {
@@ -24,6 +29,11 @@ else
 {
     builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
 }
+
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IScopeProvider, HackerOneScopeProvider>();
+builder.Services.AddScoped<IScopeProvider, BugcrowdScopeProvider>();
+builder.Services.AddHostedService<ScopeSyncService>();
 
 var snapshotSigningKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"] ?? string.Empty;
 

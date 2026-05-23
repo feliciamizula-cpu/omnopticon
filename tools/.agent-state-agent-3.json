@@ -1,13 +1,13 @@
 {
   "agentId": "agent-3",
-  "currentTaskId": "057",
-  "currentTaskDescription": "DevOps: Deploy code review report as web app - Serve tools/reviews/code-review-report.html via a lightweight HTTP server (Python http.server or add Nginx to compose.yaml). Make it accessible on port 8081. Ensure the report auto-updates when generate-review-report.sh runs.",
-  "context": "Added review-report service to deploy/compose.yaml using python:3-slim serving tools/reviews/ on port 8083. dotnet not available for build verification - change is compose-only.",
+  "currentTaskId": "054",
+  "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
+  "context": "Added DI registrations for HackerOneScopeProvider, BugcrowdScopeProvider, and ScopeSyncService in Program.cs",
   "status": "working",
+  "pid": 737133,
+  "startedAt": "2026-05-23T03:05:00.636Z",
+  "lastRunAt": "2026-05-23T03:05:00.681Z",
+  "lastHeartbeatAt": "2026-05-23T03:05:09.214Z",
   "lastError": null,
-  "pid": 683098,
-  "startedAt": "2026-05-23T02:24:43.047Z",
-  "lastHeartbeatAt": "2026-05-23T03:02:54.654Z",
-  "lastRunAt": "2026-05-23T03:02:54.654Z",
-  "updatedAt": "2026-05-23T03:02:54.654Z"
+  "updatedAt": "2026-05-23T03:05:09.214Z"
 }

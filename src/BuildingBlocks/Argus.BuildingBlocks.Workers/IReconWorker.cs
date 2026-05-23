@@ -1,3 +1,4 @@
+using Argus.BuildingBlocks.Artifacts;
 using Argus.Contracts.Workers;
 using Argus.Contracts.Tasks;
 
@@ -50,4 +51,5 @@ public sealed record WorkerProducedAsset(
     string? Subtype,
     decimal? Confidence,
     IReadOnlyDictionary<string, string>? Metadata,
-    IReadOnlyCollection<string>? Tags);
+    IReadOnlyCollection<string>? Tags,
+    IReadOnlyCollection<ArtifactReference>? ArtifactReferences = null);

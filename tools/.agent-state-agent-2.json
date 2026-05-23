@@ -2,12 +2,12 @@
   "agentId": "agent-2",
   "currentTaskId": "054",
   "currentTaskDescription": "Enhancement #20: Scope ingestion from HackerOne/Bugcrowd APIs - Add IScopeProvider interface with ProviderName and FetchAsync(programHandle, ct) in ProgramScopeService. Implement HackerOneScopeProvider and BugcrowdScopeProvider. Scheduled sync every 6h via BackgroundService. On scope change publish ProgramScopeChanged. API keys from env vars: HACKERONE_API_TOKEN, BUGCROWD_API_TOKEN. File: src/Services/Argus.ProgramScopeService/Providers/",
-  "context": "Analyzed the issue: immediate requeue with BasicNack causes infinite retry loop without delay. Need to: 1) Use delay queues for retry with DLX/TTL, 2) Add persistent poison message store, 3) Add inspection/replay endpoint",
-  "status": "working",
-  "pid": 681869,
+  "context": "Added DI registrations for HackerOneScopeProvider, BugcrowdScopeProvider, and ScopeSyncService in Program.cs",
+  "status": "stalled",
+  "pid": null,
   "startedAt": "2026-05-23T03:00:50.390Z",
-  "lastRunAt": "2026-05-23T03:02:50.613Z",
-  "lastHeartbeatAt": "2026-05-23T03:02:50.613Z",
-  "lastError": null,
-  "updatedAt": "2026-05-23T03:02:50.613Z"
+  "lastRunAt": "2026-05-23T03:04:48.391Z",
+  "lastHeartbeatAt": "2026-05-23T03:04:48.391Z",
+  "lastError": "agent exited with code 0 before task completion (task status: in_progress)",
+  "updatedAt": "2026-05-23T03:04:48.391Z"
 }

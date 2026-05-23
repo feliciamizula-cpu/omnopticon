@@ -76,7 +76,7 @@ internal sealed class WebhookService : BackgroundService
 
         using (var scope = _scopeFactory.CreateScope())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
             activeConfigs = await dbContext.WebhookConfigs
                 .Where(c => c.IsActive)
                 .ToListAsync(cancellationToken);
@@ -248,7 +248,7 @@ internal sealed class WebhookService : BackgroundService
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
 
             dbContext.WebhookDeliveryLogs.Add(new WebhookDeliveryLog
             {

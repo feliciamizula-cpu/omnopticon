@@ -65,3 +65,8 @@ public sealed record AssetPropertyChanged(
     IReadOnlyDictionary<string, string> PreviousMetadata,
     IReadOnlyDictionary<string, string> NewMetadata,
     IReadOnlyCollection<string> ChangedKeys);
+
+public sealed record ProxyAdded(Guid ProxyId, string Url, string Protocol);
+public sealed record ProxyRemoved(Guid ProxyId, string Url);
+public sealed record ProxyStatusChanged(Guid ProxyId, string Url, string OldStatus, string NewStatus);
+public sealed record ProxyRateLimitExceeded(Guid ProxyId, string Url, int CurrentRequestsPerSecond);

@@ -243,6 +243,7 @@ internal interface IScanPlanStore
     Task<IReadOnlyCollection<ScanPlanDto>> GetPlansAsync(CancellationToken cancellationToken);
     Task<ScanPlanDto> CreateDomainDiscoveryPlanAsync(CreateDomainDiscoveryPlanRequest request, CancellationToken cancellationToken);
     Task<ScanPlanDto> MarkSeededAsync(Guid scanPlanId, SeededScanPlan seeded, CancellationToken cancellationToken);
+    Task<ScanPlanDto?> GetPlanByIdAsync(Guid scanPlanId, CancellationToken cancellationToken);
 }
 
 internal sealed class InMemoryScanPlanStore : IScanPlanStore

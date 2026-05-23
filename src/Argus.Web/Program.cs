@@ -86,6 +86,26 @@ app.MapPost("/ui/scan-plans/domain-discovery", async (
     return await gateway.PostJsonAsync(endpoints.ScanOrchestrator, "/scan-plans/domain-discovery", payload, cancellationToken);
 });
 
+app.MapPost("/ui/assets/bulk/tag", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/tag", payload, cancellationToken);
+});
+
+app.MapPost("/ui/assets/bulk/enqueue", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/enqueue", payload, cancellationToken);
+});
+
 app.MapGet("/ui/events/stream", async (
     HttpContext context,
     IHttpClientFactory httpClientFactory,
@@ -277,6 +297,42 @@ app.MapGet("/", () => Results.Content("""
       font-size: 12px;
       white-space: pre-wrap;
     }
+    .chk-col { width: 32px; text-align: center; }
+    .chk-col input { width: 16px; height: 16px; cursor: pointer; margin: 0; }
+    .bulk-bar { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+    .bulk-bar .chip { background: var(--blue); color: #000; }
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.6);
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 20px;
+      min-width: 400px;
+      max-width: 520px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .modal-box h2 { margin: 0 0 12px; font-size: 16px; }
+    .modal-box form { display: flex; flex-direction: column; gap: 10px; }
+    .modal-box .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+    .modal-box label { font-size: 12px; color: var(--muted); }
+    .modal-box input, .modal-box select { width: 100%; }
+    #notification {
+      position: fixed; bottom: 20px; right: 20px; z-index: 2000;
+      padding: 10px 16px; border-radius: 6px; font-size: 13px;
+      background: var(--panel-2); border: 1px solid var(--line);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      opacity: 0; transition: opacity 0.25s;
+      pointer-events: none;
+    }
+    #notification.show { opacity: 1; }
+    #notification.success { border-color: var(--green); }
+    #notification.error { border-color: var(--red); }
     @media (max-width: 980px) {
       main { grid-template-columns: 1fr; }
       nav, aside { border: 0; border-bottom: 1px solid var(--line); max-height: none; }
@@ -325,8 +381,36 @@ app.MapGet("/", () => Results.Content("""
       <div id="eventRail" class="log muted"></div>
     </aside>
   </main>
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box" id="modalBox"></div>
+  </div>
+  <div id="notification"></div>
   <script>
-    const state = { view: "assets", data: null, filter: "", assetType: "", currentRows: [], selected: null };
+    const NOTIFICATION_DURATION = 4000;
+    let notificationTimer = null;
+
+    function showNotification(message, type) {
+      const el = document.querySelector("#notification");
+      el.textContent = message;
+      el.className = "show " + (type || "success");
+      clearTimeout(notificationTimer);
+      notificationTimer = setTimeout(() => { el.className = ""; }, NOTIFICATION_DURATION);
+    }
+
+    function showModal(html) {
+      document.querySelector("#modalBox").innerHTML = html;
+      document.querySelector("#modalOverlay").classList.add("open");
+    }
+
+    function closeModal() {
+      document.querySelector("#modalOverlay").classList.remove("open");
+    }
+
+    document.querySelector("#modalOverlay").addEventListener("click", event => {
+      if (event.target === event.currentTarget) closeModal();
+    });
+
+    const state = { view: "assets", data: null, filter: "", assetType: "", currentRows: [], selected: null, selectedIds: new Set() };
     const content = document.querySelector("#content");
     const search = document.querySelector("#search");
     const assetType = document.querySelector("#assetType");
@@ -337,6 +421,7 @@ app.MapGet("/", () => Results.Content("""
       state.view = button.dataset.view;
       document.querySelectorAll("#tabs button").forEach(tab => tab.classList.toggle("active", tab === button));
       state.selected = null;
+      state.selectedIds = new Set();
       render();
     });
 
@@ -344,7 +429,7 @@ app.MapGet("/", () => Results.Content("""
     search.addEventListener("input", () => { state.filter = search.value.toLowerCase(); render(); });
     assetType.addEventListener("change", () => { state.assetType = assetType.value; render(); });
     content.addEventListener("submit", submitCommand);
-    content.addEventListener("click", selectRow);
+    content.addEventListener("click", handleContentClick);
 
     async function load() {
       const marker = document.querySelector("#refreshState");
@@ -708,12 +793,88 @@ app.MapGet("/", () => Results.Content("""
         .replaceAll("'", "&#39;");
     }
 
-    load();
-    connectEventStream();
-    setInterval(load, 15000);
-  </script>
-</body>
-</html>
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box" id="modalBox"></div>
+  </div>
+  <div id="notification"></div>
+  <script>
+    const NOTIFICATION_DURATION = 4000;
+    let notificationTimer = null;
+
+    function showNotification(message, type) {
+      const el = document.querySelector("#notification");
+      el.textContent = message;
+      el.className = "show " + (type || "success");
+      clearTimeout(notificationTimer);
+      notificationTimer = setTimeout(() => { el.className = ""; }, NOTIFICATION_DURATION);
+    }
+
+    function showModal(html) {
+      document.querySelector("#modalBox").innerHTML = html;
+      document.querySelector("#modalOverlay").classList.add("open");
+    }
+
+    function closeModal() {
+      document.querySelector("#modalOverlay").classList.remove("open");
+    }
+
+    document.querySelector("#modalOverlay").addEventListener("click", event => {
+      if (event.target === event.currentTarget) closeModal();
+    });
+
+    const state = { view: "assets", data: null, filter: "", assetType: "", currentRows: [], selected: null, selectedIds: new Set() };
+    const content = document.querySelector("#content");
+    const search = document.querySelector("#search");
+    const assetType = document.querySelector("#assetType");
+
+    document.querySelector("#tabs").addEventListener("click", event => {
+      const button = event.target.closest("button[data-view]");
+      if (!button) return;
+      state.view = button.dataset.view;
+      document.querySelectorAll("#tabs button").forEach(tab => tab.classList.toggle("active", tab === button));
+      state.selected = null;
+      state.selectedIds = new Set();
+      render();
+    });
+
+    document.querySelector("#refreshButton").addEventListener("click", load);
+    search.addEventListener("input", () => { state.filter = search.value.toLowerCase(); render(); });
+    assetType.addEventListener("change", () => { state.assetType = assetType.value; render(); });
+    content.addEventListener("submit", submitCommand);
+    content.addEventListener("click", handleContentClick);
+
+    function handleContentClick(event) {
+      const checkbox = event.target.closest("input[type=checkbox][data-asset-id]");
+      if (checkbox) {
+        const assetId = checkbox.dataset.assetId;
+        if (checkbox.checked) {
+          state.selectedIds.add(assetId);
+        } else {
+          state.selectedIds.delete(assetId);
+        }
+        if (document.querySelector("th.chk-col input[type=checkbox]")) {
+          const allCheckboxes = content.querySelectorAll("input[type=checkbox][data-asset-id]");
+          const checkedCount = content.querySelectorAll("input[type=checkbox][data-asset-id]:checked").length;
+          document.querySelector("th.chk-col input[type=checkbox]").checked = checkedCount > 0 && checkedCount === allCheckboxes.length;
+          document.querySelector("th.chk-col input[type=checkbox]").indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+        }
+        renderToolbar();
+        return;
+      }
+      const selectAll = event.target.closest("th.chk-col input[type=checkbox]");
+      if (selectAll) {
+        const checked = selectAll.checked;
+        content.querySelectorAll("input[type=checkbox][data-asset-id]").forEach(cb => {
+          cb.checked = checked;
+          const id = cb.dataset.assetId;
+          if (checked) state.selectedIds.add(id);
+          else state.selectedIds.delete(id);
+        });
+        renderToolbar();
+        return;
+      }
+      selectRow(event);
+    }
 """, "text/html"));
 
 app.Run();
