@@ -1,3 +1,4 @@
+using Argus.Contracts.Artifacts;
 using Argus.Contracts.Assets;
 using Argus.Contracts.Programs;
 using Argus.Contracts.RateLimits;
@@ -29,6 +30,7 @@ public sealed class ArgusWorkerBackgroundService(
     };
     private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
+    private int _runningTaskCount;
     private HttpClient? _artifactStore;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -52,8 +54,6 @@ public sealed class ArgusWorkerBackgroundService(
                 await Task.Delay(_options.PollInterval, stoppingToken);
             }
         }
-
-        await _concurrencyLimiter.WaitAsync(stoppingToken);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -66,10 +66,15 @@ public sealed class ArgusWorkerBackgroundService(
         using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         drainCts.CancelAfter(_options.DrainTimeout);
 
+        var acquiredDrainSlots = 0;
         try
         {
-            await _concurrencyLimiter.WaitAsync(drainCts.Token);
-            _concurrencyLimiter.Release();
+            for (var i = 0; i < worker.Capability.MaxConcurrency; i++)
+            {
+                await _concurrencyLimiter.WaitAsync(drainCts.Token);
+                acquiredDrainSlots++;
+            }
+
             logger.LogInformation("Worker {WorkerType} ({WorkerId}) drain complete, all in-flight tasks finished",
                 worker.Capability.WorkerType, _options.WorkerId);
         }
@@ -81,6 +86,13 @@ public sealed class ArgusWorkerBackgroundService(
             if (_options.SaveCheckpointOnShutdown)
             {
                 await FailRemainingTasksWithCheckpointAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (acquiredDrainSlots > 0)
+            {
+                _concurrencyLimiter.Release(acquiredDrainSlots);
             }
         }
 
@@ -112,23 +124,39 @@ public sealed class ArgusWorkerBackgroundService(
 
     private async Task RunTaskWithReleaseAsync(CancellationToken stoppingToken)
     {
+        var taskWasStarted = false;
+
         try
         {
-            var runningTasks = worker.Capability.MaxConcurrency - _concurrencyLimiter.CurrentCount;
-            await HeartbeatAsync(runningTasks, stoppingToken);
+            await HeartbeatAsync(Volatile.Read(ref _runningTaskCount), stoppingToken);
             var task = await LeaseTaskAsync(stoppingToken);
 
             if (task is null)
             {
-                _concurrencyLimiter.Release();
                 await Task.Delay(_options.PollInterval, stoppingToken);
                 return;
             }
+
+            Interlocked.Increment(ref _runningTaskCount);
+            taskWasStarted = true;
 
             await RunTaskAsync(task, stoppingToken);
         }
         finally
         {
+            if (taskWasStarted)
+            {
+                var runningTasks = Math.Max(0, Interlocked.Decrement(ref _runningTaskCount));
+
+                try
+                {
+                    await HeartbeatAsync(runningTasks, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                }
+            }
+
             _concurrencyLimiter.Release();
         }
     }
@@ -173,6 +201,11 @@ public sealed class ArgusWorkerBackgroundService(
                 await Task.Delay(result.RetryAfter.Value, heartbeatCts.Token);
             }
 
+            foreach (var artifact in result.ProducedArtifacts)
+            {
+                await PublishArtifactAsync(task, artifact, heartbeatCts.Token);
+            }
+
             foreach (var asset in result.ProducedAssets)
             {
                 if (await IsProducedAssetInScopeAsync(task, asset, heartbeatCts.Token))
@@ -204,7 +237,7 @@ public sealed class ArgusWorkerBackgroundService(
             _taskCheckpoints.TryRemove(task.TaskId, out _);
             heartbeatCts.Cancel();
             await heartbeatTask;
-            await HeartbeatAsync(0, cancellationToken);
+            await HeartbeatAsync(Volatile.Read(ref _runningTaskCount), cancellationToken);
         }
     }
 
@@ -215,7 +248,7 @@ public sealed class ArgusWorkerBackgroundService(
             try
             {
                 await Task.Delay(_options.HeartbeatInterval, cancellationToken);
-                await HeartbeatAsync(0, cancellationToken);
+                await HeartbeatAsync(Volatile.Read(ref _runningTaskCount), cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -563,18 +596,74 @@ public sealed class ArgusWorkerBackgroundService(
     {
         _artifactStore ??= httpClientFactory.CreateClient("artifact");
         _artifactStore.BaseAddress = _options.ArtifactServiceBaseAddress;
-        var stream = new MemoryStream(artifact.Data);
-        var key = $"{task.ProgramId}/{task.TaskId}/{artifact.Name}";
+
+        var artifactHash = artifact.ComputeHash();
+        var key = $"{task.ProgramId:N}/{task.TaskId:N}/{artifactHash}-{SanitizeArtifactName(artifact.Name)}";
+        var request = new CreateArtifactRequest(
+            TargetId: task.InputAssetId ?? task.ScopeId ?? task.ProgramId,
+            ProgramId: task.ProgramId,
+            AssetId: task.InputAssetId,
+            TaskRunId: task.TaskId,
+            WorkerType: worker.Capability.WorkerType,
+            ArtifactType: artifact.ArtifactType,
+            ContentType: artifact.ContentType,
+            StorageProvider: "worker-inline",
+            StorageKey: key,
+            SizeBytes: artifact.Data.LongLength,
+            Sha256: artifactHash,
+            PreviewText: BuildArtifactPreview(artifact));
+
         try
         {
-            await _artifactStore.PostAsync($"/artifacts/{Uri.EscapeDataString(key)}?contentType={Uri.EscapeDataString(artifact.ContentType)}",
-                new StreamContent(stream), cancellationToken);
-            logger.LogDebug("Published artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
+            using var response = await _artifactStore.PostAsJsonAsync("/artifacts", request, JsonOptions, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                logger.LogDebug("Published artifact metadata {Name} for task {TaskId}", artifact.Name, task.TaskId);
+            }
+            else
+            {
+                logger.LogWarning("Failed to publish artifact metadata {Name} for task {TaskId}: {StatusCode}",
+                    artifact.Name,
+                    task.TaskId,
+                    response.StatusCode);
+            }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to publish artifact {Name} for task {TaskId}", artifact.Name, task.TaskId);
+            logger.LogWarning(ex, "Failed to publish artifact metadata {Name} for task {TaskId}", artifact.Name, task.TaskId);
         }
+    }
+
+    private static string SanitizeArtifactName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Select(ch => invalid.Contains(ch) || ch is '/' or '\\' ? '-' : ch).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "artifact" : sanitized;
+    }
+
+    private static string? BuildArtifactPreview(WorkerProducedArtifact artifact)
+    {
+        if (artifact.Data.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var isTextLike = artifact.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+            || artifact.ContentType.Contains("text", StringComparison.OrdinalIgnoreCase)
+            || artifact.ContentType.Contains("html", StringComparison.OrdinalIgnoreCase)
+            || artifact.ContentType.Contains("xml", StringComparison.OrdinalIgnoreCase);
+
+        if (!isTextLike)
+        {
+            return null;
+        }
+
+        const int maxPreviewBytes = 64 * 1024;
+        var previewBytes = artifact.Data.Length > maxPreviewBytes
+            ? artifact.Data.AsSpan(0, maxPreviewBytes).ToArray()
+            : artifact.Data;
+
+        return System.Text.Encoding.UTF8.GetString(previewBytes);
     }
 
     private async Task EmitAssetRejectedEventAsync(ReconTaskDto task, WorkerProducedAsset asset, CancellationToken cancellationToken)

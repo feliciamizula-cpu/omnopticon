@@ -350,6 +350,8 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
     public async Task<IReadOnlyCollection<AssetDto>> GetSubgraphAsync(Guid assetId, int? maxDepth, IReadOnlyCollection<AssetType>? assetTypes, CancellationToken cancellationToken)
     {
         var connection = dbContext.Database.GetDbConnection();
+        var effectiveMaxDepth = Math.Clamp(maxDepth ?? 5, 1, 20);
+        var requestedAssetTypes = assetTypes?.Select(t => t.ToString()).ToArray();
 
         var sql = new StringBuilder("""
             WITH RECURSIVE reachable AS (
@@ -360,21 +362,23 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
                 SELECT r.to_asset_id, reachable.depth + 1
                 FROM asset_edges r
                 JOIN reachable ON r.from_asset_id = reachable.to_asset_id
-                WHERE @maxDepth IS NULL OR reachable.depth < @maxDepth
+                WHERE reachable.depth < @maxDepth
             )
             SELECT a.* FROM assets a
             WHERE a.asset_id IN (SELECT to_asset_id FROM reachable)
             """);
 
-        if (assetTypes is not null && assetTypes.Count > 0)
+        if (requestedAssetTypes is { Length: > 0 })
         {
-            var typeNames = assetTypes.Select(t => t.ToString()).ToArray();
             sql.Append(" AND a.type = ANY(@assetTypes)");
         }
 
-        var records = await connection.QueryAsync<AssetRecord>(
+        var command = new CommandDefinition(
             sql.ToString(),
-            new { rootId = assetId, maxDepth, assetTypes = assetTypes?.Select(t => t.ToString()).ToArray() });
+            new { rootId = assetId, maxDepth = effectiveMaxDepth, assetTypes = requestedAssetTypes },
+            cancellationToken: cancellationToken);
+
+        var records = await connection.QueryAsync<AssetRecord>(command);
 
         return records.Select(r => r.ToDto()).ToArray();
     }

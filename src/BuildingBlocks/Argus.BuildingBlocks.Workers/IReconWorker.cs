@@ -41,6 +41,7 @@ public sealed record WorkerProcessResult(
     IReadOnlyCollection<WorkerProducedAsset> ProducedAssets,
     TimeSpan? RetryAfter = null)
 {
+    public IReadOnlyCollection<WorkerProducedArtifact> ProducedArtifacts { get; init; } = Array.Empty<WorkerProducedArtifact>();
     public static WorkerProcessResult Empty(string summary) => new(false, summary, [], null);
 }
 

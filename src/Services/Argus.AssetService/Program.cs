@@ -56,7 +56,7 @@ await app.InitializeAssetStoreAsync();
 
 app.MapDefaultEndpoints();
 
-AssetEndpoints.MapRoutes(app);
+Argus.AssetService.Endpoints.AssetEndpoints.MapRoutes(app);
 
 app.Run();
 

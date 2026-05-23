@@ -1,4 +1,6 @@
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Workers;
@@ -52,8 +54,18 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
             throw new InvalidOperationException("Either 'url' or 'artifactKey' must be provided in the task payload.");
         }
 
-        var baseUrl = string.IsNullOrWhiteSpace(url) ? null : new Uri(url);
-        var host = baseUrl?.Host ?? "unknown";
+        var baseUrlText = !string.IsNullOrWhiteSpace(url)
+            ? url
+            : WorkerHelpers.GetString(task.InputPayloadJson, "baseUrl") ??
+              WorkerHelpers.GetString(task.InputPayloadJson, "sourceUrl") ??
+              "https://artifact.local/";
+
+        if (!Uri.TryCreate(baseUrlText, UriKind.Absolute, out var baseUrl))
+        {
+            throw new InvalidOperationException("A valid absolute 'url', 'baseUrl', or 'sourceUrl' is required when parsing HTML content.");
+        }
+
+        var host = baseUrl.Host;
 
         await context.ReportProgressAsync(10, $"Checking crawl quota for {host}", $"{{\"depth\":{depth}}}");
 
@@ -80,7 +92,6 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
         else if (!string.IsNullOrWhiteSpace(url))
         {
             htmlContent = await FetchFromUrlAsync(url, cancellationToken);
-            baseUrl ??= new Uri(url);
         }
         else
         {
@@ -89,7 +100,7 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
 
         await context.ReportProgressAsync(50, $"Parsing DOM links from {url ?? artifactKey}", null);
 
-        var parsedResult = ParseHtml(htmlContent, baseUrl!);
+        var parsedResult = ParseHtml(htmlContent, baseUrl);
 
         var producedAssets = new List<WorkerProducedAsset>();
         var observationEntries = new List<Dictionary<string, string>>();
@@ -325,10 +336,54 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
         return encoding.GetString(bytes);
     }
 
-    private static async Task<string> FetchFromArtifactAsync(string artifactKey, CancellationToken cancellationToken)
+    private async Task<string> FetchFromArtifactAsync(string artifactKey, CancellationToken cancellationToken)
     {
-        await Task.CompletedTask;
-        throw new NotImplementedException("Artifact store fetch not implemented - use URL fetch mode.");
+        if (Uri.TryCreate(artifactKey, UriKind.Absolute, out var artifactUri)
+            && (artifactUri.Scheme == Uri.UriSchemeHttp || artifactUri.Scheme == Uri.UriSchemeHttps))
+        {
+            return await FetchFromUrlAsync(artifactKey, cancellationToken);
+        }
+
+        if (File.Exists(artifactKey))
+        {
+            return await File.ReadAllTextAsync(artifactKey, cancellationToken);
+        }
+
+        var artifactRoot = Environment.GetEnvironmentVariable("ARGUS_ARTIFACT_ROOT");
+        if (!string.IsNullOrWhiteSpace(artifactRoot))
+        {
+            var relativeKey = artifactKey
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .TrimStart(Path.DirectorySeparatorChar);
+
+            var rootedPath = Path.GetFullPath(Path.Combine(artifactRoot, relativeKey));
+            var fullRoot = Path.GetFullPath(artifactRoot);
+            var normalizedRoot = fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+
+            if (rootedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(rootedPath))
+            {
+                return await File.ReadAllTextAsync(rootedPath, cancellationToken);
+            }
+        }
+
+        if (Guid.TryParse(artifactKey, out var artifactId))
+        {
+            var client = _httpClientFactory.CreateClient("artifact");
+            client.BaseAddress = new Uri(Environment.GetEnvironmentVariable("ARGUS_ARTIFACT_SERVICE") ?? "http://artifact-service");
+
+            var preview = await client.GetFromJsonAsync<JsonObject>($"/artifacts/{artifactId}/preview", cancellationToken);
+            var previewText = preview?["previewText"]?.GetValue<string>();
+
+            if (!string.IsNullOrWhiteSpace(previewText))
+            {
+                return previewText;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Unable to fetch HTML artifact. Provide an absolute artifact URL, a readable file path, a key under ARGUS_ARTIFACT_ROOT, or an artifact id with preview text.");
     }
 
     private static HtmlParseResult ParseHtml(string html, Uri baseUri)

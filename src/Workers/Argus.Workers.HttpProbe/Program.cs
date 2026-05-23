@@ -278,7 +278,7 @@ internal sealed partial class HttpProbeWorker : IReconWorker
                 {
                     await context.ReportProgressAsync(100, $"Unexpected error: {ex.Message}", null);
                     outputSummary = JsonSerializer.Serialize(new { host, error = ex.GetType().Name });
-                    return new WorkerProcessResult(false, outputSummary, producedAssets);
+                    return new WorkerProcessResult(false, outputSummary, producedAssets) { ProducedArtifacts = producedArtifacts };
                 }
             }
 
@@ -303,7 +303,7 @@ internal sealed partial class HttpProbeWorker : IReconWorker
 
         await context.ReportProgressAsync(100, $"Complete: {producedAssets.Count} assets, {producedArtifacts.Count} artifacts", null);
 
-        return new WorkerProcessResult(false, outputSummary, producedAssets);
+        return new WorkerProcessResult(false, outputSummary, producedAssets) { ProducedArtifacts = producedArtifacts };
     }
 
     private static TimeSpan GetRetryAfter(System.Net.Http.Headers.RetryConditionHeaderValue? retryAfterHeader)

@@ -76,9 +76,10 @@ await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
     await dbContext.Database.EnsureCreatedAsync();
 }
 
-await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
+await using (var scope = app.Services.CreateAsyncScope())
 {
-    await dbContext.Database.EnsureCreatedAsync();
+    var webhookDbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
+    await webhookDbContext.Database.EnsureCreatedAsync();
 }
 
 var store = app.Services.GetRequiredService<RealtimeStore>();
@@ -233,8 +234,12 @@ webhooks.MapPut("/{id:guid}", async (Guid id, UpdateWebhookRequest request, Webh
     if (config is null)
         return Results.NotFound();
 
-    if (request.Url is not null && !Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
+    if (request.Url is not null &&
+        (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)
+         || (uri.Scheme != "http" && uri.Scheme != "https")))
+    {
         return Results.BadRequest("Url must be a valid HTTP or HTTPS URL.");
+    }
 
     config.ApplyUpdate(request);
     await db.SaveChangesAsync();
@@ -442,24 +447,47 @@ internal sealed class RealtimeStore
             using var scope = _services.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
 
-            dbContext.Workers.Add(new WorkerRecord
+            var workerRecord = dbContext.Workers.FirstOrDefault(x => x.WorkerId == request.WorkerId);
+            if (workerRecord is null)
             {
-                WorkerId = worker.WorkerId,
-                WorkerType = worker.WorkerType,
-                Version = worker.Version,
-                RunningTasks = worker.RunningTasks,
-                MaxConcurrency = worker.MaxConcurrency,
-                LastSeenAt = now,
-                IsOnline = true
-            });
+                dbContext.Workers.Add(new WorkerRecord
+                {
+                    WorkerId = worker.WorkerId,
+                    WorkerType = worker.WorkerType,
+                    Version = worker.Version,
+                    RunningTasks = worker.RunningTasks,
+                    MaxConcurrency = worker.MaxConcurrency,
+                    LastSeenAt = now,
+                    IsOnline = true
+                });
+            }
+            else
+            {
+                workerRecord.WorkerType = worker.WorkerType;
+                workerRecord.Version = worker.Version;
+                workerRecord.RunningTasks = worker.RunningTasks;
+                workerRecord.MaxConcurrency = worker.MaxConcurrency;
+                workerRecord.LastSeenAt = now;
+                workerRecord.IsOnline = true;
+            }
 
-            dbContext.WorkerCapabilities.Add(new WorkerCapabilityRecord
+            var capabilityRecord = dbContext.WorkerCapabilities.FirstOrDefault(x => x.WorkerId == request.WorkerId);
+            if (capabilityRecord is null)
             {
-                WorkerId = request.WorkerId,
-                WorkerType = request.Capability.WorkerType,
-                MaxConcurrency = request.Capability.MaxConcurrency,
-                SubscribedAssetTypes = JsonSerializer.Serialize(request.Capability.SubscribedAssetTypes)
-            });
+                dbContext.WorkerCapabilities.Add(new WorkerCapabilityRecord
+                {
+                    WorkerId = request.WorkerId,
+                    WorkerType = request.Capability.WorkerType,
+                    MaxConcurrency = request.Capability.MaxConcurrency,
+                    SubscribedAssetTypes = JsonSerializer.Serialize(request.Capability.SubscribedAssetTypes)
+                });
+            }
+            else
+            {
+                capabilityRecord.WorkerType = request.Capability.WorkerType;
+                capabilityRecord.MaxConcurrency = request.Capability.MaxConcurrency;
+                capabilityRecord.SubscribedAssetTypes = JsonSerializer.Serialize(request.Capability.SubscribedAssetTypes);
+            }
 
             dbContext.SaveChanges();
         }
@@ -471,7 +499,7 @@ internal sealed class RealtimeStore
         return worker;
     }
 
-public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, CancellationToken cancellationToken = default)
+    public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, CancellationToken cancellationToken = default)
     {
         var worker = _workers.AddOrUpdate(
             request.WorkerId,
@@ -491,12 +519,46 @@ public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, Can
                 IsOnline = true
             });
 
+        try
+        {
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+            var workerRecord = dbContext.Workers.FirstOrDefault(x => x.WorkerId == request.WorkerId);
+
+            if (workerRecord is null)
+            {
+                dbContext.Workers.Add(new WorkerRecord
+                {
+                    WorkerId = request.WorkerId,
+                    WorkerType = request.WorkerType,
+                    RunningTasks = request.RunningTasks,
+                    MaxConcurrency = request.MaxConcurrency,
+                    LastSeenAt = request.SeenAt,
+                    IsOnline = true
+                });
+            }
+            else
+            {
+                workerRecord.WorkerType = request.WorkerType;
+                workerRecord.RunningTasks = request.RunningTasks;
+                workerRecord.MaxConcurrency = request.MaxConcurrency;
+                workerRecord.LastSeenAt = request.SeenAt;
+                workerRecord.IsOnline = true;
+            }
+
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist heartbeat for worker {WorkerId}", request.WorkerId);
+        }
+
         RecordEvent(new EventIngestRequest(
             "WorkerHeartbeat",
             "Argus.RealtimeService",
             null,
             null,
-            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
+            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\",\"runningTasks\":{request.RunningTasks}}}"));
 
         return worker;
     }

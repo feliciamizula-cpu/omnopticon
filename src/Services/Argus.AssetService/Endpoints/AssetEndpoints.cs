@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Argus.AssetService.Data;
 using Argus.AssetService.Stores;
@@ -55,6 +57,8 @@ public static class AssetEndpoints
         string? tag,
         int? minInterestingScore,
         int? minRiskScore,
+        int? minStalenessScore,
+        int? maxStalenessScore,
         string? sort,
         string? direction,
         int? page,
@@ -62,7 +66,22 @@ public static class AssetEndpoints
         IAssetStore store,
         CancellationToken cancellationToken)
     {
-        var query = new AssetQuery(ProgramId: programId, Type: type, Status: status, Search: search, Tag: tag, MinInterestingScore: minInterestingScore, MinRiskScore: minRiskScore, MinStalenessScore: null, MaxStalenessScore: null, Sort: sort, Direction: direction, Page: page ?? 1, PageSize: pageSize ?? 100);
+        var safePage = Math.Max(page ?? 1, 1);
+        var safePageSize = Math.Clamp(pageSize ?? 100, 1, 500);
+        var query = new AssetQuery(
+            ProgramId: programId,
+            Type: type,
+            Status: status,
+            Search: search,
+            Tag: tag,
+            MinInterestingScore: minInterestingScore,
+            MinRiskScore: minRiskScore,
+            MinStalenessScore: minStalenessScore,
+            MaxStalenessScore: maxStalenessScore,
+            Sort: sort,
+            Direction: direction,
+            Page: safePage,
+            PageSize: safePageSize);
         return Results.Ok(await store.QueryAsync(query, cancellationToken));
     }
 
@@ -454,6 +473,7 @@ public static class AssetEndpoints
         taskClient.BaseAddress = new Uri(GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
 
         var createdCount = 0;
+        var skippedCount = 0;
         var results = new List<ReconTaskDto>();
 
         foreach (var assetId in request.AssetIds)
@@ -468,21 +488,29 @@ public static class AssetEndpoints
                 RequiredAssetType: null,
                 MaxAttempts: request.MaxAttempts,
                 Priority: request.Priority,
-                DedupeHash: null);
+                DedupeHash: ComputeTaskDedupeHash(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability));
 
             using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions, cancellationToken);
             if (createResponse.IsSuccessStatusCode)
             {
-                var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(cancellationToken: cancellationToken);
+                var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(JsonOptions, cancellationToken: cancellationToken);
                 if (createdTask is not null)
                 {
                     createdCount++;
                     results.Add(createdTask);
                 }
+                else
+                {
+                    skippedCount++;
+                }
+            }
+            else
+            {
+                skippedCount++;
             }
         }
 
-        return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, 0));
+        return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, skippedCount));
     }
 
     private static async Task<IResult> GetAssetTypes(
@@ -592,6 +620,13 @@ public static class AssetEndpoints
             .CountAsync(a => a.TypeKey == typeKey, cancellationToken);
 
         return Results.Ok(new { TypeKey = typeKey, AssetCount = count });
+    }
+
+    private static string ComputeTaskDedupeHash(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
+    {
+        var input = $"{programId:N}:{scopeId:N}:{taskType}:{inputAssetId:N}:{workerCapability}";
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 
     private static string GetServiceUri(string configKey, string fallback)

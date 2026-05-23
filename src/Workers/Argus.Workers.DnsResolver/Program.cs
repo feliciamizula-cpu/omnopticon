@@ -223,7 +223,7 @@ internal sealed class DnsResolverWorker : IReconWorker
 
             await context.ReportProgressAsync(100, $"DNS resolution complete for {host}", null);
 
-            return new WorkerProcessResult(false, outputSummary, producedAssets);
+            return new WorkerProcessResult(false, outputSummary, producedAssets) { ProducedArtifacts = new[] { artifact } };
         }
         catch (DnsQueryException ex)
         {
