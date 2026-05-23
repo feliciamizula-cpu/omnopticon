@@ -4,10 +4,10 @@
   "currentTaskDescription": "Enhancement #4: Re-scan scheduling based on LastScannedAt",
   "status": "working",
   "lastRunAt": "2026-05-23T00:47:42.082Z",
-  "updatedAt": "2026-05-23T00:50:52.121Z",
+  "updatedAt": "2026-05-23T00:51:01.946Z",
   "pid": 72313,
   "lastError": null,
-  "lastHeartbeatAt": "2026-05-23T00:50:42.330Z",
+  "lastHeartbeatAt": "2026-05-23T00:51:01.946Z",
   "startedAt": "2026-05-23T00:47:42.082Z",
-  "context": null
+  "context": "Implemented re-scan scheduling: TaskCompleted event now carries InputAssetId; AssetService has UpdateLastScannedAtAsync and PATCH /assets/{id}/last-scanned; TaskCompletedConsumer updates LastScannedAt on task completion"
 }
