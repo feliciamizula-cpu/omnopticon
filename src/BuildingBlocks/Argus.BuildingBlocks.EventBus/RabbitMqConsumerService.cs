@@ -107,7 +107,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 if (isRedelivered || retryCount > _maxRetries)
                 {
                     _logger.LogWarning("Message {DeliveryTag} is poison (redelivered={IsRedelivered}, retryCount={RetryCount}), moving to DLQ", ea.DeliveryTag, isRedelivered, retryCount);
-                    await MoveToDlqAsync(ea, null, stoppingToken);
+                    await MoveToDlqAsync(ea, null, retryCount, stoppingToken);
                     return;
                 }
 
@@ -125,7 +125,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                             if (existing is not null)
                             {
                                 _logger.LogWarning("Message {EventId} is already in poison store, moving to DLQ", envelope.EventId);
-                                await MoveToDlqAsync(ea, null, stoppingToken);
+                                await MoveToDlqAsync(ea, null, retryCount, stoppingToken);
                                 return;
                             }
                         }
@@ -160,7 +160,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         }
     }
 
-    private async Task MoveToDlqAsync(BasicDeliverEventArgs ea, Exception? ex, CancellationToken cancellationToken)
+    private async Task MoveToDlqAsync(BasicDeliverEventArgs ea, Exception? ex, int attemptCount, CancellationToken cancellationToken)
     {
         try
         {
@@ -169,7 +169,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json);
             if (envelope is not null)
             {
-                if (_poisonStore is not null) { await _poisonStore.RecordPoisonAsync(envelope, ex ?? new Exception("Poison message detected on redelivery"), cancellationToken); }
+                if (_poisonStore is not null) { await _poisonStore.RecordPoisonAsync(envelope, ex ?? new Exception("Poison message detected on redelivery"), attemptCount, cancellationToken); }
             }
         }
         catch { }
@@ -182,7 +182,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         if (retryCount >= _maxRetries)
         {
             _logger.LogWarning("Message {DeliveryTag} exceeded max retries, moving to DLQ", ea.DeliveryTag);
-            await MoveToDlqAsync(ea, ex, cancellationToken);
+            await MoveToDlqAsync(ea, ex, retryCount, cancellationToken);
         }
         else
         {

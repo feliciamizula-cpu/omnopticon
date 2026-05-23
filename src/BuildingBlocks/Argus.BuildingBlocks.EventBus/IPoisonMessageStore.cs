@@ -8,7 +8,7 @@ namespace Argus.BuildingBlocks.EventBus;
 
 public interface IPoisonMessageStore
 {
-    Task RecordPoisonAsync(IntegrationEventEnvelope<JsonElement> envelope, Exception exception, CancellationToken cancellationToken = default);
+    Task RecordPoisonAsync(IntegrationEventEnvelope<JsonElement> envelope, Exception exception, int attemptCount, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PoisonMessageRecord>> GetMessagesAsync(int take, CancellationToken cancellationToken = default);
     Task<PoisonMessageRecord?> GetMessageAsync(Guid eventId, CancellationToken cancellationToken = default);
     Task<bool> MarkReplayedAsync(Guid eventId, CancellationToken cancellationToken = default);
@@ -68,7 +68,7 @@ public sealed class InMemoryPoisonMessageStore : IPoisonMessageStore
         return Task.FromResult(_messages.TryRemove(eventId, out _));
     }
 
-    public Task RecordPoisonAsync(IntegrationEventEnvelope<JsonElement> envelope, Exception exception, CancellationToken cancellationToken = default)
+    public Task RecordPoisonAsync(IntegrationEventEnvelope<JsonElement> envelope, Exception exception, int attemptCount, CancellationToken cancellationToken = default)
     {
         var record = new PoisonMessageRecord(
             envelope.EventId,
@@ -80,7 +80,7 @@ public sealed class InMemoryPoisonMessageStore : IPoisonMessageStore
             DateTimeOffset.UtcNow,
             exception.Message,
             exception.GetType().Name,
-            1,
+            attemptCount,
             false,
             null);
 
@@ -99,7 +99,7 @@ public sealed class EfCorePoisonMessageStore<TDbContext> : IPoisonMessageStore
         _dbContext = dbContext;
     }
 
-    public async Task RecordPoisonAsync(IntegrationEventEnvelope<JsonElement> envelope, Exception exception, CancellationToken cancellationToken = default)
+    public async Task RecordPoisonAsync(IntegrationEventEnvelope<JsonElement> envelope, Exception exception, int attemptCount, CancellationToken cancellationToken = default)
     {
         var record = new PoisonMessageRecord(
             envelope.EventId,
@@ -111,7 +111,7 @@ public sealed class EfCorePoisonMessageStore<TDbContext> : IPoisonMessageStore
             DateTimeOffset.UtcNow,
             exception.Message.Length > 2048 ? exception.Message[..2048] : exception.Message,
             exception.GetType().Name,
-            1,
+            attemptCount,
             false,
             null);
 
