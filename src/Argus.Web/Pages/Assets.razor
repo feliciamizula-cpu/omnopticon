@@ -194,7 +194,7 @@
                 _loading = false;
                 return;
             }
-            JsonElement assetsRoot = state.Assets?.RootElement ?? default;
+            JsonElement assetsRoot = state.Assets is not null ? JsonDocument.Parse(state.Assets.GetRawText()).RootElement : default;
             JsonElement assetsArray;
             if (assetsRoot.ValueKind == JsonValueKind.Object && assetsRoot.TryGetProperty("_embedded", out var embedded))
             {
