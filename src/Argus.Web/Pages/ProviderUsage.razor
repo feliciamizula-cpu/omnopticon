@@ -136,16 +136,22 @@
                                 <div class="dev-error" style="margin-top: 8px;">@_selectedProvider.LastError</div>
                             }
 
-                            <div class="section-label">LOGIN COMMAND</div>
-                            <div class="provider-command-box">
-                                <div class="provider-command mono">@_selectedProvider.LoginCommand</div>
-                                <div class="provider-login-help">@_selectedProvider.LoginInstructions</div>
-                            </div>
+@if (!_selectedProvider.IsAuthenticated)
+                             {
+                                 <div class="section-label">LOGIN COMMAND</div>
+                                 <div class="provider-command-box">
+                                     <div class="provider-command mono">@_selectedProvider.LoginCommand</div>
+                                     <div class="provider-login-help">@_selectedProvider.LoginInstructions</div>
+                                 </div>
+                             }
 
-                            <div class="dev-action-row">
-                                <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_refreshing || _loading)">Login / Recheck</button>
-                                <button class="btn ghost tiny" @onclick="() => RefreshProvider(_selectedProvider)" disabled="@_refreshing">Refresh</button>
-                            </div>
+                             <div class="dev-action-row">
+                                 @if (!_selectedProvider.IsAuthenticated)
+                                 {
+                                     <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_refreshing || _loading)">Login / Recheck</button>
+                                 }
+                                 <button class="btn ghost tiny" @onclick="() => RefreshProvider(_selectedProvider)" disabled="@_refreshing">Refresh</button>
+                             </div>
                         </div>
                     }
                 </aside>
@@ -317,8 +323,17 @@
         {
             return "dim";
         }
-
-        return provider.IsAuthenticated ? "green" : "amber";
+        if (provider.IsAuthenticated)
+        {
+            return "green";
+        }
+        // If the provider attempted a login and failed, Signaled by LastError
+        if (!string.IsNullOrWhiteSpace(provider.LastError))
+        {
+            return "red";
+        }
+        // Not logged in, neutral color (use dim or default)
+        return "dim";
     }
 
     private static string RoutingTone(ProviderUsageDto provider) => provider.RoutingScore switch

@@ -9,12 +9,16 @@
 
 <PageHeader Title="Todos" Subtitle="@($"{_todos?.Count ?? 0} total")" />
 
-<div class="page-body dev-page">
+<ErrorBoundary><div class="page-body dev-page">
     <div class="dev-action-row" style="margin-bottom: 12px;">
         <button class="btn primary" @onclick="OpenCreateModal">+ New Todo</button>
         <button class="btn ghost" @onclick="LoadTodos" style="margin-left: 8px;">Refresh</button>
     </div>
-    @if (_loading)
+    @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="dev-alert">@_error</div>
+        }
+        @if (_loading)
     {
         <div class="empty-state">
             <div class="app-loading-spinner"></div>
@@ -115,7 +119,8 @@
                                 <option value="completed">completed</option>
                                 <option value="cancelled">cancelled</option>
                             </select>
-                        </div>
+</div>
+</ErrorBoundary>
                     }
                 </div>
             </div>
@@ -132,6 +137,7 @@
 @code {
     private List<TodoItemDto> _todos = new();
     private bool _loading = true;
+    private string? _error;
     private bool _showModal = false;
     private Guid? _editingTodoId;
     private bool IsEditing => _editingTodoId.HasValue;
@@ -148,7 +154,15 @@
         _loading = true;
         try
         {
+            try
+        {
             _todos = await Http.GetFromJsonAsync<List<TodoItemDto>>("/todos") ?? new();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to load todos: {ex.Message}";
+            _todos = new();
+        }
         }
         finally
         {
