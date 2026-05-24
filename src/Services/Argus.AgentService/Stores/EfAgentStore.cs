@@ -114,6 +114,14 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
             record.Tool = request.Tool;
         if (!string.IsNullOrWhiteSpace(request.Model))
             record.Model = request.Model;
+        if (request.CurrentTaskId is not null)
+            record.CurrentTaskId = string.IsNullOrWhiteSpace(request.CurrentTaskId) ? null : request.CurrentTaskId;
+        if (!string.IsNullOrWhiteSpace(request.WorkStatus))
+            record.WorkStatus = request.WorkStatus;
+        if (request.LastHeartbeatAt.HasValue)
+            record.LastHeartbeatAt = request.LastHeartbeatAt.Value;
+        if (request.LastError is not null)
+            record.LastError = string.IsNullOrWhiteSpace(request.LastError) ? null : request.LastError;
 
         record.UpdatedAt = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -197,8 +205,7 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
             record.Priority = request.Priority;
         if (!string.IsNullOrWhiteSpace(request.Status))
             ApplyStatusTransition(record, request.Status);
-        if (request.AssignedTo != null)
-            record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
+        record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
         if (request.TargetRole != null)
             record.TargetRole = string.IsNullOrWhiteSpace(request.TargetRole) ? null : request.TargetRole;
         if (request.TaskType != null)
@@ -284,5 +291,25 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
         _dbContext.ChatMessages.Add(record);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return record.ToDto();
+    }
+
+    public async Task<IReadOnlyList<CodeReviewDto>> ListCodeReviewsAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.CodeReviews
+            .AsNoTracking()
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(Math.Clamp(take, 1, 500))
+            .Select(r => r.ToDto())
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SystemReportDto>> ListSystemReportsAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.SystemReports
+            .AsNoTracking()
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(Math.Clamp(take, 1, 500))
+            .Select(r => r.ToDto())
+            .ToListAsync(cancellationToken);
     }
 }

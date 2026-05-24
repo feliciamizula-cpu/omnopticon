@@ -19,5 +19,8 @@ public interface IAgentStore
     Task<IReadOnlyList<ChatMessageDto>> GetChatHistoryAsync(int limit = 50, CancellationToken cancellationToken = default);
     Task<ChatMessageDto> SaveChatMessageAsync(string role, string content, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<CodeReviewDto>> ListCodeReviewsAsync(int take = 100, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SystemReportDto>> ListSystemReportsAsync(int take = 100, CancellationToken cancellationToken = default);
+
     Task InitializeAsync(CancellationToken cancellationToken = default);
 }

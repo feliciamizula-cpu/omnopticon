@@ -7,6 +7,8 @@ using System.Text.Json.Nodes;
 using Argus.ServiceDefaults;
 using Argus.Web;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Distributed;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,10 +22,20 @@ builder.Services.AddScoped(sp =>
 });
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(o => o.DetailedErrors = true);
+
+builder.Services.AddSignalR();
+builder.Services.AddScoped<DevelopmentRealtimeClient>();
+builder.Services.AddSingleton<DevelopmentRealtimeNotifier>();
+builder.Services.AddSingleton<ProviderUsageCacheWarmer>();
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
+    options.InstanceName = "argus:web:";
+});
 
 var app = builder.Build();
 
+app.MapHub<ArgusHub>("/hubs/argus");
 app.MapDefaultEndpoints();
 app.UseStaticFiles();
 app.UseAntiforgery();
@@ -345,6 +357,7 @@ app.MapPost("/ui/agent-tasks", ProxyPostTask);
 app.MapGet("/ui/agent-tasks/{taskId}", ProxyGetTaskById);
 app.MapPut("/ui/agent-tasks/{taskId}", ProxyPutTask);
 app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
+app.MapPost("/ui/agent-tasks/{taskId}/run", ProxyRunTask);
 
 app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
 app.MapPost("/ui/agent-chat", ProxyPostChat);
@@ -354,6 +367,9 @@ app.MapPost("/ui/todos", ProxyPostTodo);
 app.MapGet("/ui/todos/{todoId:guid}", ProxyGetTodoById);
 app.MapPut("/ui/todos/{todoId:guid}", ProxyPutTodo);
 app.MapDelete("/ui/todos/{todoId:guid}", ProxyDeleteTodo);
+
+app.MapGet("/ui/code-reviews", ProxyGetCodeReviews);
+app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/refresh", ProxyRefreshProviderUsage);
@@ -367,19 +383,26 @@ app.MapRazorComponents<App>()
 app.Run();
 
 // Agent proxy handlers
-async Task<IResult> ProxyGetAgent(IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyGetAgent(IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, "/agents", ct);
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.Agents,
+        () => gateway.GetJsonAsync(endpoints.Agent, "/agents", ct),
+        ct);
     return Results.Json(result ?? new JsonObject());
 }
 
-async Task<IResult> ProxyPostAgent(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPostAgent(JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, "/agents", payload, ct);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, "/agents", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "created", ct);
+    return result;
 }
 
 async Task<IResult> ProxyGetAgentById(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
@@ -390,45 +413,59 @@ async Task<IResult> ProxyGetAgentById(Guid agentId, IHttpClientFactory httpClien
     return result is not null ? Results.Json(result) : Results.NotFound();
 }
 
-async Task<IResult> ProxyPutAgent(Guid agentId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPutAgent(Guid agentId, JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PutJsonAsync(endpoints.Agent, $"/agents/{agentId}", payload, ct);
+    var result = await gateway.PutJsonAsync(endpoints.Agent, $"/agents/{agentId}", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "updated", ct);
+    return result;
 }
 
-async Task<IResult> ProxyDeleteAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyDeleteAgent(Guid agentId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var client = httpClientFactory.CreateClient();
     client.BaseAddress = new Uri(endpoints.Agent);
     var response = await client.DeleteAsync($"/agents/{agentId}", ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "deleted", ct);
     return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
 }
 
-async Task<IResult> ProxyPauseAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPauseAgent(Guid agentId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/pause", new JsonObject(), ct);
+    var result = await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/pause", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "paused", ct);
+    return result;
 }
 
-async Task<IResult> ProxyResumeAgent(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyResumeAgent(Guid agentId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/resume", new JsonObject(), ct);
+    var result = await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/resume", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "resumed", ct);
+    return result;
 }
 
-async Task<IResult> ProxyAssignTask(Guid agentId, string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyAssignTask(Guid agentId, string taskId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/assign/{taskId}", new JsonObject(), ct);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/assign/{taskId}", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agent-tasks", "assigned", ct);
+    return result;
 }
 
-async Task<IResult> ProxyGetTasks(string? status, string? priority, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyGetTasks(string? status, string? priority, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
@@ -440,15 +477,22 @@ async Task<IResult> ProxyGetTasks(string? status, string? priority, IHttpClientF
         if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={Uri.EscapeDataString(priority)}");
         path += "?" + string.Join("&", query);
     }
-    var result = await gateway.GetJsonAsync(endpoints.Agent, path, ct);
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.AgentTasks, ("status", status), ("priority", priority)),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
     return Results.Json(result ?? new JsonObject());
 }
 
-async Task<IResult> ProxyPostTask(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPostTask(JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, "/agent-tasks", payload, ct);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, "/agent-tasks", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "created", ct);
+    return result;
 }
 
 async Task<IResult> ProxyGetTaskById(string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
@@ -459,24 +503,39 @@ async Task<IResult> ProxyGetTaskById(string taskId, IHttpClientFactory httpClien
     return result is not null ? Results.Json(result) : Results.NotFound();
 }
 
-async Task<IResult> ProxyPutTask(string taskId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPutTask(string taskId, JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PutJsonAsync(endpoints.Agent, $"/agent-tasks/{Uri.EscapeDataString(taskId)}", payload, ct);
+    var result = await gateway.PutJsonAsync(endpoints.Agent, $"/agent-tasks/{Uri.EscapeDataString(taskId)}", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "updated", ct);
+    return result;
 }
 
-async Task<IResult> ProxyDeleteTask(string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyDeleteTask(string taskId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var client = httpClientFactory.CreateClient();
     client.BaseAddress = new Uri(endpoints.Agent);
     var response = await client.DeleteAsync($"/agent-tasks/{taskId}", ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "deleted", ct);
     return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
 }
 
-async Task<IResult> ProxyGetTodos(string? status, string? priority, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyRunTask(string taskId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/agent-tasks/{Uri.EscapeDataString(taskId)}/run", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "run", ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetTodos(string? status, string? priority, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
@@ -485,15 +544,22 @@ async Task<IResult> ProxyGetTodos(string? status, string? priority, IHttpClientF
     if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
     if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={Uri.EscapeDataString(priority)}");
     if (query.Count > 0) path += "?" + string.Join("&", query);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, path, ct);
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.Todos, ("status", status), ("priority", priority)),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
     return Results.Json(result ?? new JsonObject());
 }
 
-async Task<IResult> ProxyPostTodo(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPostTodo(JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, "/todos", payload, ct);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, "/todos", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Todos, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("todos", "created", ct);
+    return result;
 }
 
 async Task<IResult> ProxyGetTodoById(Guid todoId, IHttpClientFactory httpClientFactory, CancellationToken ct)
@@ -504,20 +570,25 @@ async Task<IResult> ProxyGetTodoById(Guid todoId, IHttpClientFactory httpClientF
     return result is not null ? Results.Json(result) : Results.NotFound();
 }
 
-async Task<IResult> ProxyPutTodo(Guid todoId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyPutTodo(Guid todoId, JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PutJsonAsync(endpoints.Agent, $"/todos/{todoId}", payload, ct);
+    var result = await gateway.PutJsonAsync(endpoints.Agent, $"/todos/{todoId}", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Todos, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("todos", "updated", ct);
+    return result;
 }
 
-async Task<IResult> ProxyDeleteTodo(Guid todoId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyDeleteTodo(Guid todoId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var client = httpClientFactory.CreateClient();
     client.BaseAddress = new Uri(endpoints.Agent);
     var response = await client.DeleteAsync($"/todos/{todoId}", ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Todos, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("todos", "deleted", ct);
     return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
 }
 
@@ -536,42 +607,71 @@ async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpCli
     return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
 }
 
-
-
-async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyGetCodeReviews(int? take, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage", ct);
+    var path = $"/code-reviews?take={Math.Clamp(take ?? 100, 1, 500)}";
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.CodeReviews, ("take", (take ?? 100).ToString())),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
+}
+
+async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = $"/system-reports?take={Math.Clamp(take ?? 100, 1, 500)}";
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.SystemReports, ("take", (take ?? 100).ToString())),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
+}
+
+async Task<IResult> ProxyGetProviderUsage(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
+{
+    var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderUsage, ct);
+    warmer.QueueWarm();
     return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
 }
 
-async Task<IResult> ProxyRefreshProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyRefreshProviderUsage(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
 {
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, "/provider-usage/refresh", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
+    await warmer.WarmAsync(forceRefresh: true, ct);
+    var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderUsage, ct);
+    return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
 }
 
-async Task<IResult> ProxyRefreshProvider(string providerId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyRefreshProvider(string providerId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/refresh", new JsonObject(), ct);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/refresh", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
+    await notifier.NotifyAsync("provider-usage", "provider-refreshed", ct);
+    return result;
 }
 
-async Task<IResult> ProxyLoginProvider(string providerId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyLoginProvider(string providerId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/login", new JsonObject(), ct);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/login", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
+    await notifier.NotifyAsync("provider-usage", "login", ct);
+    return result;
 }
 
-async Task<IResult> ProxyGetRoutingPreview(IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyGetRoutingPreview(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
 {
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage/routing-preview", ct);
+    var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderRouting, ct);
+    warmer.QueueWarm();
     return Results.Json(result ?? new JsonObject
     {
         ["providerId"] = null,
@@ -746,7 +846,9 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
             if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("agent-tasks", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("agent-chat", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("todos", StringComparison.OrdinalIgnoreCase))
+                || path.Contains("todos", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("code-reviews", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("system-reports", StringComparison.OrdinalIgnoreCase))
             {
                 return JsonNode.Parse("""{"items":[],"count":0}""");
             }
@@ -757,6 +859,26 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 
     public Task<IResult> PostJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
         SendJsonAsync(HttpMethod.Post, baseAddress, path, payload, cancellationToken);
+
+    public async Task<JsonNode?> PostJsonNodeAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(baseAddress);
+            using var response = await client.PostAsJsonAsync(path, payload, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
 
     public Task<IResult> PutJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
         SendJsonAsync(HttpMethod.Put, baseAddress, path, payload, cancellationToken);

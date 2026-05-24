@@ -85,9 +85,8 @@ public sealed class CliChatClient(string tool, string model) : IChatClient
             case "opencode":
                 psi.FileName = "opencode";
                 psi.ArgumentList.Add("run");
-                psi.ArgumentList.Add("--model");
+                psi.ArgumentList.Add("-m");
                 psi.ArgumentList.Add(model);
-                psi.ArgumentList.Add("--prompt-text");
                 psi.ArgumentList.Add(prompt);
                 break;
             case "codex":

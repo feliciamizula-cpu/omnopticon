@@ -1,12 +1,14 @@
 @page "/agent-tasks"
 @page "/development/agent-tasks"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
 @using System.Net.Http.Json
 @using System.Text.Json
 @using Argus.Contracts.Agents
 @inject HttpClient Http
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject DevelopmentRealtimeClient Realtime
 
 <PageHeader Title="Agent Tasks" Subtitle="@($"{Rows.Count:N0} visible · {_tasks.Count:N0} total")" />
 
@@ -23,7 +25,7 @@
             <div class="page-tab-spacer"></div>
             <div class="page-tab-actions">
                 <button class="btn primary tiny" @onclick="OpenCreateModal">+ New Task</button>
-                <button class="btn ghost tiny" @onclick="LoadData">Refresh</button>
+                <button class="btn ghost tiny" @onclick="() => LoadData()">Refresh</button>
                 <button class="btn ghost tiny" @onclick="ClearAgentFilter">All Agents</button>
             </div>
         </div>
@@ -428,26 +430,19 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Realtime.Changed += OnDevelopmentDataChanged;
+        await Realtime.StartAsync();
         await LoadData();
     }
 
-    private async Task LoadData()
+    private async Task LoadData(bool showLoading = true)
     {
-        _loading = true;
+        _loading = showLoading && _agents.Count == 0 && _tasks.Count == 0;
         _error = null;
 
         try
         {
-            var agentsResponse = await Http.GetAsync(Ui("/ui/agents"));
-            _agents = await ReadItemsAsync<AgentDto>(agentsResponse);
-
-            var tasksResponse = await Http.GetAsync(Ui("/ui/agent-tasks"));
-            _tasks = await ReadItemsAsync<AgentTaskDto>(tasksResponse);
-
-            if (_selectedTaskId is null || !_tasks.Any(t => t.TaskId == _selectedTaskId))
-            {
-                _selectedTaskId = _tasks.FirstOrDefault()?.TaskId;
-            }
+            await Task.WhenAll(LoadAgentsAsync(), LoadTasksAsync());
         }
         catch (Exception ex)
         {
@@ -457,6 +452,40 @@
         {
             _loading = false;
         }
+    }
+
+    private async Task LoadAgentsAsync()
+    {
+        var agentsResponse = await Http.GetAsync(Ui("/ui/agents"));
+        _agents = await ReadItemsAsync<AgentDto>(agentsResponse);
+        StateHasChanged();
+    }
+
+    private async Task LoadTasksAsync()
+    {
+        var tasksResponse = await Http.GetAsync(Ui("/ui/agent-tasks"));
+        _tasks = await ReadItemsAsync<AgentTaskDto>(tasksResponse);
+        if (_selectedTaskId is null || !_tasks.Any(t => t.TaskId == _selectedTaskId))
+        {
+            _selectedTaskId = _tasks.FirstOrDefault()?.TaskId;
+        }
+        StateHasChanged();
+    }
+
+    private Task OnDevelopmentDataChanged(DevelopmentDataChangedEvent change)
+    {
+        if (change.Area is "agents" or "agent-tasks" or "todos")
+        {
+            return InvokeAsync(() => LoadData(showLoading: false));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Realtime.Changed -= OnDevelopmentDataChanged;
+        return ValueTask.CompletedTask;
     }
 
     private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();

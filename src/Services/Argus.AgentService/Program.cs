@@ -1,4 +1,5 @@
 using Argus.AgentService;
+using Argus.AgentService.Agents;
 using Argus.AgentService.Data;
 using Argus.AgentService.Stores;
 using Argus.AgentService.ProviderUsage;
@@ -33,6 +34,9 @@ builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.Agen
 builder.Services.AddHttpClient();
 builder.Services.Configure<AgentProviderUsageOptions>(builder.Configuration.GetSection("AgentProviderUsage"));
 builder.Services.AddSingleton<IAgentProviderUsageService, AgentProviderUsageService>();
+builder.Services.AddScoped<AgentSelectionService>();
+builder.Services.AddScoped<TaskExecutionService>();
+builder.Services.AddHostedService<TaskSchedulerService>();
 builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
 builder.Services.AddProblemDetails();
 
@@ -78,12 +82,17 @@ internal static class AgentEndpoints
         app.MapGet("/agent-tasks/{taskId}", GetTask);
         app.MapPut("/agent-tasks/{taskId}", UpdateTask);
         app.MapDelete("/agent-tasks/{taskId}", DeleteTask);
+        app.MapPost("/agent-tasks/{taskId}/run", RunTask);
         // Todo endpoints
         app.MapGet("/todos", ListTodos);
         app.MapPost("/todos", CreateTodo);
         app.MapGet("/todos/{todoId:guid}", GetTodo);
         app.MapPut("/todos/{todoId:guid}", UpdateTodo);
         app.MapDelete("/todos/{todoId:guid}", DeleteTodo);
+
+        // Development reports
+        app.MapGet("/code-reviews", ListCodeReviews);
+        app.MapGet("/system-reports", ListSystemReports);
 
         // Provider usage endpoints
         app.MapGet("/provider-usage", GetProviderUsage);
@@ -192,6 +201,32 @@ internal static class AgentEndpoints
         return deleted ? Results.NoContent() : Results.NotFound();
     }
 
+    private static async Task<IResult> RunTask(string taskId, IAgentStore store, CancellationToken ct)
+    {
+        var task = await store.GetTaskAsync(taskId, ct);
+        if (task is null)
+        {
+            return Results.NotFound();
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        DateTimeOffset? nextRunAt = null;
+        if (!string.IsNullOrWhiteSpace(task.ScheduleExpression))
+        {
+            nextRunAt = AgentScheduleCalculator.GetNextRun(task.ScheduleExpression, now) ?? now;
+        }
+
+        var updated = await store.UpdateTaskAsync(
+            taskId,
+            new UpdateAgentTaskRequest(
+                Status: string.IsNullOrWhiteSpace(task.ScheduleExpression) && string.IsNullOrWhiteSpace(task.TriggerEvent) ? "pending" : "scheduled",
+                LastRunAt: now,
+                NextRunAt: nextRunAt),
+            ct);
+
+        return updated is not null ? Results.Ok(updated) : Results.NotFound();
+    }
+
 
     // Todo handlers
     private static async Task<IResult> ListTodos(ITodoStore store, string? status, string? priority, CancellationToken ct)
@@ -235,6 +270,18 @@ internal static class AgentEndpoints
     {
         var deleted = await store.DeleteTodoAsync(todoId, ct);
         return deleted ? Results.NoContent() : Results.NotFound();
+    }
+
+    private static async Task<IResult> ListCodeReviews(int? take, IAgentStore store, CancellationToken ct)
+    {
+        var reviews = await store.ListCodeReviewsAsync(take ?? 100, ct);
+        return Results.Ok(new { items = reviews, count = reviews.Count });
+    }
+
+    private static async Task<IResult> ListSystemReports(int? take, IAgentStore store, CancellationToken ct)
+    {
+        var reports = await store.ListSystemReportsAsync(take ?? 100, ct);
+        return Results.Ok(new { items = reports, count = reports.Count });
     }
 
     // Provider usage handlers

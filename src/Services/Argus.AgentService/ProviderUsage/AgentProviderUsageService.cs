@@ -285,8 +285,19 @@ internal sealed class AgentProviderUsageService(
             return (false, "CLI missing", null);
         }
 
+        if (definition.Id.Equals("gemini", StringComparison.OrdinalIgnoreCase)
+            && TryGetGeminiCliCredentialStatus(out var geminiStatus))
+        {
+            return (true, geminiStatus, null);
+        }
+
         if (string.IsNullOrWhiteSpace(definition.AuthCheckArguments))
         {
+            if (definition.Id.Equals("gemini", StringComparison.OrdinalIgnoreCase))
+            {
+                return (true, "Gemini CLI available; this CLI version does not expose a non-interactive auth status command.", null);
+            }
+
             return (false, "Auth check not configured", null);
         }
 
@@ -315,6 +326,72 @@ internal sealed class AgentProviderUsageService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return (false, "Auth check failed", NormalizeCommandError(definition.Executable, ex));
+        }
+    }
+
+    private static bool TryGetGeminiCliCredentialStatus(out string status)
+    {
+        foreach (var root in GeminiConfigRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var oauthCredentials = Path.Combine(root, "oauth_creds.json");
+            if (FileExistsWithContent(oauthCredentials))
+            {
+                status = $"Gemini CLI OAuth credentials found in {root}";
+                return true;
+            }
+
+            var googleAccounts = Path.Combine(root, "google_accounts.json");
+            if (FileExistsWithContent(googleAccounts))
+            {
+                status = $"Gemini CLI account cache found in {root}";
+                return true;
+            }
+        }
+
+        status = string.Empty;
+        return false;
+    }
+
+    private static IEnumerable<string> GeminiConfigRoots()
+    {
+        var explicitRoots = new[]
+        {
+            Environment.GetEnvironmentVariable("GEMINI_HOME"),
+            Environment.GetEnvironmentVariable("GEMINI_CONFIG_DIR")
+        };
+
+        foreach (var root in explicitRoots.Where(root => !string.IsNullOrWhiteSpace(root)))
+        {
+            yield return root!;
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, ".gemini");
+        }
+
+        var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        if (!string.IsNullOrWhiteSpace(xdgConfig))
+        {
+            yield return Path.Combine(xdgConfig, "gemini");
+        }
+    }
+
+    private static bool FileExistsWithContent(string path)
+    {
+        try
+        {
+            return File.Exists(path) && new FileInfo(path).Length > 2;
+        }
+        catch
+        {
+            return false;
         }
     }
 

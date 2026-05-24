@@ -34,7 +34,11 @@ public sealed record UpdateAgentRequest(
     string? Status = null,
     string[]? Responsibilities = null,
     string? Tool = null,
-    string? Model = null);
+    string? Model = null,
+    string? CurrentTaskId = null,
+    string? WorkStatus = null,
+    DateTimeOffset? LastHeartbeatAt = null,
+    string? LastError = null);
 
 public sealed record AgentTaskDto(
     string TaskId,

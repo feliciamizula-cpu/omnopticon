@@ -196,6 +196,7 @@ services:
     volumes:
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.gemini:/root/.gemini:ro
       - /tmp:/tmp:ro
 
   review-report:

@@ -7,13 +7,13 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Background service that polls for scheduled tasks and dispatches them for execution.
-/// Interval defaults to 1 minute, configurable via TASK_SCHEDULER_INTERVAL_SECONDS.
+/// Interval defaults to 10 seconds, configurable via TASK_SCHEDULER_INTERVAL_SECONDS.
 /// </summary>
 public sealed class TaskSchedulerService(
     IServiceScopeFactory scopeFactory,
     ILogger<TaskSchedulerService> logger) : BackgroundService
 {
-    private static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan DefaultInterval = TimeSpan.FromSeconds(10);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,9 +25,9 @@ public sealed class TaskSchedulerService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(interval, stoppingToken);
             await DispatchDueTasksAsync(stoppingToken);
             await DispatchPendingTodoTasksAsync(stoppingToken);
+            await Task.Delay(interval, stoppingToken);
         }
     }
 

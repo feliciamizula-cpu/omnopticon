@@ -12,6 +12,8 @@ public sealed class InMemoryAgentStore : IAgentStore
     private readonly ConcurrentDictionary<Guid, AgentRecord> _agents = new();
     private readonly ConcurrentDictionary<string, AgentTaskRecord> _tasks = new();
     private readonly ConcurrentDictionary<Guid, ChatMessageRecord> _chatMessages = new();
+    private readonly ConcurrentDictionary<Guid, CodeReviewRecord> _codeReviews = new();
+    private readonly ConcurrentDictionary<Guid, SystemReportRecord> _systemReports = new();
     private int _nextTaskId = 1;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -97,6 +99,14 @@ public sealed class InMemoryAgentStore : IAgentStore
             record.Tool = request.Tool;
         if (!string.IsNullOrWhiteSpace(request.Model))
             record.Model = request.Model;
+        if (request.CurrentTaskId is not null)
+            record.CurrentTaskId = string.IsNullOrWhiteSpace(request.CurrentTaskId) ? null : request.CurrentTaskId;
+        if (!string.IsNullOrWhiteSpace(request.WorkStatus))
+            record.WorkStatus = request.WorkStatus;
+        if (request.LastHeartbeatAt.HasValue)
+            record.LastHeartbeatAt = request.LastHeartbeatAt.Value;
+        if (request.LastError is not null)
+            record.LastError = string.IsNullOrWhiteSpace(request.LastError) ? null : request.LastError;
 
         record.UpdatedAt = DateTimeOffset.UtcNow;
         return Task.FromResult<AgentDto?>(record.ToDto());
@@ -161,8 +171,7 @@ public sealed class InMemoryAgentStore : IAgentStore
             record.Priority = request.Priority;
         if (!string.IsNullOrWhiteSpace(request.Status))
             ApplyStatusTransition(record, request.Status);
-        if (request.AssignedTo != null)
-            record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
+        record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
         if (request.TargetRole != null)
             record.TargetRole = string.IsNullOrWhiteSpace(request.TargetRole) ? null : request.TargetRole;
         if (request.TaskType != null)
@@ -240,5 +249,25 @@ public sealed class InMemoryAgentStore : IAgentStore
 
         _chatMessages.TryAdd(id, record);
         return Task.FromResult(record.ToDto());
+    }
+
+    public Task<IReadOnlyList<CodeReviewDto>> ListCodeReviewsAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        var result = _codeReviews.Values
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(Math.Clamp(take, 1, 500))
+            .Select(r => r.ToDto())
+            .ToList();
+        return Task.FromResult<IReadOnlyList<CodeReviewDto>>(result);
+    }
+
+    public Task<IReadOnlyList<SystemReportDto>> ListSystemReportsAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        var result = _systemReports.Values
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(Math.Clamp(take, 1, 500))
+            .Select(r => r.ToDto())
+            .ToList();
+        return Task.FromResult<IReadOnlyList<SystemReportDto>>(result);
     }
 }

@@ -41,6 +41,11 @@ public sealed class TaskExecutionService(
         var updatedTask = await store.UpdateTaskAsync(taskId, new UpdateAgentTaskRequest(
             Status: "in_progress",
             AssignedTo: context.Agent.AgentId.ToString()), ct);
+        await store.UpdateAgentAsync(context.Agent.AgentId, new UpdateAgentRequest(
+            CurrentTaskId: taskId,
+            WorkStatus: "working",
+            LastHeartbeatAt: DateTimeOffset.UtcNow,
+            LastError: ""), ct);
 
         string? resultOutput = null;
         string finalStatus;
@@ -75,6 +80,10 @@ public sealed class TaskExecutionService(
             logger.LogError(ex, "Task '{TaskId}' execution failed", taskId);
             finalStatus = IsRecurringTask(task) ? "scheduled" : "failed";
             resultOutput = ex.Message;
+            await store.UpdateAgentAsync(context.Agent.AgentId, new UpdateAgentRequest(
+                WorkStatus: "error",
+                LastHeartbeatAt: DateTimeOffset.UtcNow,
+                LastError: ex.Message), ct);
 
             if (providerUsageService is not null)
                 await providerUsageService.RecordInvocationCompletedAsync(
@@ -91,6 +100,11 @@ public sealed class TaskExecutionService(
             ResultOutput: resultOutput,
             LastRunAt: now,
             NextRunAt: nextRunAt), ct);
+        await store.UpdateAgentAsync(context.Agent.AgentId, new UpdateAgentRequest(
+            CurrentTaskId: "",
+            WorkStatus: finalStatus == "failed" ? "error" : "idle",
+            LastHeartbeatAt: now,
+            LastError: finalStatus == "failed" ? resultOutput : ""), ct);
 
         if (finalStatus == "completed" && task.TaskType is not "code_review")
         {

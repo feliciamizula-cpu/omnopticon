@@ -1,10 +1,12 @@
 @page "/system-reports"
 @page "/development/system-reports"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
 @using System.Text.Json
 @using Argus.Contracts.Agents
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject DevelopmentRealtimeClient Realtime
 
 <PageHeader Title="System Reports" Subtitle="@($"{_reports.Count:N0} architect reports")" />
 
@@ -14,7 +16,7 @@
             <button class="page-tab active"><span>Recent</span><span class="tab-count">@_reports.Count</span></button>
             <div class="page-tab-spacer"></div>
             <div class="page-tab-actions">
-                <button class="btn ghost tiny" @onclick="LoadData">Refresh</button>
+                <button class="btn ghost tiny" @onclick="() => LoadData()">Refresh</button>
             </div>
         </div>
 
@@ -60,11 +62,16 @@
     private bool _loading = true;
     private string? _error;
 
-    protected override async Task OnInitializedAsync() => await LoadData();
-
-    private async Task LoadData()
+    protected override async Task OnInitializedAsync()
     {
-        _loading = true;
+        Realtime.Changed += OnDevelopmentDataChanged;
+        await Realtime.StartAsync();
+        await LoadData();
+    }
+
+    private async Task LoadData(bool showLoading = true)
+    {
+        _loading = showLoading && _reports.Count == 0;
         _error = null;
         try
         {
@@ -79,6 +86,22 @@
         {
             _loading = false;
         }
+    }
+
+    private Task OnDevelopmentDataChanged(DevelopmentDataChangedEvent change)
+    {
+        if (change.Area is "system-reports" or "agent-tasks")
+        {
+            return InvokeAsync(() => LoadData(showLoading: false));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Realtime.Changed -= OnDevelopmentDataChanged;
+        return ValueTask.CompletedTask;
     }
 
     private async Task<List<T>> ReadItemsAsync<T>(HttpResponseMessage response)
