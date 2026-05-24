@@ -14,6 +14,7 @@ public sealed record AgentDto(
     string? LastError,
     string Tool,
     string Model,
+    string? Provider,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
@@ -24,7 +25,8 @@ public sealed record CreateAgentRequest(
     string Tool,
     string Model,
     string? RoleDescription = null,
-    int SortOrder = 0);
+    int SortOrder = 0,
+    string? Provider = null);
 
 public sealed record UpdateAgentRequest(
     string? Name = null,
@@ -38,7 +40,9 @@ public sealed record UpdateAgentRequest(
     string? CurrentTaskId = null,
     string? WorkStatus = null,
     DateTimeOffset? LastHeartbeatAt = null,
-    string? LastError = null);
+    string? LastError = null,
+    string? Provider = null,
+    bool ClearProvider = false);
 
 public sealed record AgentTaskDto(
     string TaskId,

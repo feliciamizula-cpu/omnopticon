@@ -236,7 +236,7 @@ builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithReference(eventRouter);
 
 builder.AddProject<Projects.Argus_Web>("argus-web")
-    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8080")
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8082")
     .WithReference(programScope)
     .WithReference(asset)
     .WithReference(artifact)

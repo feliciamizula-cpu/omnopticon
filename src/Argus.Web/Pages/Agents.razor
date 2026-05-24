@@ -10,23 +10,18 @@
 @inject IJSRuntime JS
 @inject DevelopmentRealtimeClient Realtime
 
-<PageHeader Title="Agents" Subtitle="@($"{FilteredAgents.Count:N0} visible · {_agents.Count:N0} total")" />
+<PageHeader Title="Agent Configuration" Subtitle="@($"{_agents.Count:N0} agent configuration{(_agents.Count == 1 ? "" : "s")}")" />
 
-<div class="page-body dev-page">
+<div class="page-body dev-page agent-config-page">
     <div class="dev-main">
         <div class="page-tabs">
-            @foreach (var tab in RoleTabs)
-            {
-                <button class="page-tab @( _roleFilter == tab.Id ? "active" : "" )" @onclick="() => SetRoleFilter(tab.Id)">
-                    <span>@tab.Label</span>
-                    <span class="tab-count">@tab.Count</span>
-                </button>
-            }
+            <a class="page-tab active" href="/agents">Agents <span class="tab-count">@_agents.Count</span></a>
+            <a class="page-tab" href="/agent-tasks">Agent Tasks</a>
+            <a class="page-tab" href="/agent-schedules">Schedules</a>
+            <a class="page-tab" href="/provider-usage">Provider Usage</a>
             <div class="page-tab-spacer"></div>
             <div class="page-tab-actions">
-                <button class="btn primary tiny" @onclick="OpenCreateModal">+ Spawn Agent</button>
-                <button class="btn ghost tiny" @onclick="() => LoadData()">Refresh</button>
-                <button class="btn danger tiny" @onclick="PauseActiveFleet" disabled="@(!_agents.Any(a => IsActive(a)))">Pause Fleet</button>
+                <button class="btn primary tiny" @onclick="OpenCreateModal">+ New Config</button>
             </div>
         </div>
 
@@ -34,21 +29,16 @@
         {
             <div class="dev-alert">@_error</div>
         }
-
         @if (!string.IsNullOrWhiteSpace(_notice))
         {
             <div class="dev-alert" style="background: var(--green-bg); color: var(--green);">@_notice</div>
         }
 
         <div class="dev-stats-strip">
-            <DevStat Label="Total agents" Value='@(_agents.Count.ToString("N0"))' Sub='@($"{_agents.Count(a => !IsActive(a)):N0} paused/disabled")' />
-            <DevStat Label="Working" Value='@(_agents.Count(a => IsWorking(a)).ToString("N0"))' Tone="cyan" Sub="active claims" />
-            <DevStat Label="Idle" Value='@(_agents.Count(a => IsIdle(a)).ToString("N0"))' Sub="awaiting tasks" />
-            <DevStat Label="Stalled" Value='@(_agents.Count(a => IsStalled(a)).ToString("N0"))' Tone='@(_agents.Any(IsStalled) ? "red" : "")' Sub='@(_agents.Any(IsStalled) ? "needs attention" : "ok")' />
-            <DevStat Label="CLIs in use" Value='@(_agents.Select(a => NormalizeTool(a.Tool)).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString("N0"))' Sub='@(string.Join(", ", _agents.Select(a => NormalizeTool(a.Tool)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3)))' />
-            <DevStat Label="Tasks pending" Value='@(_tasks.Count(t => IsPending(t)).ToString("N0"))' Tone="amber" Sub="agent backlog" />
-            <DevStat Label="Tasks active" Value='@(_tasks.Count(t => IsTaskActive(t)).ToString("N0"))' Tone="magenta" Sub="claimed/in progress" />
-            <DevStat Label="Attempts" Value='@(_tasks.Sum(t => t.Attempts).ToString("N0"))' Sub="queue retry load" />
+            <DevStat Label="Total Configurations" Value="@_agents.Count.ToString()" Sub="defined agent configs" />
+            <DevStat Label="Available" Value="@_agents.Count(IsActive).ToString()" Tone="green" Sub="enabled configurations" />
+            <DevStat Label="CLI Count" Value="@_agents.Select(a => NormalizeTool(a.Tool)).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString()" Sub='@string.Join(", ", _agents.Select(a => NormalizeTool(a.Tool)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3))' />
+            <DevStat Label="Provider Count" Value="@_agents.Select(ProviderLabel).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString()" Sub='@string.Join(", ", _agents.Select(ProviderLabel).Distinct(StringComparer.OrdinalIgnoreCase).Take(3))' />
         </div>
 
         @if (_loading)
@@ -56,240 +46,141 @@
             <div class="dev-empty">
                 <div>
                     <div class="app-loading-spinner" style="margin: 0 auto 12px;"></div>
-                    <div>// loading agent fleet</div>
+                    <div>// loading agent configurations</div>
                 </div>
             </div>
         }
         else
         {
             <div class="dev-two-pane">
-                <div class="dev-list-pane">
-                    <div class="mono-label">FLEET · @FilteredAgents.Count agents</div>
-
-                    @if (FilteredAgents.Count == 0)
-                    {
-                        <div class="dev-empty">// no agents match this filter</div>
-                    }
-                    else
-                    {
-                        <div class="agent-table">
-                            <div class="at-head">
-                                <div class="at-cell at-status"></div>
-                                <div class="at-cell at-name">Name</div>
-                                <div class="at-cell at-tool">CLI</div>
-                                <div class="at-cell at-role">Role</div>
-                                <div class="at-cell at-status-col">Status</div>
-                                <div class="at-cell at-tasks">Tasks</div>
-                                <div class="at-cell at-heartbeat">Heartbeat</div>
-                                <div class="at-cell at-workstatus">Work</div>
-                            </div>
-                            <div class="at-body">
-                                @foreach (var agent in FilteredAgents)
+                <div class="ac-pane">
+                    <div class="ac-filter-bar">
+                        <input class="ac-filter-input" type="text" placeholder="filter…" @bind="_filterText" @bind:event="oninput" />
+                        <span class="ac-filter-count">@SortedFilteredAgents.Count OF @_agents.Count</span>
+                    </div>
+                    <div class="ac-table-wrap">
+                        <table class="ac-table">
+                            <thead>
+                                <tr>
+                                    <th class="ac-col-enabled @SortClass("enabled")" @onclick='() => SortBy("enabled")'>@SortIcon("enabled")</th>
+                                    <th class="@SortClass("name")" @onclick='() => SortBy("name")'>Name@SortIcon("name")</th>
+                                    <th class="ac-col-role @SortClass("role")" @onclick='() => SortBy("role")'>Role@SortIcon("role")</th>
+                                    <th class="ac-col-tool @SortClass("tool")" @onclick='() => SortBy("tool")'>CLI@SortIcon("tool")</th>
+                                    <th class="ac-col-provider @SortClass("provider")" @onclick='() => SortBy("provider")'>Provider@SortIcon("provider")</th>
+                                    <th class="ac-col-model @SortClass("model")" @onclick='() => SortBy("model")'>Model@SortIcon("model")</th>
+                                    <th class="ac-col-command @SortClass("command")" @onclick='() => SortBy("command")'>Command@SortIcon("command")</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var agent in SortedFilteredAgents)
                                 {
-                                    var currentTask = CurrentTask(agent);
-                                    <div class="at-row @(SelectedAgent?.AgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "disabled" : "")"
-                                         @onclick="() => SelectAgent(agent)">
-                                        <div class="at-cell at-status">
-                                            <span class="dot @StatusDot(agent) @(IsWorking(agent) ? "pulse" : "")"></span>
-                                        </div>
-                                        <div class="at-cell at-name">
-                                            <span class="tone-@RoleTone(agent.Role) mono">@RoleGlyph(agent.Role)</span>
-                                            <span class="at-agent-name">@agent.Name</span>
-                                            <span class="at-agent-id">@ShortId(agent.AgentId)</span>
-                                        </div>
-                                        <div class="at-cell at-tool">
-                                            <span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span>
-                                            <span class="at-model">@agent.Model</span>
-                                        </div>
-                                        <div class="at-cell at-role">
+                                    <tr class="@(_selectedAgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "ac-disabled" : "")"
+                                        @onclick="() => SelectAgent(agent)">
+                                        <td class="ac-col-enabled">
+                                            <span class="dot @(IsActive(agent) ? "green" : "")"></span>
+                                        </td>
+                                        <td>@agent.Name</td>
+                                        <td class="ac-col-role">
                                             <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
-                                        </div>
-                                        <div class="at-cell at-status-col">
-                                            <span class="dev-pill @StatusTone(agent)">@AgentStatusLabel(agent)</span>
-                                        </div>
-                                        <div class="at-cell at-tasks">
-                                            @AssignedTaskCount(agent)
-                                        </div>
-                                        <div class="at-cell at-heartbeat">
-                                            <span class="@HeartbeatTone(agent)">@Relative(agent.LastHeartbeatAt)</span>
-                                        </div>
-                                        <div class="at-cell at-workstatus">
-                                            @if (currentTask is not null)
-                                            {
-                                                <span class="at-current-task" title="@currentTask.Description">@currentTask.TaskId</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="at-idle">idle</span>
-                                            }
-                                        </div>
-                                    </div>
-                                    @if (!string.IsNullOrWhiteSpace(agent.LastError))
-                                    {
-                                        <div class="at-error-row">
-                                            <span class="dev-error">⚠ @agent.LastError</span>
-                                        </div>
-                                    }
+                                        </td>
+                                        <td class="ac-col-tool">
+                                            <span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span>
+                                        </td>
+                                        <td class="ac-col-provider">
+                                            <span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span>
+                                        </td>
+                                        <td class="ac-col-model mono">@agent.Model</td>
+                                        <td class="ac-col-command mono">@AgentCommand(agent)</td>
+                                    </tr>
                                 }
-                            </div>
-                        </div>
-                    }
+                            </tbody>
+                        </table>
+                        @if (SortedFilteredAgents.Count == 0 && _agents.Count > 0)
+                        {
+                            <div class="dev-empty" style="padding: 24px 16px;">// no configurations match this filter</div>
+                        }
+                        @if (_agents.Count == 0)
+                        {
+                            <div class="dev-empty" style="padding: 24px 16px;">// no agent configurations yet</div>
+                        }
+                    </div>
                 </div>
 
                 <div class="dev-inspector">
-                    @if (SelectedAgent is null)
+                    @if (_selectedAgentId is null || _agents.All(a => a.AgentId != _selectedAgentId))
                     {
-                        <div class="dev-empty">// select an agent</div>
+                        <div class="dev-empty">// select a configuration</div>
                     }
                     else
                     {
-                        var selectedAgent = SelectedAgent!;
+                        var agent = _agents.First(a => a.AgentId == _selectedAgentId);
                         <div class="dev-inspector-head">
                             <div class="type-row">
-                                <span class="tone-@RoleTone(selectedAgent.Role) mono">@RoleGlyph(selectedAgent.Role)</span>
-                                <span class="dev-pill @RoleTone(selectedAgent.Role)">@RoleLabel(selectedAgent.Role)</span>
-                                <span class="dev-pill @StatusTone(selectedAgent)">@AgentStatusLabel(selectedAgent)</span>
-                                <span class="asset-id">@ShortId(selectedAgent.AgentId)</span>
+                                <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
+                                <span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span>
+                                <span class="asset-id">@ShortId(agent.AgentId)</span>
                             </div>
-                            <div class="value-big">@selectedAgent.Name</div>
+                            <div class="value-big">@agent.Name</div>
                             <div class="submeta">
-                                <span><span class="tone-@ToolTone(selectedAgent.Tool)">@ToolLabel(selectedAgent.Tool)</span> · <b>@selectedAgent.Model</b></span>
-                                <span>heartbeat <b class="@HeartbeatTone(selectedAgent)">@Relative(selectedAgent.LastHeartbeatAt)</b></span>
-                                <span>created <b>@Relative(selectedAgent.CreatedAt)</b></span>
+                                <span><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span> · <b>@agent.Model</b></span>
+                                <span class="mono">@AgentCommand(agent)</span>
                             </div>
                         </div>
-
-                        <div class="inspector-tabs">
-                            @foreach (var tab in DetailTabs)
-                            {
-                                <button class="insp-tab @( _detailTab == tab ? "active" : "" )" @onclick="() => _detailTab = tab">@tab</button>
-                            }
-                        </div>
-
                         <div class="dev-inspector-body">
-                            @if (_detailTab == "config")
+                            <div class="section-label">CONFIGURATION</div>
+                            <table class="kv-table">
+                                <tbody>
+                                    <tr><td>Agent ID</td><td class="mono">@agent.AgentId</td></tr>
+                                    <tr><td>Status</td><td><span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span></td></tr>
+                                    <tr><td>Role</td><td><span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span></td></tr>
+                                    <tr><td>CLI Tool</td><td><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span></td></tr>
+                                    <tr><td>Provider</td><td><span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span></td></tr>
+                                    <tr><td>Model</td><td class="mono">@agent.Model</td></tr>
+                                    <tr><td>Command</td><td class="mono">@AgentCommand(agent)</td></tr>
+                                    <tr><td>Sort Order</td><td>@agent.SortOrder</td></tr>
+                                </tbody>
+                            </table>
+
+                            @if (!string.IsNullOrWhiteSpace(agent.RoleDescription))
                             {
-                                <div class="section-label">RUNTIME</div>
-                                <table class="kv-table">
-                                    <tbody>
-                                        <tr><td>Agent ID</td><td class="mono">@selectedAgent.AgentId</td></tr>
-                                        <tr><td>Status</td><td><span class="dev-pill @StatusTone(selectedAgent)">@AgentStatusLabel(selectedAgent)</span></td></tr>
-                                        <tr><td>Role</td><td><span class="dev-pill @RoleTone(selectedAgent.Role)">@RoleLabel(selectedAgent.Role)</span></td></tr>
-                                        <tr><td>CLI</td><td><span class="tone-@ToolTone(selectedAgent.Tool)">@ToolLabel(selectedAgent.Tool)</span></td></tr>
-                                        <tr><td>Model</td><td class="mono">@selectedAgent.Model</td></tr>
-                                        <tr><td>Work status</td><td>@(string.IsNullOrWhiteSpace(selectedAgent.WorkStatus) ? "—" : selectedAgent.WorkStatus)</td></tr>
-                                        <tr><td>Current task</td><td>@(selectedAgent.CurrentTaskId ?? "—")</td></tr>
-                                        <tr><td>Last heartbeat</td><td class="@HeartbeatTone(selectedAgent)">@Relative(selectedAgent.LastHeartbeatAt)</td></tr>
-                                    </tbody>
-                                </table>
+                                <div class="section-label">ROLE DESCRIPTION</div>
+                                <div class="dev-note">@agent.RoleDescription</div>
+                            }
 
-                                <div class="section-label">RESPONSIBILITIES</div>
-                                <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
-                                    @if (selectedAgent.Responsibilities.Length == 0)
-                                    {
-                                        <span class="dev-chip">// none configured</span>
-                                    }
-                                    else
-                                    {
-                                        @foreach (var item in selectedAgent.Responsibilities)
-                                        {
-                                            <span class="dev-chip">@item</span>
-                                        }
-                                    }
-                                </div>
-
-                                <div class="section-label">CURRENT WORK</div>
-                                @if (CurrentTask(selectedAgent) is AgentTaskDto task)
+                            <div class="section-label">RESPONSIBILITIES</div>
+                            <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
+                                @if (agent.Responsibilities.Length == 0)
                                 {
-                                    <div class="dev-note">
-Task @task.TaskId · @task.Priority · @task.Status
-@task.Description
-                                    </div>
+                                    <span class="dev-chip">// none configured</span>
                                 }
                                 else
                                 {
-                                    <div class="dev-note">// agent is idle</div>
-                                }
-
-                                @if (!string.IsNullOrWhiteSpace(selectedAgent.LastError))
-                                {
-                                    <div class="section-label">LAST ERROR</div>
-                                    <div class="dev-note warn">@selectedAgent.LastError</div>
-                                }
-
-                                <div class="section-label">CONTROLS</div>
-                                <div class="dev-action-row">
-                                    @if (IsActive(selectedAgent))
+                                    @foreach (var item in agent.Responsibilities)
                                     {
-                                        <button class="btn primary tiny" @onclick="() => PauseAgent(selectedAgent.AgentId)">Disable</button>
+                                        <span class="dev-chip">@item</span>
                                     }
-                                    else
-                                    {
-                                        <button class="btn primary tiny" @onclick="() => ResumeAgent(selectedAgent.AgentId)">Enable</button>
-                                    }
-                                    <button class="btn ghost tiny" @onclick="() => OpenEditModal(selectedAgent)">Edit Config</button>
-                                    <button class="btn ghost tiny" @onclick="() => LoadData()">Refresh</button>
-                                    <a class="btn ghost tiny" href="/agent-tasks">Open Tasks</a>
-                                    <button class="btn danger tiny" @onclick="() => DeleteAgent(selectedAgent.AgentId)">Remove</button>
-                                </div>
-                            }
-                            else if (_detailTab == "tasks")
+                                }
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(agent.LastError))
                             {
-                                <div class="section-label">ASSIGNED TASKS · @AssignedTasks(selectedAgent).Count</div>
-                                @if (AssignedTasks(selectedAgent).Count == 0)
+                                <div class="section-label">LAST ERROR</div>
+                                <div class="dev-note warn">@agent.LastError</div>
+                            }
+
+                            <div class="section-label">CONTROLS</div>
+                            <div class="dev-action-row">
+                                @if (IsActive(agent))
                                 {
-                                    <div class="dev-note">// no assigned tasks</div>
+                                    <button class="btn primary tiny" @onclick="() => PauseAgent(agent.AgentId)">Disable</button>
                                 }
                                 else
                                 {
-                                    <table class="kv-table">
-                                        <thead>
-                                            <tr><th>Task</th><th>Status</th><th>Priority</th><th>Created</th></tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var task in AssignedTasks(selectedAgent))
-                                            {
-                                                <tr>
-                                                    <td><a href="/agent-tasks" class="mono">@task.TaskId</a><div style="color: var(--fg-2);">@task.Description</div></td>
-                                                    <td><span class="dev-pill @TaskStatusTone(task.Status)">@TaskStatusLabel(task.Status)</span></td>
-                                                    <td><span class="dev-pill @PriorityTone(task.Priority)">@task.Priority</span></td>
-                                                    <td>@Relative(task.CreatedAt)</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
+                                    <button class="btn primary tiny" @onclick="() => ResumeAgent(agent.AgentId)">Enable</button>
                                 }
-                            }
-                            else
-                            {
-                                <div class="section-label">LIVE LOG · synthesized from agent state</div>
-                                <div class="dev-event-row">
-                                    <span class="t">@DateTimeOffset.Now.ToString("HH:mm:ss")</span>
-                                    <span class="k cyan">STATE</span>
-                                    <span class="body">@selectedAgent.Name is @(AgentStatusLabel(selectedAgent).ToLowerInvariant()) with @AssignedTaskCount(selectedAgent) assigned tasks.</span>
-                                </div>
-                                <div class="dev-event-row">
-                                    <span class="t">@selectedAgent.UpdatedAt.ToLocalTime().ToString("HH:mm:ss")</span>
-                                    <span class="k amber">CONFIG</span>
-                                    <span class="body">tool=@selectedAgent.Tool model=@selectedAgent.Model role=@selectedAgent.Role</span>
-                                </div>
-                                @if (selectedAgent.LastHeartbeatAt is not null)
-                                {
-                                    <div class="dev-event-row">
-                                        <span class="t">@selectedAgent.LastHeartbeatAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
-                                        <span class="k green">HEART</span>
-                                        <span class="body">heartbeat received @Relative(selectedAgent.LastHeartbeatAt)</span>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(selectedAgent.LastError))
-                                {
-                                    <div class="dev-event-row">
-                                        <span class="t">@selectedAgent.UpdatedAt.ToLocalTime().ToString("HH:mm:ss")</span>
-                                        <span class="k red">ERROR</span>
-                                        <span class="body">@selectedAgent.LastError</span>
-                                    </div>
-                                }
-                            }
+                                <button class="btn ghost tiny" @onclick="() => OpenEditModal(agent)">Edit Config</button>
+                                <button class="btn danger tiny" @onclick="() => DeleteAgent(agent.AgentId)">Remove</button>
+                            </div>
                         </div>
                     }
                 </div>
@@ -305,7 +196,7 @@ Task @task.TaskId · @task.Priority · @task.Status
             <div class="dev-modal" @onclick:stopPropagation="true">
                 <div class="dev-modal-head">
                     <span class="dot amber"></span>
-                    @(_editingAgentId is null ? "Spawn New Agent" : "Edit Agent")
+                    @(_editingAgentId is null ? "New Agent Configuration" : "Edit Agent Configuration")
                     <button class="dev-icon-btn" @onclick="CloseAgentModal">×</button>
                 </div>
                 <div class="dev-modal-body">
@@ -317,15 +208,14 @@ Task @task.TaskId · @task.Priority · @task.Status
                         <div class="dev-form-field">
                             <label>Role</label>
                             <select class="dev-input" @bind="_agentForm.Role">
-                                <option value="product_manager">Product Manager</option>
-                                <option value="chief_technology_officer">Chief Technology Officer</option>
                                 <option value="junior_developer">Junior Developer</option>
-                                <option value="devops">DevOps</option>
                                 <option value="developer">Developer</option>
                                 <option value="senior_developer">Senior Developer</option>
-                                <option value="system_architect">System Architect</option>
-                                <option value="junior_designer">Junior Designer</option>
-                                <option value="senior_designer">Senior Designer</option>
+                                <option value="junior_system_architect">Junior System Architect</option>
+                                <option value="senior_system_architect">Senior System Architect</option>
+                                <option value="junior_devops">Junior DevOps</option>
+                                <option value="senior_devops">Senior DevOps</option>
+                                <option value="devops_architect">DevOps Architect</option>
                             </select>
                         </div>
                         <div class="dev-form-field">
@@ -336,6 +226,19 @@ Task @task.TaskId · @task.Priority · @task.Status
                                 <option value="gemini">Gemini</option>
                                 <option value="openai">OpenAI</option>
                                 <option value="opencode">Opencode</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Provider</label>
+                            <select class="dev-input" @bind="_agentForm.Provider">
+                                <option value="">(auto-detect)</option>
+                                <option value="Anthropic">Anthropic</option>
+                                <option value="Claude">Claude</option>
+                                <option value="Fireworks">Fireworks</option>
+                                <option value="Gemini">Gemini</option>
+                                <option value="NVIDIA">NVIDIA</option>
+                                <option value="OpenAI">OpenAI</option>
+                                <option value="OpenRouter">OpenRouter</option>
                             </select>
                         </div>
                         <div class="dev-form-field">
@@ -355,14 +258,14 @@ Task @task.TaskId · @task.Priority · @task.Status
                             <textarea class="dev-input" rows="5" @bind="_agentForm.ResponsibilitiesText" @bind:event="oninput" placeholder="implementation, tests, code review"></textarea>
                         </div>
                         <div class="dev-form-field full">
-                            <label>Spawn command</label>
-                            <div class="dev-note" style="margin: 0;">@ToolCommand(_agentForm.Tool) --model @_agentForm.Model ...</div>
+                            <label>Command</label>
+                            <div class="dev-note" style="margin: 0;">@ToolCommand(_agentForm.Tool) @_agentForm.Model</div>
                         </div>
                     </div>
                 </div>
                 <div class="dev-modal-foot">
                     <button class="btn ghost" @onclick="CloseAgentModal">Cancel</button>
-                    <button class="btn primary" @onclick="SaveAgent" disabled="@(!CanSaveAgent)">Save Agent</button>
+                    <button class="btn primary" @onclick="SaveAgent" disabled="@(!CanSaveAgent)">Save Configuration</button>
                 </div>
             </div>
         </div>
@@ -376,10 +279,10 @@ Task @task.TaskId · @task.Priority · @task.Status
     };
 
     private List<AgentDto> _agents = new();
-    private List<AgentTaskDto> _tasks = new();
     private bool _loading = true;
-    private string _roleFilter = "all";
-    private string _detailTab = "config";
+    private string _filterText = "";
+    private string _sortColumn = "enabled";
+    private bool _sortAsc = false;
     private string? _error;
     private string? _notice;
     private Guid? _selectedAgentId;
@@ -388,36 +291,35 @@ Task @task.TaskId · @task.Priority · @task.Status
     private Guid? _editingAgentId;
     private AgentForm _agentForm = new();
 
-    private static readonly string[] DetailTabs = ["config", "tasks", "logs"];
-
-    private AgentDto? SelectedAgent =>
-        _agents.FirstOrDefault(a => a.AgentId == _selectedAgentId) ?? _agents.FirstOrDefault();
-
-    private List<AgentDto> FilteredAgents
+    private IReadOnlyList<AgentDto> SortedFilteredAgents
     {
         get
         {
-            var agents = _roleFilter == "all"
+            IEnumerable<AgentDto> list = string.IsNullOrWhiteSpace(_filterText)
                 ? _agents
-                : _agents.Where(a => RoleMatches(a.Role, _roleFilter));
-            return agents.OrderByDescending(IsWorking)
-                .ThenByDescending(IsActive)
-                .ThenBy(a => RoleLabel(a.Role))
-                .ThenBy(a => a.Name)
-                .ToList();
+                : _agents.Where(a =>
+                    a.Name.Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || RoleLabel(a.Role).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || NormalizeTool(a.Tool).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || ProviderLabel(a).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || a.Model.Contains(_filterText, StringComparison.OrdinalIgnoreCase));
+
+            var ordered = _sortColumn switch
+            {
+                "name"     => _sortAsc ? list.OrderBy(a => a.Name)             : list.OrderByDescending(a => a.Name),
+                "role"     => _sortAsc ? list.OrderBy(a => RoleLabel(a.Role))  : list.OrderByDescending(a => RoleLabel(a.Role)),
+                "tool"     => _sortAsc ? list.OrderBy(a => NormalizeTool(a.Tool)) : list.OrderByDescending(a => NormalizeTool(a.Tool)),
+                "provider" => _sortAsc ? list.OrderBy(ProviderLabel)           : list.OrderByDescending(ProviderLabel),
+                "model"    => _sortAsc ? list.OrderBy(a => a.Model)            : list.OrderByDescending(a => a.Model),
+                "command"  => _sortAsc ? list.OrderBy(AgentCommand)            : list.OrderByDescending(AgentCommand),
+                _          => _sortAsc ? list.OrderBy(IsActive)                : list.OrderByDescending(IsActive),
+            };
+
+            return _sortColumn == "enabled"
+                ? ordered.ThenBy(a => RoleLabel(a.Role)).ThenBy(a => a.Name).ToList()
+                : ordered.ThenByDescending(IsActive).ThenBy(a => a.Name).ToList();
         }
     }
-
-    private List<RoleTab> RoleTabs =>
-    [
-        new("all", "All Agents", _agents.Count),
-        new("junior_developer", "Junior Dev", _agents.Count(a => RoleMatches(a.Role, "junior_developer"))),
-        new("developer", "Developer", _agents.Count(a => RoleMatches(a.Role, "developer"))),
-        new("senior_developer", "Senior Dev", _agents.Count(a => RoleMatches(a.Role, "senior_developer"))),
-        new("system_architect", "Architect", _agents.Count(a => RoleMatches(a.Role, "system_architect"))),
-        new("devops", "DevOps", _agents.Count(a => RoleMatches(a.Role, "devops"))),
-        new("design", "Design", _agents.Count(a => RoleMatches(a.Role, "design")))
-    ];
 
     private bool CanSaveAgent =>
         !string.IsNullOrWhiteSpace(_agentForm.Name)
@@ -434,17 +336,17 @@ Task @task.TaskId · @task.Priority · @task.Status
 
     private async Task LoadData(bool showLoading = true)
     {
-        _loading = showLoading && _agents.Count == 0 && _tasks.Count == 0;
+        _loading = showLoading && _agents.Count == 0;
         _error = null;
         _notice = null;
 
         try
         {
-            await Task.WhenAll(LoadAgentsAsync(), LoadTasksAsync());
+            await LoadAgentsAsync();
         }
         catch (Exception ex)
         {
-            _error = $"Unable to load agent development data: {ex.Message}";
+            _error = $"Unable to load agent configurations: {ex.Message}";
         }
         finally
         {
@@ -454,25 +356,14 @@ Task @task.TaskId · @task.Priority · @task.Status
 
     private async Task LoadAgentsAsync()
     {
-        var agentsResponse = await Http.GetAsync(Ui("/ui/agents"));
-        _agents = await ReadItemsAsync<AgentDto>(agentsResponse);
-        if (_selectedAgentId is null || !_agents.Any(a => a.AgentId == _selectedAgentId))
-        {
-            _selectedAgentId = _agents.FirstOrDefault()?.AgentId;
-        }
-        StateHasChanged();
-    }
-
-    private async Task LoadTasksAsync()
-    {
-        var tasksResponse = await Http.GetAsync(Ui("/ui/agent-tasks"));
-        _tasks = await ReadItemsAsync<AgentTaskDto>(tasksResponse);
+        var response = await Http.GetAsync(Ui("/ui/agents"));
+        _agents = await ReadItemsAsync<AgentDto>(response);
         StateHasChanged();
     }
 
     private Task OnDevelopmentDataChanged(DevelopmentDataChangedEvent change)
     {
-        if (change.Area is "agents" or "agent-tasks" or "todos")
+        if (change.Area is "agents")
         {
             return InvokeAsync(() => LoadData(showLoading: false));
         }
@@ -515,20 +406,26 @@ Task @task.TaskId · @task.Priority · @task.Status
         return new List<T>();
     }
 
-    private void SetRoleFilter(string id)
-    {
-        _roleFilter = id;
-        var first = FilteredAgents.FirstOrDefault();
-        if (first is not null)
-        {
-            _selectedAgentId = first.AgentId;
-        }
-    }
-
     private void SelectAgent(AgentDto agent)
     {
         _selectedAgentId = agent.AgentId;
     }
+
+    private void SortBy(string col)
+    {
+        if (_sortColumn == col)
+        {
+            _sortAsc = !_sortAsc;
+        }
+        else
+        {
+            _sortColumn = col;
+            _sortAsc = col != "enabled";
+        }
+    }
+
+    private string SortIcon(string col) => _sortColumn == col ? (_sortAsc ? " ▲" : " ▼") : "";
+    private string SortClass(string col) => _sortColumn == col ? "ac-sorted" : "";
 
     private void OpenCreateModal()
     {
@@ -556,6 +453,7 @@ Task @task.TaskId · @task.Priority · @task.Status
             SortOrder = agent.SortOrder,
             Tool = agent.Tool,
             Model = agent.Model,
+            Provider = agent.Provider ?? "",
             ResponsibilitiesText = string.Join(", ", agent.Responsibilities)
         };
         _showAgentModal = true;
@@ -569,10 +467,7 @@ Task @task.TaskId · @task.Priority · @task.Status
 
     private async Task SaveAgent()
     {
-        if (!CanSaveAgent)
-        {
-            return;
-        }
+        if (!CanSaveAgent) return;
 
         _error = null;
         _notice = null;
@@ -583,6 +478,8 @@ Task @task.TaskId · @task.Priority · @task.Status
             HttpResponseMessage response;
             var wasEdit = _editingAgentId is not null;
 
+            var providerValue = string.IsNullOrWhiteSpace(_agentForm.Provider) ? null : _agentForm.Provider.Trim();
+
             if (_editingAgentId is Guid id)
             {
                 var request = new UpdateAgentRequest(
@@ -592,7 +489,9 @@ Task @task.TaskId · @task.Priority · @task.Status
                     SortOrder: _agentForm.SortOrder,
                     Responsibilities: responsibilities,
                     Tool: _agentForm.Tool.Trim(),
-                    Model: _agentForm.Model.Trim());
+                    Model: _agentForm.Model.Trim(),
+                    Provider: providerValue,
+                    ClearProvider: providerValue is null);
 
                 response = await Http.PutAsJsonAsync(Ui($"/ui/agents/{id}"), request);
             }
@@ -605,7 +504,8 @@ Task @task.TaskId · @task.Priority · @task.Status
                     _agentForm.Tool.Trim(),
                     _agentForm.Model.Trim(),
                     string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
-                    _agentForm.SortOrder);
+                    _agentForm.SortOrder,
+                    providerValue);
 
                 response = await Http.PostAsJsonAsync(Ui("/ui/agents"), request);
             }
@@ -618,23 +518,16 @@ Task @task.TaskId · @task.Priority · @task.Status
 
             CloseAgentModal();
             await LoadData();
-            _notice = wasEdit ? "Agent updated." : "Agent saved.";
+            _notice = wasEdit ? "Configuration updated." : "Configuration saved.";
         }
         catch (Exception ex)
         {
-            _error = $"Unable to save agent: {ex.Message}";
+            _error = $"Unable to save agent configuration: {ex.Message}";
         }
     }
 
-    private async Task PauseAgent(Guid agentId)
-    {
-        await PatchAgent(agentId, "pause");
-    }
-
-    private async Task ResumeAgent(Guid agentId)
-    {
-        await PatchAgent(agentId, "resume");
-    }
+    private async Task PauseAgent(Guid agentId) => await PatchAgent(agentId, "pause");
+    private async Task ResumeAgent(Guid agentId) => await PatchAgent(agentId, "resume");
 
     private async Task PatchAgent(Guid agentId, string operation)
     {
@@ -654,27 +547,9 @@ Task @task.TaskId · @task.Priority · @task.Status
         }
     }
 
-    private async Task PauseActiveFleet()
-    {
-        var activeAgents = _agents.Where(IsActive).Select(a => a.AgentId).ToList();
-        foreach (var agentId in activeAgents)
-        {
-            try
-            {
-                await Http.PatchAsync(Ui($"/ui/agents/{agentId}/pause"), null);
-            }
-            catch
-            {
-                // Keep pausing the rest; the final refresh surfaces current state.
-            }
-        }
-
-        await LoadData();
-    }
-
     private async Task DeleteAgent(Guid agentId)
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Remove this agent from the development fleet?"))
+        if (!await JS.InvokeAsync<bool>("confirm", "Remove this agent configuration?"))
         {
             return;
         }
@@ -687,36 +562,17 @@ Task @task.TaskId · @task.Priority · @task.Status
             {
                 _error = $"Delete failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
             }
+            if (_selectedAgentId == agentId)
+            {
+                _selectedAgentId = null;
+            }
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = $"Unable to delete agent: {ex.Message}";
+            _error = $"Unable to delete agent configuration: {ex.Message}";
         }
     }
-
-    private List<AgentTaskDto> AssignedTasks(AgentDto agent) =>
-        _tasks.Where(t => string.Equals(t.AssignedTo, agent.AgentId.ToString(), StringComparison.OrdinalIgnoreCase)
-                          || string.Equals(t.AssignedTo, agent.Name, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(t => IsTaskActive(t))
-            .ThenByDescending(t => t.CreatedAt)
-            .ToList();
-
-    private AgentTaskDto? CurrentTask(AgentDto agent)
-    {
-        if (!string.IsNullOrWhiteSpace(agent.CurrentTaskId))
-        {
-            var exact = _tasks.FirstOrDefault(t => string.Equals(t.TaskId, agent.CurrentTaskId, StringComparison.OrdinalIgnoreCase));
-            if (exact is not null)
-            {
-                return exact;
-            }
-        }
-
-        return AssignedTasks(agent).FirstOrDefault(IsTaskActive);
-    }
-
-    private int AssignedTaskCount(AgentDto agent) => AssignedTasks(agent).Count;
 
     private static string[] SplitResponsibilities(string value) =>
         value.Split([',', '\n', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
@@ -728,39 +584,6 @@ Task @task.TaskId · @task.Priority · @task.Status
         || agent.Status.Equals("enabled", StringComparison.OrdinalIgnoreCase)
         || string.IsNullOrWhiteSpace(agent.Status);
 
-    private static bool IsWorking(AgentDto agent) =>
-        agent.WorkStatus.Equals("working", StringComparison.OrdinalIgnoreCase)
-        || agent.WorkStatus.Equals("busy", StringComparison.OrdinalIgnoreCase)
-        || !string.IsNullOrWhiteSpace(agent.CurrentTaskId);
-
-    private static bool IsIdle(AgentDto agent) =>
-        IsActive(agent) && !IsWorking(agent) && !IsStalled(agent);
-
-    private static bool IsStalled(AgentDto agent) =>
-        agent.WorkStatus.Equals("stalled", StringComparison.OrdinalIgnoreCase)
-        || !string.IsNullOrWhiteSpace(agent.LastError)
-        || (agent.LastHeartbeatAt is { } heartbeat && DateTimeOffset.UtcNow - heartbeat > TimeSpan.FromMinutes(2) && IsActive(agent));
-
-    private static bool IsPending(AgentTaskDto task) =>
-        task.Status.Equals("pending", StringComparison.OrdinalIgnoreCase)
-        || task.Status.Equals("queued", StringComparison.OrdinalIgnoreCase)
-        || string.IsNullOrWhiteSpace(task.Status);
-
-    private static bool IsTaskActive(AgentTaskDto task) =>
-        task.Status.Equals("claimed", StringComparison.OrdinalIgnoreCase)
-        || task.Status.Equals("in_progress", StringComparison.OrdinalIgnoreCase)
-        || task.Status.Equals("running", StringComparison.OrdinalIgnoreCase);
-
-    private static bool RoleMatches(string role, string filter)
-    {
-        var normalized = NormalizeRole(role);
-        return filter switch
-        {
-            "design" => normalized is "junior_designer" or "senior_designer",
-            _ => string.Equals(normalized, filter, StringComparison.OrdinalIgnoreCase)
-        };
-    }
-
     private static string NormalizeRole(string role) =>
         string.IsNullOrWhiteSpace(role) ? "developer" : role.Trim().ToLowerInvariant();
 
@@ -769,196 +592,106 @@ Task @task.TaskId · @task.Priority · @task.Status
 
     private static string RoleLabel(string role) => NormalizeRole(role) switch
     {
-        "product_manager" => "Product Manager",
-        "chief_technology_officer" => "CTO",
-        "junior_developer" => "Junior Developer",
-        "developer" => "Developer",
-        "senior_developer" => "Senior Developer",
-        "system_architect" => "System Architect",
-        "junior_designer" => "Junior Designer",
-        "senior_designer" => "Senior Designer",
-        "devops" => "DevOps",
-        "security" => "Security",
-        "research" => "Research",
-        _ => role
+        "junior_developer"        => "Junior Developer",
+        "developer"               => "Developer",
+        "senior_developer"        => "Senior Developer",
+        "junior_system_architect" => "Jr. System Architect",
+        "senior_system_architect" => "Sr. System Architect",
+        "junior_devops"           => "Junior DevOps",
+        "senior_devops"           => "Senior DevOps",
+        "devops_architect"        => "DevOps Architect",
+        _                         => role
     };
 
     private static string RoleTone(string role) => NormalizeRole(role) switch
     {
-        "product_manager" => "green",
-        "chief_technology_officer" => "red",
-        "junior_developer" => "amber",
-        "developer" => "amber",
-        "senior_developer" => "magenta",
-        "system_architect" => "cyan",
-        "junior_designer" or "senior_designer" => "violet",
-        "devops" => "cyan",
-        "security" => "red",
-        "research" => "violet",
-        _ => "amber"
-    };
-
-    private static string RoleGlyph(string role) => NormalizeRole(role) switch
-    {
-        "product_manager" => "◎",
-        "chief_technology_officer" => "▲",
-        "junior_developer" => "◇",
-        "developer" => "◈",
-        "senior_developer" => "◆",
-        "system_architect" => "●",
-        "junior_designer" or "senior_designer" => "◐",
-        "devops" => "◆",
-        "security" => "▲",
-        "research" => "◎",
-        _ => "◈"
+        "junior_developer"                       => "amber",
+        "developer"                              => "amber",
+        "senior_developer"                       => "magenta",
+        "junior_system_architect"                => "cyan",
+        "senior_system_architect"                => "red",
+        "junior_devops"                          => "green",
+        "senior_devops"                          => "green",
+        "devops_architect"                       => "violet",
+        _                                        => "dim"
     };
 
     private static string ToolLabel(string tool) => NormalizeTool(tool) switch
     {
-        "claude" => "Claude",
-        "codex" => "Codex",
-        "gemini" => "Gemini",
-        "openai" => "OpenAI",
+        "claude"   => "Claude",
+        "codex"    => "Codex",
+        "gemini"   => "Gemini",
+        "openai"   => "OpenAI",
         "opencode" => "Opencode",
-        _ => string.IsNullOrWhiteSpace(tool) ? "CLI" : tool
+        _          => string.IsNullOrWhiteSpace(tool) ? "CLI" : tool
     };
 
     private static string ToolTone(string tool) => NormalizeTool(tool) switch
     {
-        "claude" => "violet",
-        "codex" => "green",
-        "gemini" => "cyan",
-        "openai" => "green",
+        "claude"   => "violet",
+        "codex"    => "green",
+        "gemini"   => "cyan",
+        "openai"   => "green",
         "opencode" => "cyan",
-        _ => "amber"
+        _          => "amber"
     };
 
     private static string ToolCommand(string tool) => NormalizeTool(tool) switch
     {
-        "claude" => "claude",
-        "codex" => "codex",
-        "gemini" => "gemini",
-        "openai" => "openai",
-        "opencode" => "opencode run",
-        _ => NormalizeTool(tool)
+        "claude"   => "claude --model",
+        "codex"    => "codex -m",
+        "gemini"   => "gemini --model",
+        "opencode" => "opencode run --model",
+        _          => $"{NormalizeTool(tool)} --model"
     };
 
-    private static string AgentStatusLabel(AgentDto agent)
+    private static string ProviderLabel(AgentDto agent)
     {
-        if (!IsActive(agent))
-        {
-            return agent.Status.ToUpperInvariant();
-        }
+        if (!string.IsNullOrWhiteSpace(agent.Provider))
+            return agent.Provider.Trim();
 
-        if (IsStalled(agent))
+        return NormalizeTool(agent.Tool) switch
         {
-            return "STALLED";
-        }
-
-        return IsWorking(agent) ? "WORKING" : "IDLE";
+            "claude"            => "Claude",
+            "gemini"            => "Gemini",
+            "codex" or "openai" => "OpenAI",
+            "opencode"          => DeriveOpenCodeProvider(agent.Model),
+            _                   => "Unknown"
+        };
     }
 
-    private static string StatusTone(AgentDto agent)
+    private static string DeriveOpenCodeProvider(string model)
     {
-        if (!IsActive(agent))
-        {
-            return "dim";
-        }
-
-        if (IsStalled(agent))
-        {
-            return "red";
-        }
-
-        return IsWorking(agent) ? "cyan" : "dim";
+        var m = (model ?? string.Empty).ToLowerInvariant();
+        if (m.StartsWith("nvidia/") || m.Contains("nvidia")) return "NVIDIA";
+        if (m.StartsWith("openai/") || m.StartsWith("gpt-") || m.StartsWith("o1-") || m.StartsWith("o3-") || m.Contains("/gpt-")) return "OpenAI";
+        if (m.StartsWith("anthropic/") || m.StartsWith("claude-") || m.Contains("/claude-")) return "Claude";
+        if (m.StartsWith("google/") || m.StartsWith("gemini-") || m.Contains("/gemini-")) return "Gemini";
+        return "OpenRouter";
     }
 
-    private static string StatusDot(AgentDto agent)
+    private static string ProviderTone(string provider) => provider switch
     {
-        if (!IsActive(agent))
-        {
-            return "";
-        }
-
-        if (IsStalled(agent))
-        {
-            return "red";
-        }
-
-        return IsWorking(agent) ? "cyan" : "green";
-    }
-
-    private static string TaskStatusTone(string status) => status.ToLowerInvariant() switch
-    {
-        "completed" or "succeeded" => "green",
-        "failed" => "red",
-        "blocked" => "amber",
-        "claimed" or "in_progress" or "running" => "cyan",
-        _ => "dim"
+        "Anthropic"  => "violet",
+        "Claude"     => "violet",
+        "Fireworks"  => "magenta",
+        "Gemini"     => "cyan",
+        "NVIDIA"     => "green",
+        "OpenAI"     => "green",
+        "OpenRouter" => "amber",
+        _            => "dim"
     };
 
-    private static string TaskStatusLabel(string status) =>
-        string.IsNullOrWhiteSpace(status) ? "pending" : status.Replace("_", " ");
-
-    private static string PriorityTone(string priority) => priority.ToLowerInvariant() switch
+    private static string AgentCommand(AgentDto agent) => NormalizeTool(agent.Tool) switch
     {
-        "critical" => "red",
-        "high" => "amber",
-        "medium" or "normal" => "cyan",
-        _ => "dim"
+        "claude"   => $"claude --model {agent.Model}",
+        "opencode" => $"opencode run --model {agent.Model}",
+        "codex"    => $"codex -m {agent.Model}",
+        "gemini"   => $"gemini --model {agent.Model}",
+        _          => $"{NormalizeTool(agent.Tool)} --model {agent.Model}"
     };
-
-    private static string HeartbeatTone(AgentDto agent) => HeartbeatTone(agent.LastHeartbeatAt);
-
-    private static string HeartbeatTone(DateTimeOffset? heartbeat)
-    {
-        if (heartbeat is null)
-        {
-            return "tone-dim";
-        }
-
-        return DateTimeOffset.UtcNow - heartbeat > TimeSpan.FromMinutes(2) ? "tone-red" : "tone-green";
-    }
 
     private static string ShortId(Guid id) => id.ToString("N")[..8];
-
-    private static string Relative(DateTimeOffset? value)
-    {
-        if (value is null)
-        {
-            return "never";
-        }
-
-        return Relative(value.Value);
-    }
-
-    private static string Relative(DateTimeOffset value)
-    {
-        var span = DateTimeOffset.UtcNow - value.ToUniversalTime();
-        if (span < TimeSpan.Zero)
-        {
-            span = TimeSpan.Zero;
-        }
-
-        if (span.TotalSeconds < 60)
-        {
-            return $"{Math.Max(1, (int)span.TotalSeconds)}s ago";
-        }
-
-        if (span.TotalMinutes < 60)
-        {
-            return $"{(int)span.TotalMinutes}m ago";
-        }
-
-        if (span.TotalHours < 24)
-        {
-            return $"{(int)span.TotalHours}h ago";
-        }
-
-        return $"{(int)span.TotalDays}d ago";
-    }
-
-    private sealed record RoleTab(string Id, string Label, int Count);
 
     private sealed class AgentForm
     {
@@ -968,6 +701,7 @@ Task @task.TaskId · @task.Priority · @task.Status
         public int SortOrder { get; set; }
         public string Tool { get; set; } = "claude";
         public string Model { get; set; } = "claude-sonnet-4-6";
+        public string Provider { get; set; } = "";
         public string ResponsibilitiesText { get; set; } = "";
     }
 }

@@ -50,6 +50,9 @@ namespace Argus.AgentService.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Provider")
+                        .HasColumnType("text");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");

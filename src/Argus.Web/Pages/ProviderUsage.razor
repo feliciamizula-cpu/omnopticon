@@ -18,11 +18,6 @@
             <a class="page-tab" href="/agent-tasks">Agent Tasks</a>
             <a class="page-tab" href="/agent-schedules">Schedules</a>
             <a class="page-tab active" href="/provider-usage">Provider Usage <span class="tab-count">@(_overview?.Providers.Length ?? 0)</span></a>
-            <span class="page-tab-spacer"></span>
-            <div class="page-tab-actions">
-                <button class="btn ghost tiny" @onclick="() => LoadAsync()" disabled="@_loading">Refresh</button>
-                <button class="btn primary tiny" @onclick="RefreshAllAsync" disabled="@_refreshing">Run Checks</button>
-            </div>
         </div>
 
         <div class="dev-stats-strip">
@@ -79,7 +74,6 @@
                                 </div>
                                 <div class="provider-card-foot">
                                     <span class="provider-checked">@FormatRelative(provider.LastCheckedAt)</span>
-                                    <button class="btn ghost tiny" @onclick:stopPropagation="true" @onclick="() => RefreshProvider(provider)" disabled="@_refreshing">Refresh</button>
                                 </div>
                             </div>
                         }
@@ -140,13 +134,12 @@
                                 </div>
                             }
 
-                            <div class="dev-action-row">
-                                @if (!_selectedProvider.IsAuthenticated)
-                                {
-                                    <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_refreshing || _loading)">Login / Recheck</button>
-                                }
-                                <button class="btn ghost tiny" @onclick="() => RefreshProvider(_selectedProvider)" disabled="@_refreshing">Refresh</button>
-                            </div>
+                            @if (!_selectedProvider.IsAuthenticated)
+                            {
+                                <div class="dev-action-row">
+                                    <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_loggingIn || _loading)">Login / Recheck</button>
+                                </div>
+                            }
                         </div>
                     }
                 </aside>
@@ -161,7 +154,7 @@
     private ProviderRouteSelectionDto? _routing;
     private ProviderUsageDto? _selectedProvider;
     private bool _loading;
-    private bool _refreshing;
+    private bool _loggingIn;
     private string? _error;
     private string? _notice;
 
@@ -233,59 +226,9 @@
         return ValueTask.CompletedTask;
     }
 
-    private async Task RefreshAllAsync()
-    {
-        _refreshing = true;
-        _error = null;
-        _notice = null;
-        try
-        {
-            var response = await Http.PostAsync(Ui("/ui/provider-usage/refresh"), null);
-            if (!response.IsSuccessStatusCode)
-            {
-                _error = $"Provider refresh failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
-                return;
-            }
-
-            _overview = await ReadJsonContentAsync<ProviderUsageOverviewDto>(response, "provider refresh")
-                ?? new ProviderUsageOverviewDto(DateTimeOffset.UtcNow, [], null);
-            _routing = await GetJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"), "routing preview");
-            _notice = "Provider CLI, auth, usage, and routing status refreshed.";
-        }
-        catch (Exception ex)
-        {
-            _error = $"Unable to refresh provider usage: {ex.Message}";
-        }
-        finally
-        {
-            _refreshing = false;
-        }
-    }
-
-    private async Task RefreshProvider(ProviderUsageDto provider)
-    {
-        _error = null;
-        _notice = null;
-        try
-        {
-            var response = await Http.PostAsync(Ui($"/ui/provider-usage/{provider.ProviderId}/refresh"), null);
-            if (!response.IsSuccessStatusCode)
-            {
-                _error = $"{provider.ProviderName} refresh failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
-                return;
-            }
-
-            await LoadAsync();
-            _notice = $"{provider.ProviderName} status refreshed.";
-        }
-        catch (Exception ex)
-        {
-            _error = $"Unable to refresh {provider.ProviderName}: {ex.Message}";
-        }
-    }
-
     private async Task Login(ProviderUsageDto provider)
     {
+        _loggingIn = true;
         _error = null;
         _notice = null;
         try
@@ -304,6 +247,10 @@
         catch (Exception ex)
         {
             _error = $"Unable to run {provider.ProviderName} login command: {ex.Message}";
+        }
+        finally
+        {
+            _loggingIn = false;
         }
     }
 

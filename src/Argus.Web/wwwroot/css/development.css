@@ -1341,3 +1341,110 @@ textarea.dev-input {
     grid-template-columns: 1fr;
   }
 }
+
+/* Agent Configuration page */
+.ac-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+
+.ac-filter-bar {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-1);
+}
+
+.ac-filter-input {
+  width: 200px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  outline: none;
+}
+
+.ac-filter-input:focus { border-color: var(--accent); }
+
+.ac-filter-count {
+  margin-left: auto;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.ac-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ac-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ac-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--fg-3);
+  font-size: 9.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-table th:hover { color: var(--fg-1); background: var(--bg-3); }
+.ac-table th.ac-sorted { color: var(--accent); }
+
+.ac-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line-0);
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-table tbody tr { cursor: pointer; }
+.ac-table tbody tr:hover { background: var(--bg-1); }
+.ac-table tbody tr.selected { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ac-table tbody tr.ac-disabled { opacity: 0.42; }
+
+.ac-col-enabled  { width: 32px; }
+.ac-col-role     { width: 120px; }
+.ac-col-tool     { width: 80px; }
+.ac-col-provider { width: 95px; }
+.ac-col-model    { width: 155px; }
+.ac-col-command  { width: 190px; }
+
+@media (max-width: 1180px) {
+  .agent-config-page .dev-two-pane {
+    grid-template-columns: 1fr;
+  }
+}

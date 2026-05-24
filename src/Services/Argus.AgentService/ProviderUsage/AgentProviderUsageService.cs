@@ -291,11 +291,22 @@ internal sealed class AgentProviderUsageService(
             return (true, geminiStatus, null);
         }
 
+        if (definition.Id.Equals("claude", StringComparison.OrdinalIgnoreCase)
+            && TryGetClaudeCliCredentialStatus(out var claudeStatus))
+        {
+            return (true, claudeStatus, null);
+        }
+
         if (string.IsNullOrWhiteSpace(definition.AuthCheckArguments))
         {
             if (definition.Id.Equals("gemini", StringComparison.OrdinalIgnoreCase))
             {
                 return (true, "Gemini CLI available; this CLI version does not expose a non-interactive auth status command.", null);
+            }
+
+            if (definition.Id.Equals("claude", StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, "No Claude Code credentials found", null);
             }
 
             return (false, "Auth check not configured", null);
@@ -380,6 +391,42 @@ internal sealed class AgentProviderUsageService(
         if (!string.IsNullOrWhiteSpace(xdgConfig))
         {
             yield return Path.Combine(xdgConfig, "gemini");
+        }
+    }
+
+    private static bool TryGetClaudeCliCredentialStatus(out string status)
+    {
+        foreach (var root in ClaudeConfigRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var credentialsFile = Path.Combine(root, ".credentials.json");
+            if (FileExistsWithContent(credentialsFile))
+            {
+                status = $"Claude Code credentials found in {root}";
+                return true;
+            }
+        }
+
+        status = string.Empty;
+        return false;
+    }
+
+    private static IEnumerable<string> ClaudeConfigRoots()
+    {
+        var explicitRoot = Environment.GetEnvironmentVariable("CLAUDE_HOME");
+        if (!string.IsNullOrWhiteSpace(explicitRoot))
+        {
+            yield return explicitRoot;
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, ".claude");
         }
     }
 
@@ -663,7 +710,8 @@ internal sealed class AgentProviderUsageService(
             Executable = "claude",
             VersionArguments = "--version",
             LoginArguments = "login",
-            AuthCheckArguments = "whoami",
+            // claude whoami takes 12+ seconds (network call); use file-based credential check instead
+            AuthCheckArguments = "",
             AuthEnvironmentVariables = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
             UsageExecutable = "python3",
             UsageArguments = ScriptPath("claude-usage.py"),

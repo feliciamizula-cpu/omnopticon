@@ -27,6 +27,7 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<DevelopmentRealtimeClient>();
 builder.Services.AddSingleton<DevelopmentRealtimeNotifier>();
 builder.Services.AddSingleton<ProviderUsageCacheWarmer>();
+builder.Services.AddHostedService<ProviderUsageBackgroundRefresher>();
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
@@ -372,8 +373,6 @@ app.MapGet("/ui/code-reviews", ProxyGetCodeReviews);
 app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
-app.MapPost("/ui/provider-usage/refresh", ProxyRefreshProviderUsage);
-app.MapPost("/ui/provider-usage/{providerId}/refresh", ProxyRefreshProvider);
 app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
 app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
 
@@ -640,31 +639,13 @@ async Task<IResult> ProxyGetProviderUsage(IDistributedCache cache, ProviderUsage
     return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
 }
 
-async Task<IResult> ProxyRefreshProviderUsage(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
-{
-    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
-    await warmer.WarmAsync(forceRefresh: true, ct);
-    var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderUsage, ct);
-    return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
-}
-
-async Task<IResult> ProxyRefreshProvider(string providerId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
-{
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/refresh", new JsonObject(), ct);
-    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
-    await notifier.NotifyAsync("provider-usage", "provider-refreshed", ct);
-    return result;
-}
-
-async Task<IResult> ProxyLoginProvider(string providerId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+async Task<IResult> ProxyLoginProvider(string providerId, IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var result = await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/login", new JsonObject(), ct);
     await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
-    await notifier.NotifyAsync("provider-usage", "login", ct);
+    await warmer.WarmAsync(forceRefresh: true, ct);
     return result;
 }
 

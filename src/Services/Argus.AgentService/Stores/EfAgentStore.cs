@@ -83,7 +83,8 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
             Status = "active",
             ResponsibilitiesJson = JsonSerializer.Serialize(request.Responsibilities),
             Tool = request.Tool,
-            Model = request.Model
+            Model = request.Model,
+            Provider = string.IsNullOrWhiteSpace(request.Provider) ? null : request.Provider.Trim()
         };
 
         _dbContext.Agents.Add(record);
@@ -122,6 +123,10 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
             record.LastHeartbeatAt = request.LastHeartbeatAt.Value;
         if (request.LastError is not null)
             record.LastError = string.IsNullOrWhiteSpace(request.LastError) ? null : request.LastError;
+        if (request.ClearProvider)
+            record.Provider = null;
+        else if (!string.IsNullOrWhiteSpace(request.Provider))
+            record.Provider = request.Provider.Trim();
 
         record.UpdatedAt = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
