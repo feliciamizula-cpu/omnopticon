@@ -2,6 +2,7 @@
 @page "/development/provider-usage"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Net.Http.Json
+@using System.Text.Json
 @using Argus.Contracts.Agents
 @inject HttpClient Http
 @inject NavigationManager Nav
@@ -181,8 +182,9 @@
         _notice = null;
         try
         {
-            _overview = await Http.GetFromJsonAsync<ProviderUsageOverviewDto>(Ui("/ui/provider-usage"));
-            _routing = await Http.GetFromJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"));
+            _overview = await GetJsonAsync<ProviderUsageOverviewDto>(Ui("/ui/provider-usage"), "provider usage")
+                ?? new ProviderUsageOverviewDto(DateTimeOffset.UtcNow, [], null);
+            _routing = await GetJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"), "routing preview");
         }
         catch (Exception ex)
         {
@@ -208,9 +210,9 @@
                 return;
             }
 
-            _overview = await response.Content.ReadFromJsonAsync<ProviderUsageOverviewDto>()
+            _overview = await ReadJsonContentAsync<ProviderUsageOverviewDto>(response, "provider refresh")
                 ?? new ProviderUsageOverviewDto(DateTimeOffset.UtcNow, [], null);
-            _routing = await Http.GetFromJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"));
+            _routing = await GetJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"), "routing preview");
             _notice = "Provider CLI, auth, usage, and routing status refreshed.";
         }
         catch (Exception ex)
@@ -258,7 +260,7 @@
                 return;
             }
 
-            var login = await response.Content.ReadFromJsonAsync<ProviderLoginResponseDto>();
+            var login = await ReadJsonContentAsync<ProviderLoginResponseDto>(response, $"{provider.ProviderName} login");
             await LoadAsync();
             _notice = FormatLoginNotice(login);
         }
@@ -274,6 +276,37 @@
     }
 
     private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
+
+    private async Task<T?> GetJsonAsync<T>(string url, string label)
+    {
+        using var response = await Http.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"{label} returned {(int)response.StatusCode}: {TrimBody(body)}");
+        }
+
+        return await ReadJsonContentAsync<T>(response, label);
+    }
+
+    private static async Task<T?> ReadJsonContentAsync<T>(HttpResponseMessage response, string label)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+        if (!mediaType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            var contentType = string.IsNullOrWhiteSpace(mediaType) ? "unknown content type" : mediaType;
+            throw new InvalidOperationException($"{label} returned {contentType}: {TrimBody(body)}");
+        }
+
+        return await response.Content.ReadFromJsonAsync<T>();
+    }
+
+    private static string TrimBody(string value)
+    {
+        value = value.ReplaceLineEndings(" ").Trim();
+        return value.Length <= 180 ? value : value[..180] + "...";
+    }
 
     private static string FormatLoginNotice(ProviderLoginResponseDto? login)
     {

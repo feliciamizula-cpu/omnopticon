@@ -189,6 +189,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY}
+      CODEX_FIVE_HOUR_LIMIT: ${CODEX_FIVE_HOUR_LIMIT:-0}
+      CODEX_TWENTY_FOUR_HOUR_LIMIT: ${CODEX_TWENTY_FOUR_HOUR_LIMIT:-0}
+      CODEX_WEEKLY_LIMIT: ${CODEX_WEEKLY_LIMIT:-0}
+      CODEX_MONTHLY_LIMIT: ${CODEX_MONTHLY_LIMIT:-0}
     volumes:
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro

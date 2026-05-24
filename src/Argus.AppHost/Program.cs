@@ -77,7 +77,11 @@ var agentService = builder.AddProject<Projects.Argus_AgentService>("agent-servic
     .WithEnvironment("OPENROUTER_API_KEY", "<OPENROUTER_API_KEY>")
     .WithEnvironment("OPENAI_API_KEY", "<OPENAI_API_KEY>")
     .WithEnvironment("ANTHROPIC_API_KEY", "<ANTHROPIC_API_KEY>")
-    .WithEnvironment("FIREWORKS_API_KEY", "<FIREWORKS_API_KEY>");
+    .WithEnvironment("FIREWORKS_API_KEY", "<FIREWORKS_API_KEY>")
+    .WithEnvironment("CODEX_FIVE_HOUR_LIMIT", "<CODEX_FIVE_HOUR_LIMIT>")
+    .WithEnvironment("CODEX_TWENTY_FOUR_HOUR_LIMIT", "<CODEX_TWENTY_FOUR_HOUR_LIMIT>")
+    .WithEnvironment("CODEX_WEEKLY_LIMIT", "<CODEX_WEEKLY_LIMIT>")
+    .WithEnvironment("CODEX_MONTHLY_LIMIT", "<CODEX_MONTHLY_LIMIT>");
 
 asset.WithReference(realtime);
 task.WithReference(realtime);
