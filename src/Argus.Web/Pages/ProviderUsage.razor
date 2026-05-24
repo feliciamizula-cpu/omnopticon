@@ -605,10 +605,7 @@
             : $"{(int)ago.TotalDays}d ago";
     }
 
-    private static string Ui(string path)
-    {
-        return path;
-    }
+    private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
 
     // Local UI models
     private sealed class ProviderUsageSummaryModel
