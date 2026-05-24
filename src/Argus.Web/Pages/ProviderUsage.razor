@@ -2,34 +2,31 @@
 @page "/development/provider-usage"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Net.Http.Json
-@using System.Text.Json
-@using System.Text.Json.Serialization
+@using Argus.Contracts.Agents
 @inject HttpClient Http
 @inject NavigationManager Nav
-@inject IJSRuntime JS
 
-<PageHeader Title="Provider Usage" Subtitle="@($"{_summary?.TotalProviders ?? 0} providers · {_summary?.HealthyCount ?? 0} healthy · {_summary?.WarningCount ?? 0} warning · {_summary?.CriticalCount ?? 0} critical/exhausted")" />
+<PageHeader Title="Provider Usage" Subtitle="CLI authentication, tool health, usage windows, and automatic task routing" />
 
-<div class="page-body dev-page">
+<div class="page-body dev-page provider-usage-page">
     <div class="dev-main">
         <div class="page-tabs">
-            @foreach (var tab in StatusTabs)
-            {
-                <button class="page-tab @(_statusFilter == tab.Id ? "active" : "")" @onclick="() => SetStatusFilter(tab.Id)">
-                    <span>@tab.Label</span>
-                    <span class="tab-count">@tab.Count</span>
-                </button>
-            }
-            <div class="page-tab-spacer"></div>
+            <a class="page-tab" href="/agents">Agents</a>
+            <a class="page-tab" href="/agent-tasks">Agent Tasks</a>
+            <a class="page-tab" href="/agent-schedules">Schedules</a>
+            <a class="page-tab active" href="/provider-usage">Provider Usage <span class="tab-count">@(_overview?.Providers.Length ?? 0)</span></a>
+            <span class="page-tab-spacer"></span>
             <div class="page-tab-actions">
-                <button class="btn primary tiny" @onclick="RefreshAll" disabled="@_refreshing">@(_refreshing ? "Refreshing…" : "Refresh All")</button>
-                @if (_selected is not null)
-                {
-                    <button class="btn ghost tiny" @onclick="() => RefreshSelected(_selected.AccountId)">Refresh Selected</button>
-                    <button class="btn ghost tiny" @onclick="OpenManualSnapshotModal">Manual Snapshot</button>
-                    <button class="btn danger tiny" @onclick="() => PauseRelatedAgents(_selected.AccountId)">Pause Related Agents</button>
-                }
+                <button class="btn ghost tiny" @onclick="Load" disabled="@_loading">Refresh</button>
+                <button class="btn primary tiny" @onclick="RefreshAll" disabled="@_refreshing">Run Checks</button>
             </div>
+        </div>
+
+        <div class="dev-stats-strip">
+            <DevStat Label="Providers" Value='@((_overview?.Providers.Length ?? 0).ToString("N0"))' Sub="configured CLI accounts" />
+            <DevStat Label="Logged In" Value='@(Providers.Count(p => p.IsAuthenticated).ToString("N0"))' Sub="auth checks passing" />
+            <DevStat Label="CLI Tools" Value='@(Providers.Count(p => p.ToolStatus.IsAvailable).ToString("N0"))' Sub="version command succeeded" />
+            <DevStat Label="Auto Route" Value='@(RouteLabel)' Sub='@(_routing?.Reason ?? _overview?.RecommendedRoute?.Reason ?? "waiting for provider checks")' />
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_error))
@@ -38,345 +35,153 @@
         }
         @if (!string.IsNullOrWhiteSpace(_notice))
         {
-            <div class="dev-alert" style="background: var(--green-bg); color: var(--green);">@_notice</div>
+            <div class="dev-note provider-notice">@_notice</div>
         }
 
-        <div class="dev-stats-strip">
-            <DevStat Label="Total" Value="@((_summary?.TotalProviders ?? 0).ToString("N0"))" Sub="configured providers" />
-            <DevStat Label="Healthy" Value="@((_summary?.HealthyCount ?? 0).ToString("N0"))" Tone="cyan" Sub="within thresholds" />
-            <DevStat Label="Warning" Value="@((_summary?.WarningCount ?? 0).ToString("N0"))" Tone="@(_summary?.WarningCount > 0 ? "amber" : "")" Sub="approaching limit" />
-            <DevStat Label="Critical / Exhausted" Value="@((_summary?.CriticalCount ?? 0).ToString("N0"))" Tone="@(_summary?.CriticalCount > 0 ? "red" : "")" Sub="at or over limit" />
-            <DevStat Label="Error / Unknown" Value="@((_summary?.ErrorCount ?? 0).ToString("N0"))" Tone="@(_summary?.ErrorCount > 0 ? "amber" : "")" Sub="needs attention" />
-        </div>
-
-        @if (_loading)
+        @if (_loading && _overview is null)
         {
-            <div class="dev-empty">
-                <div>
-                    <div class="app-loading-spinner" style="margin: 0 auto 12px;"></div>
-                    <div>// loading provider usage</div>
-                </div>
-            </div>
+            <div class="dev-empty">Loading provider usage and CLI status…</div>
         }
         else
         {
-            <div class="dev-two-pane">
-                <div class="dev-list-pane">
-                    <div class="mono-label">PROVIDERS · @FilteredAccounts.Count accounts</div>
-
-                    @if (FilteredAccounts.Count == 0)
-                    {
-                        <div class="dev-empty">// no providers match this filter</div>
-                    }
-                    else
-                    {
-                        <div class="dev-grid">
-                            @foreach (var account in FilteredAccounts)
-                            {
-                                var snap = account.LatestSnapshot;
-                                var status = snap?.Status ?? "unknown";
-                                <div class="dev-card @(_selected?.AccountId == account.AccountId ? "selected" : "") @(!account.Enabled ? "disabled" : "")"
-                                     @onclick="() => SelectAccount(account)">
-                                    <div class="dev-card-top">
-                                        <span class="dot @StatusDot(status) @(status == "healthy" ? "" : "pulse")"></span>
-                                        <span class="dev-card-title">@account.DisplayName</span>
-                                        <span class="dev-pill @StatusTone(status)">@StatusLabel(status)</span>
-                                        <span class="dev-card-id">@account.ProviderKey</span>
+            <div class="provider-layout">
+                <div class="provider-grid-wrap">
+                    <div class="provider-grid">
+                        @foreach (var provider in Providers)
+                        {
+                            <section class="provider-card">
+                                <div class="provider-card-head">
+                                    <div class="provider-title-line">
+                                        <span class="dot @ProviderDot(provider)"></span>
+                                        <div>
+                                            <div class="provider-title">@provider.ProviderName</div>
+                                            <div class="provider-subtitle mono">@provider.ToolStatus.Executable --version</div>
+                                        </div>
                                     </div>
-
-                                    @if (snap is not null)
-                                    {
-                                        <div class="dev-command-line">
-                                            @if (snap.RemainingAmount.HasValue)
-                                            {
-                                                <span class="tone-@StatusTone(status)">@snap.RemainingAmount:N2 @snap.Unit remaining</span>
-                                            }
-                                            else if (snap.UsedAmount.HasValue)
-                                            {
-                                                <span>@snap.UsedAmount:N2 @snap.Unit used</span>
-                                            }
-                                            else
-                                            {
-                                                <span style="color: var(--fg-3);">// no usage data</span>
-                                            }
-                                            @if (snap.ResetsAt.HasValue)
-                                            {
-                                                <span style="color: var(--fg-3);"> · resets @Relative(snap.ResetsAt)</span>
-                                            }
-                                        </div>
-
-                                        <div class="dev-mini-grid">
-                                            <div class="dev-mini"><div class="l">window</div><div class="v">@snap.WindowKind</div></div>
-                                            <div class="dev-mini"><div class="l">source</div><div class="v">@snap.Source</div></div>
-                                            <div class="dev-mini"><div class="l">confidence</div><div class="v">@snap.Confidence</div></div>
-                                            <div class="dev-mini"><div class="l">refreshed</div><div class="v @(snap.IsStale ? "tone-amber" : "")">@Relative(snap.ObservedAt)</div></div>
-                                        </div>
-
-                                        @if (!string.IsNullOrWhiteSpace(snap.Message))
-                                        {
-                                            <div class="dev-error" style="@(status is "not_configured" or "unknown" ? "color: var(--fg-3);" : "")">@snap.Message</div>
-                                        }
-                                    }
-                                    else
-                                    {
-                                        <div class="dev-command-line" style="color: var(--fg-3);">// no snapshot — click Refresh All</div>
-                                    }
-
-                                    <div class="dev-chipline">
-                                        @foreach (var tool in account.RelatedTools.Take(4))
-                                        {
-                                            <span class="dev-chip"><span style="color: var(--accent);">⚙</span> @tool</span>
-                                        }
-                                        @foreach (var model in account.RelatedModels.Take(3))
-                                        {
-                                            <span class="dev-chip">@model</span>
-                                        }
-                                        @if (account.RelatedModels.Length > 3)
-                                        {
-                                            <span class="dev-chip">+@(account.RelatedModels.Length - 3) models</span>
-                                        }
+                                    <div class="provider-score">
+                                        <span class="score-value">@provider.RoutingScore.ToString("0.#")</span>
+                                        <span class="score-label">route</span>
                                     </div>
                                 </div>
-                            }
-                        </div>
-                    }
-                </div>
 
-                <div class="dev-inspector">
-                    @if (_selected is null)
-                    {
-                        <div class="dev-empty">// select a provider</div>
-                    }
-                    else
-                    {
-                        var sel = _selected;
-                        var snap = sel.LatestSnapshot;
-                        var status = snap?.Status ?? "unknown";
-                        <div class="dev-inspector-head">
-                            <div class="type-row">
-                                <span class="dev-pill @StatusTone(status)">@StatusLabel(status)</span>
-                                <span class="asset-id">@sel.ProviderKey</span>
-                            </div>
-                            <div class="value-big">@sel.DisplayName</div>
-                            <div class="submeta">
-                                <span>type <b>@sel.AccountType</b></span>
-                                <span>auth <b>@sel.AuthMode</b></span>
-                                @if (!string.IsNullOrWhiteSpace(sel.SecretName))
-                                {
-                                    <span>secret <b class="mono">@sel.SecretName</b></span>
-                                }
-                            </div>
-                        </div>
+                                <div class="dev-chipline compact">
+                                    <span class="dev-pill @ToolTone(provider)">@ToolStatusText(provider)</span>
+                                    <span class="dev-pill @AuthTone(provider)">@(provider.IsAuthenticated ? "logged in" : "not logged in")</span>
+                                    <span class="dev-pill @RoutingTone(provider)">@provider.RoutingStatus</span>
+                                </div>
 
-                        <div class="inspector-tabs">
-                            @foreach (var tab in DetailTabs)
-                            {
-                                <button class="insp-tab @(_detailTab == tab ? "active" : "")" @onclick="() => _detailTab = tab">@tab</button>
-                            }
-                        </div>
-
-                        <div class="dev-inspector-body">
-                            @if (_detailTab == "snapshot")
-                            {
-                                <div class="section-label">LATEST SNAPSHOT</div>
-                                @if (snap is null)
-                                {
-                                    <div class="dev-empty" style="padding: 12px;">// no snapshot yet — click Refresh</div>
-                                }
-                                else
-                                {
-                                    <table class="kv-table">
-                                        <tbody>
-                                            <tr><td>Status</td><td><span class="dev-pill @StatusTone(status)">@StatusLabel(status)</span></td></tr>
-                                            <tr><td>Window</td><td>@snap.WindowKind</td></tr>
-                                            <tr><td>Unit</td><td>@snap.Unit</td></tr>
-                                            @if (snap.LimitAmount.HasValue) { <tr><td>Limit</td><td>@snap.LimitAmount:N2</td></tr> }
-                                            @if (snap.UsedAmount.HasValue) { <tr><td>Used</td><td>@snap.UsedAmount:N2</td></tr> }
-                                            @if (snap.RemainingAmount.HasValue) { <tr><td>Remaining</td><td class="@StatusTone(status)">@snap.RemainingAmount:N2</td></tr> }
-                                            @if (snap.RemainingPercent.HasValue) { <tr><td>Remaining %</td><td class="@StatusTone(status)">@snap.RemainingPercent:N1 %</td></tr> }
-                                            @if (snap.ResetsAt.HasValue) { <tr><td>Resets at</td><td>@snap.ResetsAt.Value.ToString("u")</td></tr> }
-                                            <tr><td>Source</td><td>@snap.Source</td></tr>
-                                            <tr><td>Confidence</td><td>@snap.Confidence</td></tr>
-                                            <tr><td>Observed at</td><td class="@(snap.IsStale ? "tone-amber" : "")">@snap.ObservedAt.ToString("u") @(snap.IsStale ? "⚠ stale" : "")</td></tr>
-                                        </tbody>
-                                    </table>
-                                    @if (!string.IsNullOrWhiteSpace(snap.Message))
-                                    {
-                                        <div class="section-label">MESSAGE</div>
-                                        <div class="dev-note">@snap.Message</div>
-                                    }
-                                }
-
-                                <div class="section-label">THRESHOLDS</div>
-                                <table class="kv-table">
+                                <table class="kv-table provider-kv">
                                     <tbody>
-                                        <tr><td>Warning at</td><td>≤ @sel.WarningThresholdPercent %</td></tr>
-                                        <tr><td>Critical at</td><td>≤ @sel.CriticalThresholdPercent %</td></tr>
-                                        <tr><td>Enabled</td><td>@(sel.Enabled ? "yes" : "no")</td></tr>
+                                    <tr><td>Provider</td><td>@provider.DisplayModelHint</td></tr>
+                                    <tr><td>Tool status</td><td>@ToolStatusLine(provider)</td></tr>
+                                    <tr><td>Version</td><td class="mono">@(provider.ToolStatus.Version ?? "—")</td></tr>
+                                    <tr><td>Auth status</td><td>@provider.AuthStatus</td></tr>
+                                    <tr><td>Reset data</td><td>@KnownUsageCount(provider)/3 windows configured</td></tr>
                                     </tbody>
                                 </table>
 
-                                <div class="section-label">RELATED TOOLS &amp; MODELS</div>
-                                <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
-                                    @foreach (var t in sel.RelatedTools) { <span class="dev-chip">⚙ @t</span> }
-                                    @foreach (var m in sel.RelatedModels) { <span class="dev-chip">@m</span> }
+                                <div class="usage-window-stack">
+                                    <UsageWindow Window="provider.FiveHour" />
+                                    <UsageWindow Window="provider.Weekly" />
+                                    <UsageWindow Window="provider.Monthly" />
                                 </div>
-                            }
-                            else if (_detailTab == "history")
-                            {
-                                @if (_historyLoading)
+
+                                @if (!string.IsNullOrWhiteSpace(provider.LastError))
                                 {
-                                    <div class="dev-empty" style="padding: 12px;">
-                                        <div class="app-loading-spinner" style="margin: 0 auto 8px;"></div>
-                                        <div>loading history…</div>
-                                    </div>
+                                    <div class="dev-error">@provider.LastError</div>
                                 }
-                                else if (_history.Count == 0)
-                                {
-                                    <div class="dev-empty" style="padding: 12px;">// no snapshots yet</div>
-                                }
-                                else
-                                {
-                                    <table class="kv-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Observed</th>
-                                                <th>Window</th>
-                                                <th>Remaining</th>
-                                                <th>Status</th>
-                                                <th>Source</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var h in _history)
-                                            {
-                                                <tr>
-                                                    <td>@Relative(h.ObservedAt)</td>
-                                                    <td>@h.WindowKind</td>
-                                                    <td>@(h.RemainingAmount.HasValue ? $"{h.RemainingAmount:N2} {h.Unit}" : (h.UsedAmount.HasValue ? $"{h.UsedAmount:N2} {h.Unit} used" : "—"))</td>
-                                                    <td><span class="dev-pill @StatusTone(h.Status)">@StatusLabel(h.Status)</span></td>
-                                                    <td>@h.Source</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                }
-                            }
-                        </div>
-                    }
+
+                                <div class="provider-command-box">
+                                    <div class="mono-label">LOGIN COMMAND</div>
+                                    <div class="provider-command mono">@provider.LoginCommand</div>
+                                    <div class="provider-login-help">@provider.LoginInstructions</div>
+                                </div>
+
+                                <div class="provider-actions">
+                                    <button class="btn primary tiny" @onclick="() => Login(provider)" disabled="@_busyProviderIds.Contains(provider.ProviderId)">Login / Recheck</button>
+                                    <button class="btn ghost tiny" @onclick="() => RefreshProvider(provider)" disabled="@_busyProviderIds.Contains(provider.ProviderId)">Refresh Provider</button>
+                                </div>
+                            </section>
+                        }
+                    </div>
                 </div>
+
+                <aside class="dev-inspector provider-inspector">
+                    <div class="dev-inspector-head">
+                        <div class="type-row">
+                            <span class="dev-pill @(IsRouteRunnable ? "green" : "red")">routing</span>
+                            <span class="asset-id">AUTO</span>
+                        </div>
+                        <div class="value-big">Task Routing</div>
+                        <div class="submeta">
+                            <span>policy <b>highest available usage first</b></span>
+                        </div>
+                    </div>
+                    <div class="dev-inspector-body">
+                        <div class="section-label">CURRENT DECISION</div>
+                        <table class="kv-table">
+                            <tbody>
+                            <tr><td>Runnable</td><td><span class="dev-pill @(IsRouteRunnable ? "green" : "red")">@(IsRouteRunnable ? "yes" : "no")</span></td></tr>
+                            <tr><td>Provider</td><td>@(_routing?.ProviderName ?? _overview?.RecommendedRoute?.ProviderName ?? "—")</td></tr>
+                            <tr><td>CLI</td><td class="mono">@(_routing?.ToolId ?? _overview?.RecommendedRoute?.ToolId ?? "—")</td></tr>
+                            <tr><td>Agent</td><td>@(_routing?.AgentName ?? "—")</td></tr>
+                            <tr><td>Score</td><td>@((_routing?.RoutingScore ?? _overview?.RecommendedRoute?.RoutingScore ?? 0).ToString("0.#"))</td></tr>
+                            <tr><td>Reason</td><td>@(_routing?.Reason ?? _overview?.RecommendedRoute?.Reason ?? "No routing decision yet.")</td></tr>
+                            </tbody>
+                        </table>
+
+                        <div class="section-label">ROUTING RULES</div>
+                        <div class="dev-note">
+Tasks created without an explicit assignee are routed automatically. The AgentService checks provider CLI availability, authentication, and available usage windows. It selects the active agent whose CLI maps to the provider with the highest remaining usage score. Explicit task assignment still overrides automatic routing.
+                        </div>
+
+                        <div class="section-label">USAGE DATA SOURCE</div>
+                        <div class="dev-note">
+Usage windows are populated from configured provider usage commands or configured window values. CLI version and auth state are checked directly by running each configured CLI command on the server host.
+                        </div>
+
+                        <div class="dev-action-row">
+                            <button class="btn ghost tiny" @onclick="Load" disabled="@_loading">Reload</button>
+                            <button class="btn primary tiny" @onclick="RefreshAll" disabled="@_refreshing">Run All Checks</button>
+                        </div>
+                    </div>
+                </aside>
             </div>
         }
     </div>
 </div>
 
-@if (_showManualModal)
-{
-    <div class="modal-overlay" @onclick="CloseManualModal">
-        <div class="modal-box" @onclick:stopPropagation>
-            <div class="modal-head">
-                <span class="modal-title">Manual Snapshot — @(_selected?.DisplayName)</span>
-                <button class="modal-close" @onclick="CloseManualModal">✕</button>
-            </div>
-            <div class="modal-body">
-                <div class="field-group">
-                    <label>Window Kind <span class="req">*</span></label>
-                    <input @bind="_manualForm.WindowKind" placeholder="e.g. month, day, subscription" />
-                </div>
-                <div class="field-group">
-                    <label>Unit <span class="req">*</span></label>
-                    <input @bind="_manualForm.Unit" placeholder="e.g. tokens, usd, requests, messages" />
-                </div>
-                <div class="field-group">
-                    <label>Limit</label>
-                    <input type="number" @bind="_manualForm.LimitAmount" placeholder="leave blank if unknown" />
-                </div>
-                <div class="field-group">
-                    <label>Used</label>
-                    <input type="number" @bind="_manualForm.UsedAmount" placeholder="leave blank if unknown" />
-                </div>
-                <div class="field-group">
-                    <label>Remaining</label>
-                    <input type="number" @bind="_manualForm.RemainingAmount" placeholder="leave blank if unknown" />
-                </div>
-                <div class="field-group">
-                    <label>Resets at</label>
-                    <input type="datetime-local" @bind="_manualForm.ResetsAt" />
-                </div>
-                <div class="field-group">
-                    <label>Message</label>
-                    <input @bind="_manualForm.Message" placeholder="optional note" />
-                </div>
-                @if (!string.IsNullOrWhiteSpace(_modalError))
-                {
-                    <div class="dev-alert">@_modalError</div>
-                }
-            </div>
-            <div class="modal-footer">
-                <button class="btn primary" @onclick="SaveManualSnapshot">Save Snapshot</button>
-                <button class="btn ghost" @onclick="CloseManualModal">Cancel</button>
-            </div>
-        </div>
-    </div>
-}
-
 @code {
-    private ProviderUsageSummaryModel? _summary;
-    private List<ProviderAccountModel> _accounts = [];
-    private ProviderAccountModel? _selected;
-    private List<ProviderUsageSnapshotModel> _history = [];
-    private bool _loading = true;
-    private bool _refreshing = false;
-    private bool _historyLoading = false;
+    private ProviderUsageOverviewDto? _overview;
+    private ProviderRouteSelectionDto? _routing;
+    private readonly HashSet<string> _busyProviderIds = new(StringComparer.OrdinalIgnoreCase);
+    private bool _loading;
+    private bool _refreshing;
     private string? _error;
     private string? _notice;
-    private string _statusFilter = "all";
-    private string _detailTab = "snapshot";
-    private bool _showManualModal = false;
-    private string? _modalError;
-    private ManualSnapshotForm _manualForm = new();
 
-    private static readonly string[] DetailTabs = ["snapshot", "history"];
+    private IReadOnlyList<ProviderUsageDto> Providers => _overview?.Providers ?? Array.Empty<ProviderUsageDto>();
 
-    private record StatusTab(string Id, string Label, int Count);
+    private bool IsRouteRunnable => _routing?.IsRunnable ?? _overview?.RecommendedRoute?.IsRunnable ?? false;
 
-    private IEnumerable<StatusTab> StatusTabs => new[]
-    {
-        new StatusTab("all", "All", _accounts.Count),
-        new StatusTab("healthy", "Healthy", _accounts.Count(a => a.LatestSnapshot?.Status == "healthy")),
-        new StatusTab("warning", "Warning", _accounts.Count(a => a.LatestSnapshot?.Status == "warning")),
-        new StatusTab("critical", "Critical", _accounts.Count(a => a.LatestSnapshot?.Status is "critical" or "exhausted")),
-        new StatusTab("issues", "Issues", _accounts.Count(a => a.LatestSnapshot?.Status is "error" or "stale" or "not_configured" or "unknown" or null))
-    };
-
-    private List<ProviderAccountModel> FilteredAccounts => _statusFilter switch
-    {
-        "healthy" => _accounts.Where(a => a.LatestSnapshot?.Status == "healthy").ToList(),
-        "warning" => _accounts.Where(a => a.LatestSnapshot?.Status == "warning").ToList(),
-        "critical" => _accounts.Where(a => a.LatestSnapshot?.Status is "critical" or "exhausted").ToList(),
-        "issues" => _accounts.Where(a => a.LatestSnapshot?.Status is "error" or "stale" or "not_configured" or "unknown" or null).ToList(),
-        _ => _accounts
-    };
+    private string RouteLabel =>
+        _routing?.ProviderName
+        ?? _overview?.RecommendedRoute?.ProviderName
+        ?? "—";
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
+        await Load();
     }
 
-    private async Task LoadData()
+    private async Task Load()
     {
         _loading = true;
         _error = null;
         try
         {
-            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            var response = await Http.GetFromJsonAsync<ProviderUsageSummaryModel>(Ui("/ui/provider-usage"), opts);
-            _summary = response;
-            _accounts = response?.Accounts ?? [];
-            if (_selected is not null)
-            {
-                _selected = _accounts.FirstOrDefault(a => a.AccountId == _selected.AccountId);
-            }
+            _overview = await Http.GetFromJsonAsync<ProviderUsageOverviewDto>(Ui("/ui/provider-usage"));
+            _routing = await Http.GetFromJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"));
         }
         catch (Exception ex)
         {
@@ -398,17 +203,17 @@
             var response = await Http.PostAsync(Ui("/ui/provider-usage/refresh"), null);
             if (!response.IsSuccessStatusCode)
             {
-                _error = $"Refresh failed: {(int)response.StatusCode}";
+                _error = $"Provider refresh failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
             }
-            else
-            {
-                _notice = "All providers refreshed.";
-                await LoadData();
-            }
+
+            _overview = await response.Content.ReadFromJsonAsync<ProviderUsageOverviewDto>();
+            _routing = await Http.GetFromJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"));
+            _notice = "Provider CLI, auth, usage, and routing status refreshed.";
         }
         catch (Exception ex)
         {
-            _error = $"Refresh error: {ex.Message}";
+            _error = $"Unable to refresh provider usage: {ex.Message}";
         }
         finally
         {
@@ -416,262 +221,157 @@
         }
     }
 
-    private async Task RefreshSelected(Guid accountId)
+    private async Task RefreshProvider(ProviderUsageDto provider)
     {
+        _busyProviderIds.Add(provider.ProviderId);
         _error = null;
         _notice = null;
         try
         {
-            var response = await Http.PostAsync(Ui($"/ui/provider-usage/{accountId}/refresh"), null);
-            if (!response.IsSuccessStatusCode)
-                _error = $"Refresh failed: {(int)response.StatusCode}";
-            else
-            {
-                _notice = "Provider refreshed.";
-                await LoadData();
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = $"Refresh error: {ex.Message}";
-        }
-    }
-
-    private async Task LoadHistory(Guid accountId)
-    {
-        _historyLoading = true;
-        _history = [];
-        try
-        {
-            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            var result = await Http.GetFromJsonAsync<SnapshotListResponse>(
-                Ui($"/ui/provider-usage/{accountId}/history?take=100"), opts);
-            _history = result?.Items ?? [];
-        }
-        catch
-        {
-            _history = [];
-        }
-        finally
-        {
-            _historyLoading = false;
-        }
-    }
-
-    private async Task PauseRelatedAgents(Guid accountId)
-    {
-        if (!await JS.InvokeAsync<bool>("confirm", "Pause all agents using this provider?"))
-            return;
-        _error = null;
-        try
-        {
-            var response = await Http.PostAsync(Ui($"/ui/provider-usage/{accountId}/pause-agents"), null);
-            if (response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync();
-                var paused = JsonSerializer.Deserialize<JsonElement>(body).GetProperty("paused").GetInt32();
-                _notice = $"Paused {paused} agent(s) related to this provider.";
-            }
-            else
-            {
-                _error = $"Pause failed: {(int)response.StatusCode}";
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = $"Error: {ex.Message}";
-        }
-    }
-
-    private void OpenManualSnapshotModal()
-    {
-        _manualForm = new ManualSnapshotForm();
-        _modalError = null;
-        _showManualModal = true;
-    }
-
-    private void CloseManualModal()
-    {
-        _showManualModal = false;
-        _modalError = null;
-    }
-
-    private async Task SaveManualSnapshot()
-    {
-        if (_selected is null) return;
-        if (string.IsNullOrWhiteSpace(_manualForm.WindowKind) || string.IsNullOrWhiteSpace(_manualForm.Unit))
-        {
-            _modalError = "Window Kind and Unit are required.";
-            return;
-        }
-
-        try
-        {
-            var payload = new
-            {
-                windowKind = _manualForm.WindowKind,
-                unit = _manualForm.Unit,
-                limitAmount = _manualForm.LimitAmount,
-                usedAmount = _manualForm.UsedAmount,
-                remainingAmount = _manualForm.RemainingAmount,
-                resetsAt = _manualForm.ResetsAt.HasValue
-                    ? new DateTimeOffset(_manualForm.ResetsAt.Value, TimeSpan.Zero)
-                    : (DateTimeOffset?)null,
-                message = _manualForm.Message
-            };
-
-            var response = await Http.PostAsJsonAsync(
-                Ui($"/ui/provider-usage/{_selected.AccountId}/manual-snapshot"), payload);
-
+            var response = await Http.PostAsync(Ui($"/ui/provider-usage/{provider.ProviderId}/refresh"), null);
             if (!response.IsSuccessStatusCode)
             {
-                _modalError = $"Save failed: {(int)response.StatusCode} — {await response.Content.ReadAsStringAsync()}";
+                _error = $"{provider.ProviderName} refresh failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
                 return;
             }
 
-            CloseManualModal();
-            _notice = "Manual snapshot saved.";
-            await LoadData();
+            await Load();
+            _notice = $"{provider.ProviderName} status refreshed.";
         }
         catch (Exception ex)
         {
-            _modalError = $"Error: {ex.Message}";
+            _error = $"Unable to refresh {provider.ProviderName}: {ex.Message}";
         }
-    }
-
-    private async Task SelectAccount(ProviderAccountModel account)
-    {
-        _selected = account;
-        _detailTab = "snapshot";
-        _history = [];
-    }
-
-    private async Task SetStatusFilter(string filter)
-    {
-        _statusFilter = filter;
-        _selected = null;
-    }
-
-    private void OnDetailTabChanged(string tab)
-    {
-        _detailTab = tab;
-        if (tab == "history" && _selected is not null && _history.Count == 0)
+        finally
         {
-            _ = LoadHistory(_selected.AccountId);
+            _busyProviderIds.Remove(provider.ProviderId);
         }
     }
 
-    private static string StatusDot(string status) => status switch
+    private async Task Login(ProviderUsageDto provider)
     {
-        "healthy" => "green",
-        "warning" => "amber",
-        "critical" or "exhausted" => "red",
-        "error" => "red",
-        "stale" => "amber",
-        "not_configured" => "gray",
-        _ => "gray"
-    };
+        _busyProviderIds.Add(provider.ProviderId);
+        _error = null;
+        _notice = null;
+        try
+        {
+            var response = await Http.PostAsync(Ui($"/ui/provider-usage/{provider.ProviderId}/login"), null);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"{provider.ProviderName} login failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
 
-    private static string StatusTone(string status) => status switch
-    {
-        "healthy" => "cyan",
-        "warning" => "amber",
-        "critical" or "exhausted" => "red",
-        "error" => "red",
-        "stale" => "amber",
-        _ => ""
-    };
-
-    private static string StatusLabel(string status) => status switch
-    {
-        "healthy" => "healthy",
-        "warning" => "warning",
-        "critical" => "critical",
-        "exhausted" => "exhausted",
-        "error" => "error",
-        "stale" => "stale",
-        "not_configured" => "not configured",
-        "unknown" => "unknown",
-        _ => status
-    };
-
-    private static string Relative(DateTimeOffset? dt)
-    {
-        if (dt is null) return "—";
-        var ago = DateTimeOffset.UtcNow - dt.Value;
-        return ago.TotalSeconds < 60 ? $"{(int)ago.TotalSeconds}s ago"
-            : ago.TotalMinutes < 60 ? $"{(int)ago.TotalMinutes}m ago"
-            : ago.TotalHours < 24 ? $"{(int)ago.TotalHours}h ago"
-            : $"{(int)ago.TotalDays}d ago";
+            var login = await response.Content.ReadFromJsonAsync<ProviderLoginResponseDto>();
+            await Load();
+            _notice = FormatLoginNotice(login);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to run {provider.ProviderName} login command: {ex.Message}";
+        }
+        finally
+        {
+            _busyProviderIds.Remove(provider.ProviderId);
+        }
     }
 
     private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
 
-    // Local UI models
-    private sealed class ProviderUsageSummaryModel
+    private static string FormatLoginNotice(ProviderLoginResponseDto? login)
     {
-        public DateTimeOffset GeneratedAt { get; set; }
-        public int TotalProviders { get; set; }
-        public int HealthyCount { get; set; }
-        public int WarningCount { get; set; }
-        public int CriticalCount { get; set; }
-        public int ErrorCount { get; set; }
-        public List<ProviderAccountModel> Accounts { get; set; } = [];
+        if (login is null)
+        {
+            return "Login command completed, but no response body was returned.";
+        }
+
+        var output = string.IsNullOrWhiteSpace(login.Output) ? string.Empty : $"\n\nOUTPUT\n{login.Output}";
+        var error = string.IsNullOrWhiteSpace(login.Error) ? string.Empty : $"\n\nERROR\n{login.Error}";
+        return $"{login.ProviderName}: {login.Message}\nCommand: {login.Command}{output}{error}";
     }
 
-    private sealed class ProviderAccountModel
+    private static string ProviderDot(ProviderUsageDto provider)
     {
-        public Guid AccountId { get; set; }
-        public string ProviderKey { get; set; } = "";
-        public string DisplayName { get; set; } = "";
-        public string AccountType { get; set; } = "";
-        public string AuthMode { get; set; } = "";
-        public string? SecretName { get; set; }
-        public string? BaseUrl { get; set; }
-        public string[] RelatedTools { get; set; } = [];
-        public string[] RelatedModels { get; set; } = [];
-        public decimal WarningThresholdPercent { get; set; }
-        public decimal CriticalThresholdPercent { get; set; }
-        public bool Enabled { get; set; }
-        public DateTimeOffset CreatedAt { get; set; }
-        public DateTimeOffset UpdatedAt { get; set; }
-        public ProviderUsageSnapshotModel? LatestSnapshot { get; set; }
+        if (!provider.ToolStatus.IsAvailable)
+        {
+            return "red";
+        }
+
+        if (!provider.IsAuthenticated)
+        {
+            return "amber";
+        }
+
+        return provider.RoutingScore > 0 ? "green" : "red";
     }
 
-    private sealed class ProviderUsageSnapshotModel
+    private static string ToolTone(ProviderUsageDto provider) => provider.ToolStatus.IsAvailable ? "green" : "red";
+
+    private static string AuthTone(ProviderUsageDto provider)
     {
-        public Guid SnapshotId { get; set; }
-        public Guid AccountId { get; set; }
-        public string ProviderKey { get; set; } = "";
-        public DateTimeOffset ObservedAt { get; set; }
-        public string WindowKind { get; set; } = "";
-        public string Unit { get; set; } = "";
-        public decimal? LimitAmount { get; set; }
-        public decimal? UsedAmount { get; set; }
-        public decimal? RemainingAmount { get; set; }
-        public decimal? RemainingPercent { get; set; }
-        public DateTimeOffset? ResetsAt { get; set; }
-        public string Source { get; set; } = "";
-        public string Confidence { get; set; } = "";
-        public string Status { get; set; } = "unknown";
-        public string? Message { get; set; }
-        public bool IsStale { get; set; }
+        if (!provider.ToolStatus.IsAvailable)
+        {
+            return "dim";
+        }
+
+        return provider.IsAuthenticated ? "green" : "amber";
     }
 
-    private sealed class SnapshotListResponse
+    private static string RoutingTone(ProviderUsageDto provider) => provider.RoutingScore switch
     {
-        public List<ProviderUsageSnapshotModel> Items { get; set; } = [];
-        public int Count { get; set; }
+        <= 0 => "red",
+        < 20 => "amber",
+        _ => "green"
+    };
+
+    private static string ToolStatusText(ProviderUsageDto provider) => provider.ToolStatus.IsAvailable ? "tool ready" : "tool missing";
+
+    private static string ToolStatusLine(ProviderUsageDto provider)
+    {
+        if (provider.ToolStatus.IsAvailable)
+        {
+            return $"{provider.ToolStatus.Executable} available";
+        }
+
+        return string.IsNullOrWhiteSpace(provider.ToolStatus.Error)
+            ? $"{provider.ToolStatus.Executable} missing"
+            : provider.ToolStatus.Error;
     }
 
-    private sealed class ManualSnapshotForm
+    private static int KnownUsageCount(ProviderUsageDto provider) =>
+        new[] { provider.FiveHour, provider.Weekly, provider.Monthly }.Count(window => window.IsKnown);
+
+    private static string FormatReset(DateTimeOffset? value)
     {
-        public string WindowKind { get; set; } = "";
-        public string Unit { get; set; } = "";
-        public decimal? LimitAmount { get; set; }
-        public decimal? UsedAmount { get; set; }
-        public decimal? RemainingAmount { get; set; }
-        public DateTime? ResetsAt { get; set; }
-        public string? Message { get; set; }
+        if (value is null)
+        {
+            return "unknown";
+        }
+
+        return value.Value.ToLocalTime().ToString("MMM d, h:mm tt");
+    }
+
+    private static string FormatAmount(decimal value) => value == Math.Truncate(value)
+        ? value.ToString("N0")
+        : value.ToString("N1");
+
+    private static double PercentWidth(ProviderUsageWindowDto window) => window.IsKnown
+        ? Math.Clamp((double)window.RemainingPercent, 0, 100)
+        : 0;
+
+    private static string WindowTone(ProviderUsageWindowDto window)
+    {
+        if (!window.IsKnown)
+        {
+            return "unknown";
+        }
+
+        return window.RemainingPercent switch
+        {
+            <= 0 => "empty",
+            < 20 => "low",
+            < 60 => "medium",
+            _ => "high"
+        };
     }
 }

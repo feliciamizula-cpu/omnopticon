@@ -5,13 +5,18 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Argus.ServiceDefaults;
-using Argus.Web;
+using Microsoft.AspNetCore.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
+builder.Services.AddScoped(sp =>
+{
+    var nav = sp.GetRequiredService<NavigationManager>();
+    return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
+});
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -341,18 +346,12 @@ app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
 
 app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
 app.MapPost("/ui/agent-chat", ProxyPostChat);
-app.MapGet("/ui/code-reviews", ProxyGetCodeReviews);
-app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 
-// Provider usage BFF proxy endpoints
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
-app.MapPost("/ui/provider-usage/refresh", ProxyRefreshAllProviderUsage);
-app.MapPost("/ui/provider-usage/{accountId:guid}/refresh", ProxyRefreshProviderUsage);
-app.MapGet("/ui/provider-usage/{accountId:guid}/history", ProxyGetProviderUsageHistory);
-app.MapPost("/ui/provider-usage/{accountId:guid}/manual-snapshot", ProxyAddManualUsageSnapshot);
-app.MapPost("/ui/provider-usage/{accountId:guid}/pause-agents", ProxyPauseProviderAgents);
-app.MapPost("/ui/provider-usage/accounts", ProxyCreateProviderAccount);
-app.MapPut("/ui/provider-usage/accounts/{accountId:guid}", ProxyUpdateProviderAccount);
+app.MapPost("/ui/provider-usage/refresh", ProxyRefreshProviderUsage);
+app.MapPost("/ui/provider-usage/{providerId}/refresh", ProxyRefreshProvider);
+app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
+app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
@@ -484,81 +483,54 @@ async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpCli
     return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
 }
 
-async Task<IResult> ProxyGetCodeReviews(int? take, IHttpClientFactory httpClientFactory, CancellationToken ct)
-{
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/code-reviews?take={Math.Clamp(take ?? 100, 1, 500)}", ct);
-    return Results.Json(result ?? new JsonObject());
-}
 
-async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClientFactory, CancellationToken ct)
-{
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/system-reports?take={Math.Clamp(take ?? 100, 1, 500)}", ct);
-    return Results.Json(result ?? new JsonObject());
-}
 
-// Provider usage proxy handlers
 async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var result = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage", ct);
-    return Results.Json(result ?? new JsonObject());
+    return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
 }
 
-async Task<IResult> ProxyRefreshAllProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyRefreshProviderUsage(IHttpClientFactory httpClientFactory, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Agent, "/provider-usage/refresh", new JsonObject(), ct);
 }
 
-async Task<IResult> ProxyRefreshProviderUsage(Guid accountId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyRefreshProvider(string providerId, IHttpClientFactory httpClientFactory, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/refresh", new JsonObject(), ct);
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/refresh", new JsonObject(), ct);
 }
 
-async Task<IResult> ProxyGetProviderUsageHistory(Guid accountId, int take, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyLoginProvider(string providerId, IHttpClientFactory httpClientFactory, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/history?take={take}", ct);
-    return result is not null ? Results.Json(result) : Results.NotFound();
+    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/login", new JsonObject(), ct);
 }
 
-async Task<IResult> ProxyAddManualUsageSnapshot(Guid accountId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+async Task<IResult> ProxyGetRoutingPreview(IHttpClientFactory httpClientFactory, CancellationToken ct)
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/manual-snapshot", payload, ct);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage/routing-preview", ct);
+    return Results.Json(result ?? new JsonObject
+    {
+        ["providerId"] = null,
+        ["providerName"] = null,
+        ["toolId"] = null,
+        ["agentId"] = null,
+        ["agentName"] = null,
+        ["isRunnable"] = false,
+        ["routingScore"] = 0,
+        ["reason"] = "AgentService is unavailable."
+    });
 }
-
-async Task<IResult> ProxyPauseProviderAgents(Guid accountId, IHttpClientFactory httpClientFactory, CancellationToken ct)
-{
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{accountId}/pause-agents", new JsonObject(), ct);
-}
-
-async Task<IResult> ProxyCreateProviderAccount(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
-{
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.Agent, "/provider-usage/accounts", payload, ct);
-}
-
-async Task<IResult> ProxyUpdateProviderAccount(Guid accountId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
-{
-    var gateway = new ArgusUiGateway(httpClientFactory);
-    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PutJsonAsync(endpoints.Agent, $"/provider-usage/accounts/{accountId}", payload, ct);
-}
-
 
 static bool HostMatches(string host, string pattern)
 {
@@ -685,6 +657,11 @@ static bool IsPrivateOrLoopback(IPAddress address)
 }
 
 
+internal static class ProviderUsageDefaults
+{
+    public static JsonNode EmptyOverview() => JsonNode.Parse("""{"generatedAt":"1970-01-01T00:00:00Z","providers":[],"recommendedRoute":null}""")!;
+}
+
 internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 {
     public async Task<JsonNode?> GetJsonAsync(string baseAddress, string path, CancellationToken cancellationToken)
@@ -701,6 +678,11 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
             if (path.Contains("assets", StringComparison.OrdinalIgnoreCase))
             {
                 return JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""");
+            }
+
+            if (path.Contains("provider-usage", StringComparison.OrdinalIgnoreCase))
+            {
+                return ProviderUsageDefaults.EmptyOverview();
             }
 
             if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)

@@ -1,9 +1,7 @@
 using Argus.AgentService;
-using Argus.AgentService.Agents;
 using Argus.AgentService.Data;
-using Argus.AgentService.ProviderUsage;
-using Argus.AgentService.ProviderUsage.Adapters;
 using Argus.AgentService.Stores;
+using Argus.AgentService.ProviderUsage;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Agents;
 using Argus.ServiceDefaults;
@@ -25,31 +23,16 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddHealthChecks()
         .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
     builder.Services.AddScoped<IAgentStore, EfAgentStore>();
-    builder.Services.AddScoped<ProviderUsageService>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, OpenAiUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, AnthropicUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, OpenRouterUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, DeepSeekUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, GeminiUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, QwenDashScopeUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, CodexCliUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, ClaudeCodeUsageAdapter>();
-    builder.Services.AddSingleton<IProviderUsageAdapter, ManualUsageAdapter>();
-    builder.Services.AddHostedService<ProviderUsageMonitor>();
-    builder.Services.AddScoped<AgentSelectionService>();
-    builder.Services.AddScoped<TaskExecutionService>();
-    builder.Services.AddHostedService<TaskSchedulerService>();
 }
 else
 {
     builder.Services.AddSingleton<IAgentStore, InMemoryAgentStore>();
-    builder.Services.AddScoped<AgentSelectionService>();
-    builder.Services.AddScoped<TaskExecutionService>();
-    builder.Services.AddHostedService<TaskSchedulerService>();
 }
 
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AgentService");
 builder.Services.AddHttpClient();
+builder.Services.Configure<AgentProviderUsageOptions>(builder.Configuration.GetSection("AgentProviderUsage"));
+builder.Services.AddSingleton<IAgentProviderUsageService, AgentProviderUsageService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
@@ -58,7 +41,6 @@ await app.InitializeAgentStoreAsync();
 app.MapDefaultEndpoints();
 
 AgentEndpoints.MapRoutes(app);
-ProviderUsageEndpoints.MapRoutes(app);
 
 app.Run();
 
@@ -95,14 +77,13 @@ internal static class AgentEndpoints
         app.MapGet("/agent-tasks/{taskId}", GetTask);
         app.MapPut("/agent-tasks/{taskId}", UpdateTask);
         app.MapDelete("/agent-tasks/{taskId}", DeleteTask);
-        app.MapPost("/agent-tasks/{taskId}/run", RunTask);
-        app.MapPost("/agent-events/{triggerEvent}/dispatch", DispatchTrigger);
 
-        // Agent-produced artifacts
-        app.MapGet("/code-reviews", ListCodeReviews);
-        app.MapPost("/code-reviews", CreateCodeReview);
-        app.MapGet("/system-reports", ListSystemReports);
-        app.MapPost("/system-reports", CreateSystemReport);
+        // Provider usage endpoints
+        app.MapGet("/provider-usage", GetProviderUsage);
+        app.MapPost("/provider-usage/refresh", RefreshProviderUsage);
+        app.MapPost("/provider-usage/{providerId}/refresh", RefreshProviderUsageProvider);
+        app.MapPost("/provider-usage/{providerId}/login", LoginProvider);
+        app.MapGet("/provider-usage/routing-preview", GetRoutingPreview);
 
         // Chat endpoints
         app.MapGet("/agent-chat/history", GetChatHistory);
@@ -165,9 +146,24 @@ internal static class AgentEndpoints
         return Results.Ok(new { items = tasks, count = tasks.Count });
     }
 
-    private static async Task<IResult> CreateTask(CreateAgentTaskRequest request, IAgentStore store, CancellationToken ct)
+    private static async Task<IResult> CreateTask(
+        CreateAgentTaskRequest request,
+        IAgentStore store,
+        IAgentProviderUsageService providerUsage,
+        CancellationToken ct)
     {
-        var task = await store.CreateTaskAsync(request, ct);
+        var effectiveRequest = request;
+        if (string.IsNullOrWhiteSpace(request.AssignedTo) || request.AssignedTo.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            var agents = await store.ListAgentsAsync(ct);
+            var route = await providerUsage.SelectRouteAsync(agents, ct);
+            if (route.IsRunnable && !string.IsNullOrWhiteSpace(route.AgentId))
+            {
+                effectiveRequest = request with { AssignedTo = route.AgentId };
+            }
+        }
+
+        var task = await store.CreateTaskAsync(effectiveRequest, ct);
         return Results.Created($"/agent-tasks/{task.TaskId}", task);
     }
 
@@ -189,108 +185,37 @@ internal static class AgentEndpoints
         return deleted ? Results.NoContent() : Results.NotFound();
     }
 
-    private static async Task<IResult> RunTask(string taskId, TaskExecutionService executor, CancellationToken ct)
+
+    // Provider usage handlers
+    private static async Task<IResult> GetProviderUsage(IAgentProviderUsageService providerUsage, CancellationToken ct)
     {
-        var task = await executor.ExecuteAsync(taskId, ct);
-        return task is not null ? Results.Ok(task) : Results.NotFound();
+        var overview = await providerUsage.GetOverviewAsync(forceRefresh: false, ct);
+        return Results.Ok(overview);
     }
 
-    private static async Task<IResult> DispatchTrigger(
-        string triggerEvent,
-        IAgentStore store,
-        TaskExecutionService executor,
-        CancellationToken ct)
+    private static async Task<IResult> RefreshProviderUsage(IAgentProviderUsageService providerUsage, CancellationToken ct)
     {
-        var tasks = await store.ListTasksAsync(status: "scheduled", cancellationToken: ct);
-        var matching = tasks
-            .Where(t => string.Equals(t.TriggerEvent, triggerEvent, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        foreach (var task in matching)
-            await executor.ExecuteAsync(task.TaskId, ct);
-
-        return Results.Ok(new { triggerEvent, dispatched = matching.Count });
+        var overview = await providerUsage.GetOverviewAsync(forceRefresh: true, ct);
+        return Results.Ok(overview);
     }
 
-    private static async Task<IResult> ListCodeReviews(IServiceProvider sp, int? take, CancellationToken ct)
+    private static async Task<IResult> RefreshProviderUsageProvider(string providerId, IAgentProviderUsageService providerUsage, CancellationToken ct)
     {
-        var db = sp.GetService<AgentDbContext>();
-        if (db is null)
-            return Results.Ok(new { items = Array.Empty<CodeReviewDto>(), count = 0 });
-
-        var limit = Math.Clamp(take ?? 100, 1, 500);
-        var reviews = await db.CodeReviews
-            .AsNoTracking()
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(limit)
-            .Select(r => r.ToDto())
-            .ToListAsync(ct);
-
-        return Results.Ok(new { items = reviews, count = reviews.Count });
+        var provider = await providerUsage.GetProviderAsync(providerId, forceRefresh: true, ct);
+        return provider is not null ? Results.Ok(provider) : Results.NotFound();
     }
 
-    private static async Task<IResult> CreateCodeReview(
-        CreateCodeReviewRequest request,
-        IServiceProvider sp,
-        CancellationToken ct)
+    private static async Task<IResult> LoginProvider(string providerId, IAgentProviderUsageService providerUsage, CancellationToken ct)
     {
-        var db = sp.GetService<AgentDbContext>();
-        if (db is null)
-            return Results.StatusCode(StatusCodes.Status501NotImplemented);
-
-        var record = new CodeReviewRecord
-        {
-            ReviewId = Guid.NewGuid(),
-            SourceTaskId = request.SourceTaskId,
-            AgentId = request.AgentId,
-            ReviewContent = request.ReviewContent,
-            CommitRef = request.CommitRef,
-            Status = "completed",
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-
-        db.CodeReviews.Add(record);
-        await db.SaveChangesAsync(ct);
-        return Results.Created($"/code-reviews/{record.ReviewId}", record.ToDto());
+        var response = await providerUsage.LoginAsync(providerId, ct);
+        return response is not null ? Results.Ok(response) : Results.NotFound();
     }
 
-    private static async Task<IResult> ListSystemReports(IServiceProvider sp, int? take, CancellationToken ct)
+    private static async Task<IResult> GetRoutingPreview(IAgentStore store, IAgentProviderUsageService providerUsage, CancellationToken ct)
     {
-        var db = sp.GetService<AgentDbContext>();
-        if (db is null)
-            return Results.Ok(new { items = Array.Empty<SystemReportDto>(), count = 0 });
-
-        var limit = Math.Clamp(take ?? 100, 1, 500);
-        var reports = await db.SystemReports
-            .AsNoTracking()
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(limit)
-            .Select(r => r.ToDto())
-            .ToListAsync(ct);
-
-        return Results.Ok(new { items = reports, count = reports.Count });
-    }
-
-    private static async Task<IResult> CreateSystemReport(
-        CreateSystemReportRequest request,
-        IServiceProvider sp,
-        CancellationToken ct)
-    {
-        var db = sp.GetService<AgentDbContext>();
-        if (db is null)
-            return Results.StatusCode(StatusCodes.Status501NotImplemented);
-
-        var record = new SystemReportRecord
-        {
-            ReportId = Guid.NewGuid(),
-            AgentId = request.AgentId,
-            ReportContent = request.ReportContent,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-
-        db.SystemReports.Add(record);
-        await db.SaveChangesAsync(ct);
-        return Results.Created($"/system-reports/{record.ReportId}", record.ToDto());
+        var agents = await store.ListAgentsAsync(ct);
+        var route = await providerUsage.SelectRouteAsync(agents, ct);
+        return Results.Ok(route);
     }
 
     // Chat handlers
@@ -300,45 +225,37 @@ internal static class AgentEndpoints
         return Results.Ok(new { items = history, count = history.Count });
     }
 
-    private static async Task<IResult> SendChat(SendChatRequest request, IAgentStore store, IServiceProvider sp, CancellationToken ct)
+    private static async Task<IResult> SendChat(SendChatRequest request, IAgentStore store, CancellationToken ct)
     {
-        var usageService = sp.GetService<ProviderUsageService>();
-
         // Persist user message
-        await store.SaveChatMessageAsync("user", request.Message, ct);
+        var userMsg = await store.SaveChatMessageAsync("user", request.Message, ct);
 
         // Get context
         var agents = await store.ListAgentsAsync(ct);
         var tasks = await store.ListTasksAsync(cancellationToken: ct);
+        var history = await store.GetChatHistoryAsync(20, ct);
 
         // Build prompt with current state
         var systemPrompt = BuildSystemPrompt(agents, tasks);
         var contextPrompt = $"{systemPrompt}\n\nCurrent request: {request.Message}";
-
-        if (usageService is not null)
-            await usageService.RecordInvocationStartedAsync(request.Tool, request.Model, null, null, ct);
 
         // Invoke CLI tool
         string aiReply;
         try
         {
             aiReply = await InvokeCliTool(request.Tool, request.Model, contextPrompt, ct);
-            if (usageService is not null)
-                await usageService.RecordInvocationCompletedAsync(request.Tool, request.Model, 0, aiReply, null, ct);
         }
         catch (Exception ex)
         {
-            if (usageService is not null)
-                await usageService.RecordInvocationCompletedAsync(request.Tool, request.Model, 1, null, ex.Message, ct);
             return Results.Problem($"CLI tool '{request.Tool}' error: {ex.Message}", statusCode: StatusCodes.Status503ServiceUnavailable);
         }
 
         // Parse actions from response
         var actions = new List<AgentAction>();
-        var displayReply = await ExtractAndExecuteActions(aiReply, actions, store, ct);
+        var displayReply = ExtractAndExecuteActions(aiReply, actions, store, ct).Result;
 
         // Persist assistant message
-        await store.SaveChatMessageAsync("assistant", displayReply, ct);
+        var assistantMsg = await store.SaveChatMessageAsync("assistant", displayReply, ct);
 
         // Return response with updated history
         var updatedHistory = await store.GetChatHistoryAsync(50, ct);
@@ -349,7 +266,7 @@ internal static class AgentEndpoints
 
     private static string BuildSystemPrompt(IReadOnlyList<AgentDto> agents, IReadOnlyList<AgentTaskDto> tasks)
     {
-        return $@"You are the Argus AI agent coordinator managing a role-based AI development team.
+        return $@"You are the Argus AI agent coordinator managing a team of development and DevOps agents.
 
 Current Agents ({agents.Count}):
 {string.Join("\n", agents.Select(a => $"- {a.Name} ({a.Role}): {string.Join(", ", a.Responsibilities)}"))}
@@ -359,7 +276,7 @@ Pending Tasks ({tasks.Count(t => t.Status == "pending")}):
 
 You can create new agents or tasks by outputting ACTION lines in your response:
 ACTION:CREATE_AGENT name=""AgentName"" role=""development|devops"" responsibilities=""item1,item2,item3""
-ACTION:CREATE_TASK description=""Task description"" priority=""low|normal|high"" targetRole=""junior_developer|developer|senior_developer|devops|system_architect"" assignedto=""agent-id-optional""
+ACTION:CREATE_TASK description=""Task description"" priority=""low|normal|high"" assignedto=""agent-id-optional""
 ACTION:ASSIGN_TASK taskid=""001"" agentid=""agent-id""
 ACTION:UPDATE_AGENT_STATUS agentid=""agent-id"" status=""active|paused|inactive""
 
@@ -369,10 +286,21 @@ Respond helpfully to user requests. Be concise.";
 
     private static async Task<string> InvokeCliTool(string tool, string model, string prompt, CancellationToken ct)
     {
+        var escapedPrompt = prompt.Replace("\"", "\\\"");
+        var (filename, args) = tool.ToLower() switch
+        {
+            "claude" => ("claude", $"--model {model} -p \"{escapedPrompt}\""),
+            "opencode" => ("opencode", $"run --model {model} --prompt-text \"{escapedPrompt}\""),
+            "codex" => ("codex", $"--model {model} \"{escapedPrompt}\""),
+            _ => throw new ArgumentException($"Unknown tool: {tool}")
+        };
+
         var process = new System.Diagnostics.Process
         {
             StartInfo = new System.Diagnostics.ProcessStartInfo
             {
+                FileName = filename,
+                Arguments = args,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -380,7 +308,6 @@ Respond helpfully to user requests. Be concise.";
             }
         };
 
-        AddCliArguments(process.StartInfo, tool, model, prompt);
         process.Start();
         var output = await process.StandardOutput.ReadToEndAsync(ct);
 
@@ -397,53 +324,6 @@ Respond helpfully to user requests. Be concise.";
         }
 
         return output;
-    }
-
-    private static void AddCliArguments(System.Diagnostics.ProcessStartInfo psi, string tool, string model, string prompt)
-    {
-        switch (tool.ToLowerInvariant())
-        {
-            case "claude":
-                psi.FileName = "claude";
-                psi.ArgumentList.Add("--model");
-                psi.ArgumentList.Add(model);
-                psi.ArgumentList.Add("-p");
-                psi.ArgumentList.Add(prompt);
-                break;
-            case "opencode":
-                psi.FileName = "opencode";
-                psi.ArgumentList.Add("run");
-                psi.ArgumentList.Add("--model");
-                psi.ArgumentList.Add(model);
-                psi.ArgumentList.Add("--prompt-text");
-                psi.ArgumentList.Add(prompt);
-                break;
-            case "codex":
-                psi.FileName = "codex";
-                psi.ArgumentList.Add("--model");
-                psi.ArgumentList.Add(model);
-                psi.ArgumentList.Add(prompt);
-                break;
-            case "openai":
-                psi.FileName = "openai";
-                psi.ArgumentList.Add("api");
-                psi.ArgumentList.Add("chat.completions.create");
-                psi.ArgumentList.Add("-m");
-                psi.ArgumentList.Add(model);
-                psi.ArgumentList.Add("-g");
-                psi.ArgumentList.Add("user");
-                psi.ArgumentList.Add(prompt);
-                break;
-            case "gemini":
-                psi.FileName = "gemini";
-                psi.ArgumentList.Add("--model");
-                psi.ArgumentList.Add(model);
-                psi.ArgumentList.Add("--prompt");
-                psi.ArgumentList.Add(prompt);
-                break;
-            default:
-                throw new ArgumentException($"Unknown tool: {tool}");
-        }
     }
 
     private static async Task<string> ExtractAndExecuteActions(string response, List<AgentAction> actions, IAgentStore store, CancellationToken ct)
@@ -496,10 +376,9 @@ Respond helpfully to user requests. Be concise.";
             var desc = ExtractParam(action, "description");
             var priority = ExtractParam(action, "priority") ?? "normal";
             var assignedTo = ExtractParam(action, "assignedto");
-            var targetRole = ExtractParam(action, "targetRole");
 
             var task = await store.CreateTaskAsync(
-                new CreateAgentTaskRequest(desc!, priority, assignedTo, targetRole), ct);
+                new CreateAgentTaskRequest(desc!, priority, assignedTo), ct);
             actions.Add(new AgentAction("create_task", $"Created task #{task.TaskId}: {desc}"));
         }
         else if (action.StartsWith("ASSIGN_TASK", StringComparison.OrdinalIgnoreCase))

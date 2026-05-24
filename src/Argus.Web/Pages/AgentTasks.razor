@@ -331,37 +331,12 @@
                         <div class="dev-form-field">
                             <label>Assign to</label>
                             <select class="dev-input" @bind="_newTask.AssignedTo">
-                                <option value="">— pool · any agent —</option>
+                                <option value="">— auto-route · highest provider usage —</option>
                                 @foreach (var agent in _agents.OrderBy(a => a.Name))
                                 {
                                     <option value="@agent.AgentId">@agent.Name · @agent.Tool/@agent.Role</option>
                                 }
                             </select>
-                        </div>
-                        <div class="dev-form-field">
-                            <label>Target role</label>
-                            <select class="dev-input" @bind="_newTask.TargetRole">
-                                <option value="">auto</option>
-                                <option value="junior_developer">junior_developer</option>
-                                <option value="developer">developer</option>
-                                <option value="senior_developer">senior_developer</option>
-                                <option value="system_architect">system_architect</option>
-                                <option value="devops">devops</option>
-                                <option value="product_manager">product_manager</option>
-                                <option value="chief_technology_officer">chief_technology_officer</option>
-                            </select>
-                        </div>
-                        <div class="dev-form-field">
-                            <label>Task type</label>
-                            <input class="dev-input" @bind="_newTask.TaskType" @bind:event="oninput" placeholder="implementation" />
-                        </div>
-                        <div class="dev-form-field">
-                            <label>Schedule</label>
-                            <input class="dev-input" @bind="_newTask.ScheduleExpression" @bind:event="oninput" placeholder="* * * * *" />
-                        </div>
-                        <div class="dev-form-field">
-                            <label>Trigger event</label>
-                            <input class="dev-input" @bind="_newTask.TriggerEvent" @bind:event="oninput" placeholder="agent_task_completed" />
                         </div>
                     </div>
                 </div>
@@ -555,11 +530,7 @@
             Description = task.Description,
             Priority = PriorityKey(task.Priority),
             Status = StatusKey(task.Status),
-            AssignedTo = task.AssignedTo ?? "",
-            TargetRole = task.TargetRole ?? "",
-            TaskType = task.TaskType ?? "",
-            ScheduleExpression = task.ScheduleExpression ?? "",
-            TriggerEvent = task.TriggerEvent ?? ""
+            AssignedTo = task.AssignedTo ?? ""
         };
         _editing = true;
     }
@@ -584,11 +555,7 @@
                 Description: _taskForm.Description,
                 Priority: _taskForm.Priority,
                 Status: _taskForm.Status,
-                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? string.Empty : _taskForm.AssignedTo,
-                TargetRole: _taskForm.TargetRole,
-                TaskType: _taskForm.TaskType,
-                ScheduleExpression: _taskForm.ScheduleExpression,
-                TriggerEvent: _taskForm.TriggerEvent);
+                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? null : _taskForm.AssignedTo);
 
             var response = await Http.PutAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(task.TaskId)}"), request);
             if (!response.IsSuccessStatusCode)
@@ -673,11 +640,7 @@
             var request = new CreateAgentTaskRequest(
                 _newTask.Description.Trim(),
                 _newTask.Priority,
-                string.IsNullOrWhiteSpace(_newTask.AssignedTo) ? null : _newTask.AssignedTo,
-                string.IsNullOrWhiteSpace(_newTask.TargetRole) ? null : _newTask.TargetRole,
-                string.IsNullOrWhiteSpace(_newTask.TaskType) ? null : _newTask.TaskType,
-                string.IsNullOrWhiteSpace(_newTask.ScheduleExpression) ? null : _newTask.ScheduleExpression,
-                string.IsNullOrWhiteSpace(_newTask.TriggerEvent) ? null : _newTask.TriggerEvent);
+                string.IsNullOrWhiteSpace(_newTask.AssignedTo) ? null : _newTask.AssignedTo);
 
             var response = await Http.PostAsJsonAsync(Ui("/ui/agent-tasks"), request);
             if (!response.IsSuccessStatusCode)
@@ -862,9 +825,5 @@
         public string Priority { get; set; } = "normal";
         public string Status { get; set; } = "pending";
         public string AssignedTo { get; set; } = "";
-        public string TargetRole { get; set; } = "";
-        public string TaskType { get; set; } = "";
-        public string ScheduleExpression { get; set; } = "";
-        public string TriggerEvent { get; set; } = "";
     }
 }

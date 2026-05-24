@@ -1,0 +1,62 @@
+@using Argus.Contracts.Agents
+
+<div class="usage-window @WindowTone(Window)">
+    <div class="usage-window-top">
+        <div>
+            <div class="usage-label">@Window.Label</div>
+            <div class="usage-reset">resets @FormatReset(Window.ResetsAt)</div>
+        </div>
+        <div class="usage-value">@(Window.IsKnown ? $"{Window.RemainingPercent:0.#}%" : "unknown")</div>
+    </div>
+    <div class="usage-bar" title="@BarTitle(Window)">
+        <div class="usage-bar-fill" style="@($"width: {PercentWidth(Window):0.#}%")"></div>
+    </div>
+    <div class="usage-meta mono">
+        <span>remaining @(Window.IsKnown ? FormatAmount(Window.Remaining) : "—")</span>
+        <span>used @(Window.IsKnown ? FormatAmount(Window.Used) : "—")</span>
+        <span>limit @(Window.Limit > 0 ? FormatAmount(Window.Limit) : "—")</span>
+        <span>@Window.Source</span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProviderUsageWindowDto Window { get; set; } = default!;
+
+    private static string FormatReset(DateTimeOffset? value)
+    {
+        if (value is null)
+        {
+            return "unknown";
+        }
+
+        return value.Value.ToLocalTime().ToString("MMM d, h:mm tt");
+    }
+
+    private static string FormatAmount(decimal value) => value == Math.Truncate(value)
+        ? value.ToString("N0")
+        : value.ToString("N1");
+
+    private static double PercentWidth(ProviderUsageWindowDto window) => window.IsKnown
+        ? Math.Clamp((double)window.RemainingPercent, 0, 100)
+        : 0;
+
+    private static string WindowTone(ProviderUsageWindowDto window)
+    {
+        if (!window.IsKnown)
+        {
+            return "unknown";
+        }
+
+        return window.RemainingPercent switch
+        {
+            <= 0 => "empty",
+            < 20 => "low",
+            < 60 => "medium",
+            _ => "high"
+        };
+    }
+
+    private static string BarTitle(ProviderUsageWindowDto window) => window.IsKnown
+        ? $"{FormatAmount(window.Remaining)} remaining of {FormatAmount(window.Limit)}"
+        : "Usage is unknown. Configure a usage command or static window values for this provider.";
+}
