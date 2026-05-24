@@ -71,43 +71,31 @@ namespace Argus.AgentService.Migrations
                     table.PrimaryKey("PK_ChatMessages", x => x.MessageId);
                 });
 
-            migrationBuilder.CreateTable(
-                name: "outbox_messages",
-                columns: table => new
-                {
-                    OutboxMessageId = table.Column<Guid>(type: "uuid", nullable: false),
-                    EventId = table.Column<Guid>(type: "uuid", nullable: false),
-                    EventType = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    SourceService = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    EnvelopeJson = table.Column<string>(type: "jsonb", nullable: false),
-                    OccurredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    ProcessedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    NextAttemptAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    LockedUntil = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    LockOwner = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
-                    AttemptCount = table.Column<int>(type: "integer", nullable: false),
-                    Error = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_outbox_messages", x => x.OutboxMessageId);
-                });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_outbox_messages_EventId",
-                table: "outbox_messages",
-                column: "EventId",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_outbox_messages_ProcessedAt_NextAttemptAt_LockedUntil",
-                table: "outbox_messages",
-                columns: new[] { "ProcessedAt", "NextAttemptAt", "LockedUntil" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_outbox_messages_SourceService_EventType_OccurredAt",
-                table: "outbox_messages",
-                columns: new[] { "SourceService", "EventType", "OccurredAt" });
+            // outbox_messages is a shared infrastructure table created by the event bus building block.
+            // Use IF NOT EXISTS so this migration is idempotent when other services have already created it.
+            migrationBuilder.Sql(@"
+                CREATE TABLE IF NOT EXISTS outbox_messages (
+                    ""OutboxMessageId"" uuid NOT NULL,
+                    ""EventId"" uuid NOT NULL,
+                    ""EventType"" character varying(256) NOT NULL,
+                    ""SourceService"" character varying(256) NOT NULL,
+                    ""EnvelopeJson"" jsonb NOT NULL,
+                    ""OccurredAt"" timestamp with time zone NOT NULL,
+                    ""ProcessedAt"" timestamp with time zone,
+                    ""NextAttemptAt"" timestamp with time zone,
+                    ""LockedUntil"" timestamp with time zone,
+                    ""LockOwner"" character varying(256),
+                    ""AttemptCount"" integer NOT NULL,
+                    ""Error"" character varying(2048),
+                    CONSTRAINT ""PK_outbox_messages"" PRIMARY KEY (""OutboxMessageId"")
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS ""IX_outbox_messages_EventId""
+                    ON outbox_messages (""EventId"");
+                CREATE INDEX IF NOT EXISTS ""IX_outbox_messages_ProcessedAt_NextAttemptAt_LockedUntil""
+                    ON outbox_messages (""ProcessedAt"", ""NextAttemptAt"", ""LockedUntil"");
+                CREATE INDEX IF NOT EXISTS ""IX_outbox_messages_SourceService_EventType_OccurredAt""
+                    ON outbox_messages (""SourceService"", ""EventType"", ""OccurredAt"");
+            ");
         }
 
         /// <inheritdoc />

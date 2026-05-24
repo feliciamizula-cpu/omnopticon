@@ -5,6 +5,7 @@ x-service-build: &service-build
 x-common-env: &common-env
   ASPNETCORE_ENVIRONMENT: Production
   ARGUS_EXPOSE_HEALTH_ENDPOINTS: ${ARGUS_EXPOSE_HEALTH_ENDPOINTS:-true}
+  ARGUS_AGENT_SERVICE: http://agent-service:8080
   ARGUS_PROGRAM_SCOPE_SERVICE: http://program-scope-service:8080
   ARGUS_ASSET_SERVICE: http://asset-service:8080
   ARGUS_TASK_SERVICE: http://task-service:8080
@@ -138,6 +139,14 @@ services:
         ASSEMBLY_NAME: Argus.Web
     ports:
       - "${ARGUS_WEB_PORT:-8080}:8080"
+
+  agent-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.AgentService/Argus.AgentService.csproj
+        ASSEMBLY_NAME: Argus.AgentService
 
   review-report:
     image: python:3-slim
