@@ -8,7 +8,7 @@
 
 <PageHeader Title="Provider Usage" Subtitle="CLI authentication, tool health, usage windows, and automatic task routing" />
 
-<div class="page-body dev-page provider-usage-page">
+<ErrorBoundary><div class="page-body dev-page provider-usage-page">
     <div class="dev-main">
         <div class="page-tabs">
             <a class="page-tab" href="/agents">Agents</a>
@@ -153,6 +153,7 @@
         }
     </div>
 </div>
+</ErrorBoundary>
 
 @code {
     private ProviderUsageOverviewDto? _overview;
