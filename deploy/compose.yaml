@@ -184,6 +184,12 @@ services:
       args:
         PROJECT_PATH: src/Services/Argus.AgentService/Argus.AgentService.csproj
         ASSEMBLY_NAME: Argus.AgentService
+    environment:
+      <<: *common-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY}
 
   review-report:
     image: python:3-slim

@@ -272,16 +272,16 @@ internal sealed class AgentProviderUsageService(
         CliToolStatusDto toolStatus,
         CancellationToken cancellationToken)
     {
-        if (!toolStatus.IsAvailable)
-        {
-            return (false, "CLI missing", null);
-        }
-
         var credentialVariable = definition.AuthEnvironmentVariables
             .FirstOrDefault(name => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name)));
         if (!string.IsNullOrWhiteSpace(credentialVariable))
         {
             return (true, $"Credential present in {credentialVariable}", null);
+        }
+
+        if (!toolStatus.IsAvailable)
+        {
+            return (false, "CLI missing", null);
         }
 
         if (string.IsNullOrWhiteSpace(definition.AuthCheckArguments))
