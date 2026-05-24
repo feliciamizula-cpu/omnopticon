@@ -8,10 +8,15 @@ x-common-env: &common-env
   ARGUS_AGENT_SERVICE: http://agent-service:8080
   ARGUS_PROGRAM_SCOPE_SERVICE: http://program-scope-service:8080
   ARGUS_ASSET_SERVICE: http://asset-service:8080
+  ARGUS_ARTIFACT_SERVICE: http://artifact-service:8080
+  ARGUS_FINDING_SERVICE: http://finding-service:8080
   ARGUS_TASK_SERVICE: http://task-service:8080
   ARGUS_RATE_LIMIT_SERVICE: http://rate-limit-service:8080
+  ARGUS_SCAN_ORCHESTRATOR_SERVICE: http://scan-orchestrator-service:8080
   ARGUS_EVENT_ROUTER_SERVICE: http://event-router-service:8080
   ARGUS_REALTIME_SERVICE: http://realtime-service:8080
+  ARGUS_PROXY_REGISTRY_SERVICE: http://proxy-registry-service:8080
+  ARGUS_AGENT_SERVICE: http://agent-service:8080
   ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
   ConnectionStrings__redis: redis:6379
   ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
@@ -86,6 +91,22 @@ services:
         PROJECT_PATH: src/Services/Argus.AssetService/Argus.AssetService.csproj
         ASSEMBLY_NAME: Argus.AssetService
 
+  artifact-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj
+        ASSEMBLY_NAME: Argus.ArtifactService
+
+  finding-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.FindingService/Argus.FindingService.csproj
+        ASSEMBLY_NAME: Argus.FindingService
+
   task-service:
     <<: *service-defaults
     build:
@@ -101,6 +122,14 @@ services:
       args:
         PROJECT_PATH: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
         ASSEMBLY_NAME: Argus.RateLimitService
+
+  scan-orchestrator-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
+        ASSEMBLY_NAME: Argus.ScanOrchestratorService
 
   event-router-service:
     <<: *service-defaults
@@ -119,6 +148,14 @@ services:
         ASSEMBLY_NAME: Argus.RealtimeService
     ports:
       - "${ARGUS_REALTIME_PORT:-8082}:8080"
+
+  proxy-registry-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
+        ASSEMBLY_NAME: Argus.ProxyRegistryService
 
   argus-api-gateway:
     <<: *service-defaults

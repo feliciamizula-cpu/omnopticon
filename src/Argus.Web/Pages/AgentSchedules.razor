@@ -1,6 +1,7 @@
 @page "/agent-schedules"
 @page "/development/schedules"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Net.Http.Json
 @using System.Text.Json
 @using Argus.Contracts.Agents
 @inject HttpClient Http
@@ -21,7 +22,7 @@
             <div class="page-tab-spacer"></div>
             <div class="page-tab-actions">
                 <button class="btn primary tiny" @onclick="OpenCreateModal">+ Add Schedule</button>
-                <button class="btn ghost tiny" @onclick="LoadAgents">Refresh Agents</button>
+                <button class="btn ghost tiny" @onclick="LoadData">Refresh</button>
             </div>
         </div>
 
@@ -31,11 +32,11 @@
         }
 
         <div class="dev-stats-strip">
-            <DevStat Label="Recurring jobs" Value='@(_schedules.Count.ToString("N0"))' Sub="local development schedules" />
+            <DevStat Label="Recurring jobs" Value='@(_schedules.Count.ToString("N0"))' Sub="persisted agent tasks" />
             <DevStat Label="Enabled" Value='@(_schedules.Count(s => s.Enabled).ToString("N0"))' Tone="green" Sub="eligible to run" />
-            <DevStat Label="Paused" Value='@(_schedules.Count(s => !s.Enabled).ToString("N0"))' Tone="amber" Sub="manual resume needed" />
+            <DevStat Label="Paused" Value='@(_schedules.Count(s => !s.Enabled).ToString("N0"))' Tone="amber" Sub="blocked/manual resume" />
             <DevStat Label="Agents" Value='@(_agents.Count.ToString("N0"))' Sub="from agent service" />
-            <DevStat Label="Due soon" Value='@(_schedules.Count(s => s.Enabled && s.NextRunAt <= DateTimeOffset.UtcNow.AddMinutes(30)).ToString("N0"))' Tone="cyan" Sub="next 30 minutes" />
+            <DevStat Label="Due soon" Value='@(_schedules.Count(s => s.Enabled && IsDueSoon(s)).ToString("N0"))' Tone="cyan" Sub="next 30 minutes" />
         </div>
 
         @if (_loading)
@@ -50,7 +51,7 @@
         else
         {
             <div class="dev-list-pane">
-                <div class="mono-label">RECURRING JOBS · @FilteredSchedules.Count · across @_agents.Count agents</div>
+                <div class="mono-label">RECURRING AND TRIGGERED JOBS · @FilteredSchedules.Count</div>
 
                 @if (FilteredSchedules.Count == 0)
                 {
@@ -83,8 +84,8 @@
                                 <div class="dev-mini-grid">
                                     <div class="dev-mini"><div class="l">last run</div><div class="v">@Relative(schedule.LastRunAt)</div></div>
                                     <div class="dev-mini"><div class="l">next run</div><div class="v @(IsDueSoon(schedule) ? "tone-cyan" : "")">@RelativeFuture(schedule.NextRunAt)</div></div>
-                                    <div class="dev-mini"><div class="l">created by</div><div class="v">@schedule.Source</div></div>
-                                    <div class="dev-mini"><div class="l">status</div><div class="v">@(schedule.Enabled ? "active" : "paused")</div></div>
+                                    <div class="dev-mini"><div class="l">source</div><div class="v">@schedule.Source</div></div>
+                                    <div class="dev-mini"><div class="l">status</div><div class="v">@(schedule.Enabled ? "scheduled" : "blocked")</div></div>
                                 </div>
 
                                 <div class="dev-action-row" style="padding: 10px 0 0;">
@@ -109,26 +110,30 @@
                 <div class="dev-modal-head">
                     <span class="dot amber"></span>
                     Add Recurring Agent Job
-                    <button class="dev-icon-btn" @onclick="CloseModal">×</button>
+                    <button class="dev-icon-btn" @onclick="CloseModal">x</button>
                 </div>
                 <div class="dev-modal-body">
                     <div class="dev-form-grid">
                         <div class="dev-form-field">
-                            <label>Agent</label>
-                            <select class="dev-input" @bind="_form.AgentId">
-                                @foreach (var agent in _agents.OrderBy(a => a.Name))
-                                {
-                                    <option value="@agent.AgentId">@agent.Name · @agent.Tool/@agent.Role</option>
-                                }
+                            <label>Target role</label>
+                            <select class="dev-input" @bind="_form.TargetRole">
+                                <option value="junior_developer">Junior Developer</option>
+                                <option value="developer">Developer</option>
+                                <option value="senior_developer">Senior Developer</option>
+                                <option value="system_architect">System Architect</option>
+                                <option value="devops">DevOps</option>
+                                <option value="product_manager">Product Manager</option>
+                                <option value="chief_technology_officer">Chief Technology Officer</option>
                             </select>
                         </div>
                         <div class="dev-form-field">
                             <label>Schedule</label>
                             <select class="dev-input" @bind="_form.Cron">
+                                <option value="* * * * *">Every minute</option>
                                 <option value="*/15 * * * *">Every 15 minutes</option>
                                 <option value="0 * * * *">Hourly</option>
+                                <option value="0 */4 * * *">Every 4 hours</option>
                                 <option value="0 9 * * 1-5">Weekdays at 09:00</option>
-                                <option value="0 2 * * *">Daily at 02:00</option>
                             </select>
                         </div>
                         <div class="dev-form-field full">
@@ -157,12 +162,18 @@
     };
 
     private List<AgentDto> _agents = new();
-    private List<AgentSchedule> _schedules = new();
+    private List<AgentTaskDto> _tasks = new();
     private bool _loading = true;
     private string _filter = "all";
     private string? _error;
     private bool _showModal;
     private ScheduleForm _form = new();
+
+    private List<AgentSchedule> _schedules => _tasks
+        .Where(t => !string.IsNullOrWhiteSpace(t.ScheduleExpression) || !string.IsNullOrWhiteSpace(t.TriggerEvent))
+        .Select(ToSchedule)
+        .OrderBy(s => s.NextRunAt)
+        .ToList();
 
     private List<ScheduleTab> ScheduleTabs =>
     [
@@ -181,39 +192,25 @@
     };
 
     private bool CanCreateSchedule =>
-        _form.AgentId != Guid.Empty
+        !string.IsNullOrWhiteSpace(_form.TargetRole)
         && !string.IsNullOrWhiteSpace(_form.Label)
         && !string.IsNullOrWhiteSpace(_form.Cron)
         && !string.IsNullOrWhiteSpace(_form.Prompt);
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadAgents();
-    }
+    protected override async Task OnInitializedAsync() => await LoadData();
 
-    private async Task LoadAgents()
+    private async Task LoadData()
     {
         _loading = true;
         _error = null;
-
         try
         {
-            var response = await Http.GetAsync(Nav.ToAbsoluteUri("/ui/agents"));
-            _agents = await ReadItemsAsync<AgentDto>(response);
-
-            if (_schedules.Count == 0)
-            {
-                SeedSchedules();
-            }
-
-            if (_form.AgentId == Guid.Empty && _agents.Count > 0)
-            {
-                _form.AgentId = _agents[0].AgentId;
-            }
+            _agents = await ReadItemsAsync<AgentDto>(await Http.GetAsync(Nav.ToAbsoluteUri("/ui/agents")));
+            _tasks = await ReadItemsAsync<AgentTaskDto>(await Http.GetAsync(Nav.ToAbsoluteUri("/ui/agent-tasks")));
         }
         catch (Exception ex)
         {
-            _error = $"Unable to load agents for schedules: {ex.Message}";
+            _error = $"Unable to load schedules: {ex.Message}";
         }
         finally
         {
@@ -231,12 +228,6 @@
 
         await using var stream = await response.Content.ReadAsStreamAsync();
         using var document = await JsonDocument.ParseAsync(stream);
-
-        if (document.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<T>>(document.RootElement.GetRawText(), _jsonOptions) ?? new List<T>();
-        }
-
         if (document.RootElement.ValueKind == JsonValueKind.Object
             && document.RootElement.TryGetProperty("items", out var items)
             && items.ValueKind == JsonValueKind.Array)
@@ -247,59 +238,13 @@
         return new List<T>();
     }
 
-    private void SeedSchedules()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var sourceAgents = _agents.Count == 0
-            ? new List<AgentDto>
-            {
-                new(Guid.NewGuid(), "Development Agent", "development", null, 0, "active", ["implementation", "tests"], null, "idle", now.AddSeconds(-30), null, "claude", "claude-sonnet-4-6", now.AddDays(-2), now),
-                new(Guid.NewGuid(), "DevOps Agent", "devops", null, 0, "active", ["builds", "deployments"], null, "idle", now.AddSeconds(-45), null, "opencode", "max-2.7", now.AddDays(-1), now)
-            }
-            : _agents;
-
-        _schedules = sourceAgents.SelectMany((agent, index) =>
-        {
-            var baseMinute = (index + 1) * 7;
-            return new[]
-            {
-                new AgentSchedule(
-                    $"sch-{index + 1:00}-review",
-                    agent.AgentId,
-                    agent.Name,
-                    agent.Role,
-                    agent.Tool,
-                    "Review pending task queue",
-                    "*/15 * * * *",
-                    "Review pending development tasks, select the highest-risk unassigned item, and update the queue with next steps.",
-                    true,
-                    now.AddMinutes(-(20 + index * 3)),
-                    now.AddMinutes(baseMinute),
-                    "system"),
-                new AgentSchedule(
-                    $"sch-{index + 1:00}-health",
-                    agent.AgentId,
-                    agent.Name,
-                    agent.Role,
-                    agent.Tool,
-                    "Check build health",
-                    "0 * * * *",
-                    "Inspect current build/test status, summarize failures, and create agent tasks for regressions.",
-                    index % 2 == 0,
-                    now.AddHours(-(2 + index)),
-                    now.AddMinutes(35 + baseMinute),
-                    "system")
-            };
-        }).Take(10).ToList();
-    }
-
     private void SetFilter(string filter) => _filter = filter;
 
     private void OpenCreateModal()
     {
         _form = new ScheduleForm
         {
-            AgentId = _agents.FirstOrDefault()?.AgentId ?? Guid.Empty,
+            TargetRole = "developer",
             Label = "Review open development tasks",
             Cron = "*/15 * * * *",
             Prompt = "Inspect pending tasks, pick the highest-priority unassigned item, and produce an implementation plan."
@@ -309,51 +254,71 @@
 
     private void CloseModal() => _showModal = false;
 
-    private void CreateSchedule()
+    private async Task CreateSchedule()
     {
         if (!CanCreateSchedule)
+            return;
+
+        var request = new CreateAgentTaskRequest(
+            Description: $"{_form.Label.Trim()}\n\n{_form.Prompt.Trim()}",
+            Priority: "normal",
+            TargetRole: _form.TargetRole.Trim(),
+            TaskType: "scheduled",
+            ScheduleExpression: _form.Cron.Trim());
+
+        var response = await Http.PostAsJsonAsync(Nav.ToAbsoluteUri("/ui/agent-tasks"), request);
+        if (!response.IsSuccessStatusCode)
         {
+            _error = $"Create failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
             return;
         }
-
-        var agent = _agents.FirstOrDefault(a => a.AgentId == _form.AgentId);
-        if (agent is null)
-        {
-            return;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        _schedules.Insert(0, new AgentSchedule(
-            $"sch-{now.ToUnixTimeSeconds()}",
-            agent.AgentId,
-            agent.Name,
-            agent.Role,
-            agent.Tool,
-            _form.Label.Trim(),
-            _form.Cron.Trim(),
-            _form.Prompt.Trim(),
-            true,
-            null,
-            now.AddMinutes(15),
-            "manual"));
 
         _showModal = false;
+        await LoadData();
     }
 
-    private void ToggleSchedule(string id)
+    private async Task ToggleSchedule(string id)
     {
-        _schedules = _schedules.Select(s => s.Id == id ? s with { Enabled = !s.Enabled } : s).ToList();
+        var task = _tasks.FirstOrDefault(t => t.TaskId == id);
+        if (task is null)
+            return;
+
+        var next = task.Status.Equals("scheduled", StringComparison.OrdinalIgnoreCase) ? "blocked" : "scheduled";
+        await Http.PutAsJsonAsync(Nav.ToAbsoluteUri($"/ui/agent-tasks/{Uri.EscapeDataString(id)}"), new UpdateAgentTaskRequest(Status: next));
+        await LoadData();
     }
 
-    private void RunNow(string id)
+    private async Task RunNow(string id)
     {
-        var now = DateTimeOffset.UtcNow;
-        _schedules = _schedules.Select(s => s.Id == id ? s with { LastRunAt = now, NextRunAt = now.AddMinutes(15), Enabled = true } : s).ToList();
+        await Http.PostAsync(Nav.ToAbsoluteUri($"/ui/agent-tasks/{Uri.EscapeDataString(id)}/run"), null);
+        await LoadData();
     }
 
-    private void DeleteSchedule(string id)
+    private async Task DeleteSchedule(string id)
     {
-        _schedules = _schedules.Where(s => s.Id != id).ToList();
+        await Http.DeleteAsync(Nav.ToAbsoluteUri($"/ui/agent-tasks/{Uri.EscapeDataString(id)}"));
+        await LoadData();
+    }
+
+    private AgentSchedule ToSchedule(AgentTaskDto task)
+    {
+        var agent = Guid.TryParse(task.AssignedTo, out var agentId)
+            ? _agents.FirstOrDefault(a => a.AgentId == agentId)
+            : null;
+
+        return new AgentSchedule(
+            task.TaskId,
+            agent?.AgentId ?? Guid.Empty,
+            agent?.Name ?? "role pool",
+            task.TargetRole ?? agent?.Role ?? "developer",
+            agent?.Tool ?? "pool",
+            task.TaskType ?? "Scheduled task",
+            task.ScheduleExpression ?? $"trigger: {task.TriggerEvent}",
+            task.Description,
+            task.Status.Equals("scheduled", StringComparison.OrdinalIgnoreCase),
+            task.LastRunAt,
+            task.NextRunAt ?? DateTimeOffset.UtcNow,
+            task.TriggerEvent is null ? "schedule" : "trigger");
     }
 
     private static bool IsDueSoon(AgentSchedule schedule) =>
@@ -361,27 +326,37 @@
 
     private static string RoleLabel(string role) => NormalizeRole(role) switch
     {
+        "product_manager" => "Product Manager",
+        "chief_technology_officer" => "CTO",
+        "junior_developer" => "Junior Developer",
+        "developer" => "Developer",
+        "senior_developer" => "Senior Developer",
+        "system_architect" => "System Architect",
+        "junior_designer" => "Junior Designer",
+        "senior_designer" => "Senior Designer",
         "devops" => "DevOps",
-        "review" or "reviewer" => "Reviewer",
-        "security" => "Security",
-        _ => "Development"
+        _ => role
     };
 
     private static string RoleTone(string role) => NormalizeRole(role) switch
     {
-        "devops" => "cyan",
-        "review" or "reviewer" => "magenta",
-        "security" => "red",
+        "system_architect" or "devops" => "cyan",
+        "senior_developer" => "magenta",
+        "junior_designer" or "senior_designer" => "violet",
+        "chief_technology_officer" => "red",
+        "product_manager" => "green",
         _ => "amber"
     };
 
     private static string NormalizeRole(string role) =>
-        string.IsNullOrWhiteSpace(role) ? "development" : role.Trim().ToLowerInvariant();
+        string.IsNullOrWhiteSpace(role) ? "developer" : role.Trim().ToLowerInvariant();
 
     private static string ToolTone(string tool) => tool.ToLowerInvariant() switch
     {
         "claude" => "violet",
         "codex" => "green",
+        "gemini" => "cyan",
+        "openai" => "green",
         "opencode" => "cyan",
         _ => "amber"
     };
@@ -392,24 +367,16 @@
     {
         var span = DateTimeOffset.UtcNow - value.ToUniversalTime();
         if (span < TimeSpan.Zero)
-        {
             span = TimeSpan.Zero;
-        }
 
         if (span.TotalSeconds < 60)
-        {
             return $"{Math.Max(1, (int)span.TotalSeconds)}s ago";
-        }
 
         if (span.TotalMinutes < 60)
-        {
             return $"{(int)span.TotalMinutes}m ago";
-        }
 
         if (span.TotalHours < 24)
-        {
             return $"{(int)span.TotalHours}h ago";
-        }
 
         return $"{(int)span.TotalDays}d ago";
     }
@@ -418,19 +385,13 @@
     {
         var span = value.ToUniversalTime() - DateTimeOffset.UtcNow;
         if (span <= TimeSpan.Zero)
-        {
             return "due now";
-        }
 
         if (span.TotalMinutes < 60)
-        {
             return $"in {(int)Math.Ceiling(span.TotalMinutes)}m";
-        }
 
         if (span.TotalHours < 24)
-        {
             return $"in {(int)Math.Ceiling(span.TotalHours)}h";
-        }
 
         return $"in {(int)Math.Ceiling(span.TotalDays)}d";
     }
@@ -453,7 +414,7 @@
 
     private sealed class ScheduleForm
     {
-        public Guid AgentId { get; set; }
+        public string TargetRole { get; set; } = "developer";
         public string Label { get; set; } = "";
         public string Cron { get; set; } = "*/15 * * * *";
         public string Prompt { get; set; } = "";

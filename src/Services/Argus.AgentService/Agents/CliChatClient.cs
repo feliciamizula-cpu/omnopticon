@@ -42,26 +42,15 @@ public sealed class CliChatClient(string tool, string model) : IChatClient
 
     private async Task<string> InvokeAsync(string prompt, CancellationToken ct)
     {
-        var escapedPrompt = prompt.Replace("\"", "\\\"");
-        var (filename, args) = tool.ToLowerInvariant() switch
-        {
-            "claude" => ("claude", $"--model {model} -p \"{escapedPrompt}\""),
-            "opencode" => ("opencode", $"run --model {model} --prompt-text \"{escapedPrompt}\""),
-            "codex" => ("codex", $"--model {model} \"{escapedPrompt}\""),
-            "openai" => ("openai", $"api chat.completions.create -m {model} -g user \"{escapedPrompt}\""),
-            "gemini" => ("gemini", $"--model {model} --prompt \"{escapedPrompt}\""),
-            _ => throw new ArgumentException($"Unknown CLI tool: {tool}")
-        };
-
         var psi = new ProcessStartInfo
         {
-            FileName = filename,
-            Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        AddToolArguments(psi, prompt);
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -80,6 +69,53 @@ public sealed class CliChatClient(string tool, string model) : IChatClient
         }
 
         return output;
+    }
+
+    private void AddToolArguments(ProcessStartInfo psi, string prompt)
+    {
+        switch (tool.ToLowerInvariant())
+        {
+            case "claude":
+                psi.FileName = "claude";
+                psi.ArgumentList.Add("--model");
+                psi.ArgumentList.Add(model);
+                psi.ArgumentList.Add("-p");
+                psi.ArgumentList.Add(prompt);
+                break;
+            case "opencode":
+                psi.FileName = "opencode";
+                psi.ArgumentList.Add("run");
+                psi.ArgumentList.Add("--model");
+                psi.ArgumentList.Add(model);
+                psi.ArgumentList.Add("--prompt-text");
+                psi.ArgumentList.Add(prompt);
+                break;
+            case "codex":
+                psi.FileName = "codex";
+                psi.ArgumentList.Add("--model");
+                psi.ArgumentList.Add(model);
+                psi.ArgumentList.Add(prompt);
+                break;
+            case "openai":
+                psi.FileName = "openai";
+                psi.ArgumentList.Add("api");
+                psi.ArgumentList.Add("chat.completions.create");
+                psi.ArgumentList.Add("-m");
+                psi.ArgumentList.Add(model);
+                psi.ArgumentList.Add("-g");
+                psi.ArgumentList.Add("user");
+                psi.ArgumentList.Add(prompt);
+                break;
+            case "gemini":
+                psi.FileName = "gemini";
+                psi.ArgumentList.Add("--model");
+                psi.ArgumentList.Add(model);
+                psi.ArgumentList.Add("--prompt");
+                psi.ArgumentList.Add(prompt);
+                break;
+            default:
+                throw new ArgumentException($"Unknown CLI tool: {tool}");
+        }
     }
 
     private static string BuildPrompt(IList<ChatMessage> messages)

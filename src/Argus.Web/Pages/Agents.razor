@@ -318,10 +318,15 @@ Task @task.TaskId · @task.Priority · @task.Status
                         <div class="dev-form-field">
                             <label>Role</label>
                             <select class="dev-input" @bind="_agentForm.Role">
-                                <option value="development">Development</option>
+                                <option value="product_manager">Product Manager</option>
+                                <option value="chief_technology_officer">Chief Technology Officer</option>
+                                <option value="junior_developer">Junior Developer</option>
                                 <option value="devops">DevOps</option>
-                                <option value="reviewer">Reviewer</option>
-                                <option value="security">Security</option>
+                                <option value="developer">Developer</option>
+                                <option value="senior_developer">Senior Developer</option>
+                                <option value="system_architect">System Architect</option>
+                                <option value="junior_designer">Junior Designer</option>
+                                <option value="senior_designer">Senior Designer</option>
                             </select>
                         </div>
                         <div class="dev-form-field">
@@ -329,12 +334,22 @@ Task @task.TaskId · @task.Priority · @task.Status
                             <select class="dev-input" @bind="_agentForm.Tool">
                                 <option value="claude">Claude</option>
                                 <option value="codex">Codex</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="openai">OpenAI</option>
                                 <option value="opencode">Opencode</option>
                             </select>
                         </div>
                         <div class="dev-form-field">
                             <label>Model</label>
                             <input class="dev-input" @bind="_agentForm.Model" @bind:event="oninput" placeholder="claude-sonnet-4-6" />
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Priority order</label>
+                            <input class="dev-input" type="number" min="0" @bind="_agentForm.SortOrder" />
+                        </div>
+                        <div class="dev-form-field full">
+                            <label>Role description</label>
+                            <textarea class="dev-input" rows="3" @bind="_agentForm.RoleDescription" @bind:event="oninput" placeholder="Describe what this agent is responsible for."></textarea>
                         </div>
                         <div class="dev-form-field full">
                             <label>Responsibilities</label>
@@ -397,10 +412,12 @@ Task @task.TaskId · @task.Priority · @task.Status
     private List<RoleTab> RoleTabs =>
     [
         new("all", "All Agents", _agents.Count),
-        new("development", "Development", _agents.Count(a => RoleMatches(a.Role, "development"))),
+        new("junior_developer", "Junior Dev", _agents.Count(a => RoleMatches(a.Role, "junior_developer"))),
+        new("developer", "Developer", _agents.Count(a => RoleMatches(a.Role, "developer"))),
+        new("senior_developer", "Senior Dev", _agents.Count(a => RoleMatches(a.Role, "senior_developer"))),
+        new("system_architect", "Architect", _agents.Count(a => RoleMatches(a.Role, "system_architect"))),
         new("devops", "DevOps", _agents.Count(a => RoleMatches(a.Role, "devops"))),
-        new("reviewer", "Reviewer", _agents.Count(a => RoleMatches(a.Role, "reviewer"))),
-        new("security", "Security", _agents.Count(a => RoleMatches(a.Role, "security")))
+        new("design", "Design", _agents.Count(a => RoleMatches(a.Role, "design")))
     ];
 
     private bool CanSaveAgent =>
@@ -493,9 +510,10 @@ Task @task.TaskId · @task.Priority · @task.Status
         _agentForm = new AgentForm
         {
             Name = $"Agent {_agents.Count + 1}",
-            Role = "development",
+            Role = "developer",
             Tool = "claude",
             Model = "claude-sonnet-4-6",
+            SortOrder = 10,
             ResponsibilitiesText = "implementation, tests, code review"
         };
         _showAgentModal = true;
@@ -508,6 +526,8 @@ Task @task.TaskId · @task.Priority · @task.Status
         {
             Name = agent.Name,
             Role = agent.Role,
+            RoleDescription = agent.RoleDescription ?? "",
+            SortOrder = agent.SortOrder,
             Tool = agent.Tool,
             Model = agent.Model,
             ResponsibilitiesText = string.Join(", ", agent.Responsibilities)
@@ -542,6 +562,8 @@ Task @task.TaskId · @task.Priority · @task.Status
                 var request = new UpdateAgentRequest(
                     Name: _agentForm.Name.Trim(),
                     Role: _agentForm.Role.Trim(),
+                    RoleDescription: string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
+                    SortOrder: _agentForm.SortOrder,
                     Responsibilities: responsibilities,
                     Tool: _agentForm.Tool.Trim(),
                     Model: _agentForm.Model.Trim());
@@ -555,7 +577,9 @@ Task @task.TaskId · @task.Priority · @task.Status
                     _agentForm.Role.Trim(),
                     responsibilities,
                     _agentForm.Tool.Trim(),
-                    _agentForm.Model.Trim());
+                    _agentForm.Model.Trim(),
+                    string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
+                    _agentForm.SortOrder);
 
                 response = await Http.PostAsJsonAsync(Ui("/ui/agents"), request);
             }
@@ -706,30 +730,43 @@ Task @task.TaskId · @task.Priority · @task.Status
         var normalized = NormalizeRole(role);
         return filter switch
         {
-            "reviewer" => normalized is "reviewer" or "review",
+            "design" => normalized is "junior_designer" or "senior_designer",
             _ => string.Equals(normalized, filter, StringComparison.OrdinalIgnoreCase)
         };
     }
 
     private static string NormalizeRole(string role) =>
-        string.IsNullOrWhiteSpace(role) ? "development" : role.Trim().ToLowerInvariant();
+        string.IsNullOrWhiteSpace(role) ? "developer" : role.Trim().ToLowerInvariant();
 
     private static string NormalizeTool(string tool) =>
         string.IsNullOrWhiteSpace(tool) ? "cli" : tool.Trim().ToLowerInvariant();
 
     private static string RoleLabel(string role) => NormalizeRole(role) switch
     {
+        "product_manager" => "Product Manager",
+        "chief_technology_officer" => "CTO",
+        "junior_developer" => "Junior Developer",
+        "developer" => "Developer",
+        "senior_developer" => "Senior Developer",
+        "system_architect" => "System Architect",
+        "junior_designer" => "Junior Designer",
+        "senior_designer" => "Senior Designer",
         "devops" => "DevOps",
-        "review" or "reviewer" => "Reviewer",
         "security" => "Security",
         "research" => "Research",
-        _ => "Development"
+        _ => role
     };
 
     private static string RoleTone(string role) => NormalizeRole(role) switch
     {
+        "product_manager" => "green",
+        "chief_technology_officer" => "red",
+        "junior_developer" => "amber",
+        "developer" => "amber",
+        "senior_developer" => "magenta",
+        "system_architect" => "cyan",
+        "junior_designer" or "senior_designer" => "violet",
         "devops" => "cyan",
-        "review" or "reviewer" => "magenta",
         "security" => "red",
         "research" => "violet",
         _ => "amber"
@@ -737,8 +774,14 @@ Task @task.TaskId · @task.Priority · @task.Status
 
     private static string RoleGlyph(string role) => NormalizeRole(role) switch
     {
+        "product_manager" => "◎",
+        "chief_technology_officer" => "▲",
+        "junior_developer" => "◇",
+        "developer" => "◈",
+        "senior_developer" => "◆",
+        "system_architect" => "●",
+        "junior_designer" or "senior_designer" => "◐",
         "devops" => "◆",
-        "review" or "reviewer" => "◇",
         "security" => "▲",
         "research" => "◎",
         _ => "◈"
@@ -748,6 +791,8 @@ Task @task.TaskId · @task.Priority · @task.Status
     {
         "claude" => "Claude",
         "codex" => "Codex",
+        "gemini" => "Gemini",
+        "openai" => "OpenAI",
         "opencode" => "Opencode",
         _ => string.IsNullOrWhiteSpace(tool) ? "CLI" : tool
     };
@@ -756,6 +801,8 @@ Task @task.TaskId · @task.Priority · @task.Status
     {
         "claude" => "violet",
         "codex" => "green",
+        "gemini" => "cyan",
+        "openai" => "green",
         "opencode" => "cyan",
         _ => "amber"
     };
@@ -764,6 +811,8 @@ Task @task.TaskId · @task.Priority · @task.Status
     {
         "claude" => "claude",
         "codex" => "codex",
+        "gemini" => "gemini",
+        "openai" => "openai",
         "opencode" => "opencode run",
         _ => NormalizeTool(tool)
     };
@@ -888,7 +937,9 @@ Task @task.TaskId · @task.Priority · @task.Status
     private sealed class AgentForm
     {
         public string Name { get; set; } = "";
-        public string Role { get; set; } = "development";
+        public string Role { get; set; } = "developer";
+        public string RoleDescription { get; set; } = "";
+        public int SortOrder { get; set; }
         public string Tool { get; set; } = "claude";
         public string Model { get; set; } = "claude-sonnet-4-6";
         public string ResponsibilitiesText { get; set; } = "";

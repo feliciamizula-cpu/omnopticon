@@ -1,0 +1,28 @@
+@typeparam TItem
+@implements IDisposable
+
+@* Column definition — renders no markup; registers with parent ArgusGrid *@
+
+@code {
+    [CascadingParameter] public ArgusGrid<TItem> Grid { get; set; } = default!;
+
+    [Parameter] public string Header { get; set; } = "";
+    [Parameter] public Func<TItem, string?> Value { get; set; } = _ => null;
+    [Parameter] public RenderFragment<TItem>? CellTemplate { get; set; }
+    [Parameter] public bool Sortable { get; set; } = true;
+    [Parameter] public bool Searchable { get; set; } = true;
+    [Parameter] public string? Width { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public bool Sticky { get; set; }
+    [Parameter] public bool Groupable { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Grid?.RegisterColumn(this);
+    }
+
+    public void Dispose()
+    {
+        Grid?.RemoveColumn(this);
+    }
+}

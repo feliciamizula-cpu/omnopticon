@@ -1,0 +1,111 @@
+@page "/code-reviews"
+@page "/development/code-reviews"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Argus.Contracts.Agents
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageHeader Title="Code Reviews" Subtitle="@($"{_reviews.Count:N0} agent reviews")" />
+
+<div class="page-body dev-page">
+    <div class="dev-main">
+        <div class="page-tabs">
+            <button class="page-tab active"><span>Recent</span><span class="tab-count">@_reviews.Count</span></button>
+            <div class="page-tab-spacer"></div>
+            <div class="page-tab-actions">
+                <button class="btn ghost tiny" @onclick="LoadData">Refresh</button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="dev-alert">@_error</div>
+        }
+
+        @if (_loading)
+        {
+            <div class="dev-empty">// loading code reviews</div>
+        }
+        else if (_reviews.Count == 0)
+        {
+            <div class="dev-empty">// no agent code reviews yet</div>
+        }
+        else
+        {
+            <div class="dev-list-pane">
+                @foreach (var review in _reviews)
+                {
+                    <div class="dev-card" style="margin-bottom: 10px;">
+                        <div class="dev-card-top">
+                            <span class="dot green"></span>
+                            <span class="dev-card-title">Review @review.ReviewId.ToString("N")[..8]</span>
+                            <span class="asset-id">@review.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                        </div>
+                        <div class="dev-command-line">
+                            <span>task @(review.SourceTaskId ?? "manual")</span>
+                            @if (!string.IsNullOrWhiteSpace(review.CommitRef))
+                            {
+                                <span> · @review.CommitRef</span>
+                            }
+                        </div>
+                        <pre class="dev-note" style="white-space: pre-wrap;">@review.ReviewContent</pre>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private List<CodeReviewDto> _reviews = new();
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var response = await Http.GetAsync(Nav.ToAbsoluteUri("/ui/code-reviews?take=100"));
+            _reviews = await ReadItemsAsync<CodeReviewDto>(response);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to load code reviews: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<List<T>> ReadItemsAsync<T>(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            _error = $"Backend returned {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+            return new List<T>();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var document = await JsonDocument.ParseAsync(stream);
+        if (document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty("items", out var items)
+            && items.ValueKind == JsonValueKind.Array)
+        {
+            return JsonSerializer.Deserialize<List<T>>(items.GetRawText(), _jsonOptions) ?? new List<T>();
+        }
+
+        return new List<T>();
+    }
+}

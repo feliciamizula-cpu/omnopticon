@@ -76,7 +76,7 @@ public static class ServiceCollectionExtensions
 
         builder.Services.AddSingleton<TaskNotificationChannel>();
 
-        builder.Services.AddHostedService<IHostedService>(sp =>
+        builder.Services.AddSingleton<IHostedService>(sp =>
         {
             var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>().Value;
             return new TaskWorkerHostedServiceWrapper(

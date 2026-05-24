@@ -341,6 +341,8 @@ app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
 
 app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
 app.MapPost("/ui/agent-chat", ProxyPostChat);
+app.MapGet("/ui/code-reviews", ProxyGetCodeReviews);
+app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 
 // Provider usage BFF proxy endpoints
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
@@ -480,6 +482,22 @@ async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpCli
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
+}
+
+async Task<IResult> ProxyGetCodeReviews(int? take, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/code-reviews?take={Math.Clamp(take ?? 100, 1, 500)}", ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/system-reports?take={Math.Clamp(take ?? 100, 1, 500)}", ct);
+    return Results.Json(result ?? new JsonObject());
 }
 
 // Provider usage proxy handlers

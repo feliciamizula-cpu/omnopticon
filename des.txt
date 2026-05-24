@@ -1,0 +1,699 @@
+# SPEC-2-provider-usage-monitoring
+
+## Background
+
+The Development section currently manages development agents, agent tasks, schedules, and coordinator chat. The next reliability risk is provider exhaustion: agents can silently stop making progress when OpenAI/Codex, Anthropic/Claude, OpenRouter, DeepSeek, Gemini, Qwen/DashScope, or OpenCode-backed providers run out of credits, messages, tokens, requests, or rolling-window quota.
+
+This feature adds a provider usage dashboard and monitor under the Development section. It retrieves remaining usage from provider APIs where available, records inferred usage from agent execution where APIs are unavailable, and warns before agent runs are blocked by provider limits.
+
+## Requirements
+
+### Must
+
+* Show remaining usage for every configured provider account used by Development agents.
+* Support provider status values: `healthy`, `warning`, `critical`, `exhausted`, `not_configured`, `unknown`, `error`, and `stale`.
+* Poll official provider APIs when credentials are configured.
+* Track observed agent/provider calls locally even when official remaining-usage APIs are not available.
+* Show latest usage, reset time, unit, source, confidence, last refresh time, and raw error summary.
+* Warn at configurable thresholds, defaulting to warning at 25% remaining and critical at 10% remaining.
+* Include Blazor UI route `/development/provider-usage` with the same Development visual style as Agents and Agent Tasks.
+* Add BFF proxy endpoints in `Argus.Web` so the UI never calls provider APIs directly.
+* Never store API keys in the database.
+* Work out of the box with seeded demo provider accounts and `not_configured` cards when secrets are missing.
+* Add tests for normalization, threshold calculation, and each provider adapter's sample response parsing.
+
+### Should
+
+* Link usage cards to agents using that provider/tool/model.
+* Allow manual refresh per provider and refresh all.
+* Allow pausing all agents for a provider from the provider usage page.
+* Publish an internal event when a provider crosses warning or critical thresholds.
+* Keep at least 14 days of snapshots for trend charts.
+
+### Could
+
+* Show projected exhaustion time based on recent consumption rate.
+* Add automatic provider fallback recommendations for pending tasks.
+* Add per-agent/provider cost attribution.
+
+### Won't
+
+* Scrape provider web dashboards.
+* Put provider secrets in Blazor, browser local storage, logs, or database records.
+* Block all agents automatically in the first implementation; instead provide operator-visible warnings and manual pause controls.
+
+## Method
+
+### Placement
+
+Implement this inside `Argus.AgentService` first because this is a Development feature and uses the same provider concepts as agents: `Tool`, `Model`, and active task execution.
+
+Do not extend `Argus.RateLimitService` for this. That service protects scan targets and worker traffic. Provider usage is about external AI/provider quota and belongs with Development agent orchestration.
+
+### New project areas
+
+```text
+src/Contracts/Argus.Contracts/ProviderUsage/
+  ProviderUsageContracts.cs
+
+src/Services/Argus.AgentService/Data/
+  ProviderAccountRecord.cs
+  ProviderUsageSnapshotRecord.cs
+
+src/Services/Argus.AgentService/ProviderUsage/
+  IProviderUsageAdapter.cs
+  ProviderUsageMonitor.cs
+  ProviderUsageService.cs
+  ProviderUsageStatusCalculator.cs
+  ProviderUsageSeedData.cs
+  Adapters/
+    OpenAiUsageAdapter.cs
+    AnthropicUsageAdapter.cs
+    OpenRouterUsageAdapter.cs
+    DeepSeekUsageAdapter.cs
+    GeminiUsageAdapter.cs
+    QwenDashScopeUsageAdapter.cs
+    CodexCliUsageAdapter.cs
+    ClaudeCodeUsageAdapter.cs
+    ManualUsageAdapter.cs
+```
+
+### Normalized contract
+
+```csharp
+namespace Argus.Contracts.ProviderUsage;
+
+public sealed record ProviderAccountDto(
+    Guid AccountId,
+    string ProviderKey,
+    string DisplayName,
+    string AccountType,
+    string AuthMode,
+    string? SecretName,
+    string? BaseUrl,
+    string[] RelatedTools,
+    string[] RelatedModels,
+    decimal WarningThresholdPercent,
+    decimal CriticalThresholdPercent,
+    bool Enabled,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    ProviderUsageSnapshotDto? LatestSnapshot);
+
+public sealed record ProviderUsageSnapshotDto(
+    Guid SnapshotId,
+    Guid AccountId,
+    string ProviderKey,
+    DateTimeOffset ObservedAt,
+    string WindowKind,
+    string Unit,
+    decimal? LimitAmount,
+    decimal? UsedAmount,
+    decimal? RemainingAmount,
+    decimal? RemainingPercent,
+    DateTimeOffset? ResetsAt,
+    string Source,
+    string Confidence,
+    string Status,
+    string? Message,
+    bool IsStale);
+
+public sealed record ProviderUsageSummaryDto(
+    DateTimeOffset GeneratedAt,
+    int TotalProviders,
+    int HealthyCount,
+    int WarningCount,
+    int CriticalCount,
+    int ErrorCount,
+    IReadOnlyList<ProviderAccountDto> Accounts);
+
+public sealed record CreateProviderAccountRequest(
+    string ProviderKey,
+    string DisplayName,
+    string AccountType,
+    string AuthMode,
+    string? SecretName,
+    string? BaseUrl,
+    string[] RelatedTools,
+    string[] RelatedModels,
+    decimal WarningThresholdPercent = 25,
+    decimal CriticalThresholdPercent = 10,
+    bool Enabled = true);
+
+public sealed record UpdateProviderAccountRequest(
+    string? DisplayName = null,
+    string? SecretName = null,
+    string? BaseUrl = null,
+    string[]? RelatedTools = null,
+    string[]? RelatedModels = null,
+    decimal? WarningThresholdPercent = null,
+    decimal? CriticalThresholdPercent = null,
+    bool? Enabled = null);
+
+public sealed record ManualUsageSnapshotRequest(
+    string WindowKind,
+    string Unit,
+    decimal? LimitAmount,
+    decimal? UsedAmount,
+    decimal? RemainingAmount,
+    DateTimeOffset? ResetsAt,
+    string? Message = null);
+```
+
+### Database schema
+
+Add these EF records and DbSets to `AgentDbContext`.
+
+```csharp
+public sealed class ProviderAccountRecord
+{
+    public Guid AccountId { get; set; }
+    public string ProviderKey { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string AccountType { get; set; } = "api";
+    public string AuthMode { get; set; } = "env";
+    public string? SecretName { get; set; }
+    public string? BaseUrl { get; set; }
+    public string RelatedToolsJson { get; set; } = "[]";
+    public string RelatedModelsJson { get; set; } = "[]";
+    public decimal WarningThresholdPercent { get; set; } = 25;
+    public decimal CriticalThresholdPercent { get; set; } = 10;
+    public bool Enabled { get; set; } = true;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class ProviderUsageSnapshotRecord
+{
+    public Guid SnapshotId { get; set; }
+    public Guid AccountId { get; set; }
+    public string ProviderKey { get; set; } = string.Empty;
+    public DateTimeOffset ObservedAt { get; set; }
+    public string WindowKind { get; set; } = "unknown";
+    public string Unit { get; set; } = "unknown";
+    public decimal? LimitAmount { get; set; }
+    public decimal? UsedAmount { get; set; }
+    public decimal? RemainingAmount { get; set; }
+    public decimal? RemainingPercent { get; set; }
+    public DateTimeOffset? ResetsAt { get; set; }
+    public string Source { get; set; } = "unknown";
+    public string Confidence { get; set; } = "low";
+    public string Status { get; set; } = "unknown";
+    public string? Message { get; set; }
+    public string? RawJson { get; set; }
+}
+```
+
+Model configuration:
+
+```csharp
+modelBuilder.Entity<ProviderAccountRecord>(e =>
+{
+    e.HasKey(x => x.AccountId);
+    e.HasIndex(x => x.ProviderKey);
+    e.Property(x => x.RelatedToolsJson).HasColumnType("jsonb");
+    e.Property(x => x.RelatedModelsJson).HasColumnType("jsonb");
+});
+
+modelBuilder.Entity<ProviderUsageSnapshotRecord>(e =>
+{
+    e.HasKey(x => x.SnapshotId);
+    e.HasIndex(x => new { x.AccountId, x.ObservedAt });
+    e.Property(x => x.RawJson).HasColumnType("jsonb");
+});
+```
+
+### Provider account seed data
+
+Seed these accounts in memory and database initialization. They must appear even without secrets.
+
+| Provider key     | Display name                         | Related tools | Secret env var                   | Adapter                     |
+| ---------------- | ------------------------------------ | ------------: | -------------------------------- | --------------------------- |
+| `openai`         | OpenAI API / Codex API mode          |       `codex` | `OPENAI_ADMIN_API_KEY`           | `OpenAiUsageAdapter`        |
+| `anthropic`      | Anthropic API / Claude Code org mode |      `claude` | `ANTHROPIC_ADMIN_API_KEY`        | `AnthropicUsageAdapter`     |
+| `openrouter`     | OpenRouter                           |    `opencode` | `OPENROUTER_API_KEY`             | `OpenRouterUsageAdapter`    |
+| `deepseek`       | DeepSeek                             |    `opencode` | `DEEPSEEK_API_KEY`               | `DeepSeekUsageAdapter`      |
+| `gemini`         | Google Gemini                        |    `opencode` | `GOOGLE_APPLICATION_CREDENTIALS` | `GeminiUsageAdapter`        |
+| `qwen_dashscope` | Qwen / DashScope                     |    `opencode` | `DASHSCOPE_API_KEY`              | `QwenDashScopeUsageAdapter` |
+| `codex_cli`      | Codex CLI subscription               |       `codex` | none                             | `CodexCliUsageAdapter`      |
+| `claude_code`    | Claude Code subscription             |      `claude` | none                             | `ClaudeCodeUsageAdapter`    |
+| `manual`         | Manual/local provider usage          |           any | none                             | `ManualUsageAdapter`        |
+
+Seed behavior:
+
+* If the expected secret is missing, latest snapshot is `not_configured`.
+* If an adapter is supported but the provider API lacks remaining-quota details, latest snapshot is `unknown` with a message explaining what was observed.
+* Demo/dev data may be enabled only when `ASPNETCORE_ENVIRONMENT=Development` and no database exists.
+
+### Adapter interface
+
+```csharp
+public interface IProviderUsageAdapter
+{
+    string ProviderKey { get; }
+    Task<ProviderUsageProbeResult> ProbeAsync(
+        ProviderAccountRecord account,
+        CancellationToken cancellationToken);
+}
+
+public sealed record ProviderUsageProbeResult(
+    IReadOnlyList<ProviderUsageSnapshotRecord> Snapshots,
+    string? RawJson = null);
+```
+
+### Adapter behavior
+
+#### OpenAI
+
+Use Admin API credentials. Poll organization usage/cost endpoints. Store cost snapshots by day/month and derive remaining only when a local monthly budget is configured in `ProviderAccountRecord.ConfigJson` or environment settings.
+
+Result windows:
+
+* `day` / `usd` / source `api`
+* `month` / `usd` / source `api+configured_budget`
+* optional token windows if usage endpoint data is added
+
+If no budget is configured, show spend used and `remaining = null`, status `unknown` rather than guessing.
+
+#### Anthropic
+
+Use Admin API credentials. Poll organization usage and cost report endpoints. For Claude Code business/org accounts, store daily aggregated usage if available. Derive remaining only from known spend limit/rate-limit data or configured budget.
+
+Result windows:
+
+* `day` / `tokens` / source `api`
+* `month` / `usd` / source `api+configured_budget`
+* `daily_claude_code` / provider-specific unit if the endpoint returns Claude Code metrics
+
+#### OpenRouter
+
+Use `/api/v1/key` for per-key limit and remaining credits. Optionally use `/api/v1/credits` with a management key for user-level total credits minus usage.
+
+Result windows:
+
+* `key_limit` / `credits` / source `api`
+* `account_balance` / `credits` / source `api`
+
+#### DeepSeek
+
+Use `/user/balance`. Store one snapshot per returned currency. `total_balance` is remaining balance. If `is_available=false`, status becomes `exhausted`.
+
+Result windows:
+
+* `balance` / `usd` or `cny` / source `api`
+
+#### Gemini
+
+Use Google Cloud quota/service usage APIs where credentials and project id are configured. Track quota metrics for Generative Language API or Vertex AI/Gemini service. For billing-cap monitoring, optionally read configured monthly budget from Argus config.
+
+Result windows:
+
+* `minute` / `requests` / source `cloud_quota_api`
+* `day` / `requests` / source `cloud_quota_api`
+* `month` / `usd` / source `configured_budget`
+
+#### Qwen / DashScope
+
+The first implementation should support the provider account and local observed usage ledger. If no official remaining-quota API is available for the configured account, status should be `unknown` or `not_configured`. Do not scrape the console.
+
+Result windows:
+
+* `observed_day` / `requests` / source `local_ledger`
+* `manual_free_quota` / `tokens` / source `manual`, if the operator enters values from the console
+
+#### Codex CLI subscription
+
+When using ChatGPT/Codex plan auth rather than API-key mode, remaining quota is primarily visible in the Codex dashboard or active CLI session status. Implement a conservative local adapter:
+
+* Record every Codex agent invocation.
+* Classify limit errors from stderr/stdout.
+* Store latest known limit message and reset hints.
+* Allow manual snapshot entry for remaining plan usage.
+* Mark confidence `low` unless an official machine-readable status becomes available.
+
+#### Claude Code subscription
+
+When using Claude plan auth rather than API-key mode, implement the same conservative local adapter:
+
+* Record every Claude agent invocation.
+* Classify `rate_limit_error`, `usage limit`, `weekly limit`, and credit fallback prompts.
+* Allow manual snapshot entry for remaining plan usage.
+* Mark confidence `low` unless organization Admin API usage data is configured.
+
+### Status calculation
+
+```csharp
+public static string CalculateStatus(
+    ProviderAccountRecord account,
+    ProviderUsageSnapshotRecord snapshot,
+    DateTimeOffset now)
+{
+    if (!account.Enabled) return "unknown";
+    if (snapshot.Source == "not_configured") return "not_configured";
+    if (snapshot.Status == "error") return "error";
+    if (snapshot.ObservedAt < now.AddMinutes(-30)) return "stale";
+
+    if (snapshot.RemainingAmount is <= 0) return "exhausted";
+
+    if (snapshot.RemainingPercent is decimal pct)
+    {
+        if (pct <= account.CriticalThresholdPercent) return "critical";
+        if (pct <= account.WarningThresholdPercent) return "warning";
+        return "healthy";
+    }
+
+    return "unknown";
+}
+```
+
+### Polling flow
+
+```plantuml
+@startuml
+actor Operator
+participant "ProviderUsageMonitor\nHostedService" as Monitor
+participant "ProviderUsageService" as Service
+participant "Provider Adapter" as Adapter
+participant "Provider API / Local Ledger" as Provider
+participant "AgentDbContext" as Db
+participant "Development UI" as UI
+
+Monitor -> Service: RefreshAllAsync()
+Service -> Db: Load enabled ProviderAccountRecords
+loop each account
+    Service -> Adapter: ProbeAsync(account)
+    Adapter -> Provider: Query usage/balance/quota
+    Provider --> Adapter: Raw provider response or error
+    Adapter --> Service: Normalized snapshots
+    Service -> Service: Calculate status + stale/error handling
+    Service -> Db: Persist snapshots
+end
+UI -> Service: GET /provider-usage
+Service -> Db: Latest snapshot per provider
+Service --> UI: ProviderUsageSummaryDto
+Operator -> UI: Manual refresh / manual usage / pause agents
+@enduml
+```
+
+### UI design
+
+Add a new Blazor page:
+
+```text
+src/Argus.Web/Pages/ProviderUsage.razor
+```
+
+Routes:
+
+```razor
+@page "/provider-usage"
+@page "/development/provider-usage"
+```
+
+Use the same classes already used by the Development pages:
+
+* `dev-page`
+* `page-tabs`
+* `dev-stats-strip`
+* `dev-card`
+* `dev-pill`
+* `dev-two-pane`
+* `dev-inspector`
+* `kv-table`
+
+Page features:
+
+* Summary stats: total providers, healthy, warning, critical/exhausted, unknown/not configured.
+* Provider cards grouped by status.
+* Each card shows provider, remaining, unit, reset time, source, confidence, last refresh, related agents.
+* Inspector panel shows latest snapshot, thresholds, raw message, related agents, and history table.
+* Buttons: Refresh All, Refresh Selected, Manual Snapshot, Pause Related Agents.
+* Manual snapshot modal for providers without machine-readable remaining usage.
+
+### BFF and API endpoints
+
+AgentService endpoints:
+
+```csharp
+app.MapGet("/provider-usage", ListProviderUsage);
+app.MapPost("/provider-usage/refresh", RefreshAllProviderUsage);
+app.MapPost("/provider-usage/{accountId:guid}/refresh", RefreshProviderUsage);
+app.MapGet("/provider-usage/{accountId:guid}/history", GetProviderUsageHistory);
+app.MapPost("/provider-usage/{accountId:guid}/manual-snapshot", AddManualSnapshot);
+app.MapPost("/provider-usage/{accountId:guid}/pause-agents", PauseAgentsForProvider);
+app.MapPost("/provider-usage/accounts", CreateProviderAccount);
+app.MapPut("/provider-usage/accounts/{accountId:guid}", UpdateProviderAccount);
+```
+
+Argus.Web BFF endpoints:
+
+```csharp
+app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
+app.MapPost("/ui/provider-usage/refresh", ProxyRefreshAllProviderUsage);
+app.MapPost("/ui/provider-usage/{accountId:guid}/refresh", ProxyRefreshProviderUsage);
+app.MapGet("/ui/provider-usage/{accountId:guid}/history", ProxyGetProviderUsageHistory);
+app.MapPost("/ui/provider-usage/{accountId:guid}/manual-snapshot", ProxyAddManualUsageSnapshot);
+app.MapPost("/ui/provider-usage/{accountId:guid}/pause-agents", ProxyPauseProviderAgents);
+app.MapPost("/ui/provider-usage/accounts", ProxyCreateProviderAccount);
+app.MapPut("/ui/provider-usage/accounts/{accountId:guid}", ProxyUpdateProviderAccount);
+```
+
+ApiGateway routes:
+
+```csharp
+MapService(app, "/provider-usage", endpoints.Agent);
+```
+
+### Agent execution ledger
+
+Add local usage recording around `InvokeCliTool` in `Argus.AgentService/Program.cs`.
+
+Before invoking a tool:
+
+```csharp
+await providerUsageService.RecordInvocationStartedAsync(tool, model, agentId: null, taskId: null, ct);
+```
+
+After success:
+
+```csharp
+await providerUsageService.RecordInvocationCompletedAsync(
+    tool,
+    model,
+    exitCode: 0,
+    output,
+    error: null,
+    ct);
+```
+
+After failure:
+
+```csharp
+await providerUsageService.RecordInvocationCompletedAsync(
+    tool,
+    model,
+    exitCode: process.ExitCode,
+    output,
+    error,
+    ct);
+```
+
+The first implementation can store these as provider snapshots with source `local_ledger` and unit `requests`.
+
+### Error classification
+
+Add `ProviderLimitErrorClassifier`.
+
+Rules:
+
+* Contains `rate_limit_error`, `429`, `rate limit`, `too many requests` -> provider status `critical` unless reset time is present.
+* Contains `insufficient balance`, `402`, `quota exceeded`, `usage limit reached`, `weekly limit`, `message limit` -> provider status `exhausted`.
+* Contains `invalid api key`, `unauthorized`, `401`, `403` -> provider status `error` with credential message.
+* Timeout/network errors -> provider status `error`, not `exhausted`.
+
+## Implementation
+
+### Step 1: Add contracts
+
+Create `src/Contracts/Argus.Contracts/ProviderUsage/ProviderUsageContracts.cs` with the DTOs and request records from this spec.
+
+Update any `.csproj` references only if the project does not already include all `**/*.cs` files by default.
+
+### Step 2: Add data records and DbContext mappings
+
+Create:
+
+* `ProviderAccountRecord.cs`
+* `ProviderUsageSnapshotRecord.cs`
+
+Then update `AgentDbContext`:
+
+```csharp
+public DbSet<ProviderAccountRecord> ProviderAccounts => Set<ProviderAccountRecord>();
+public DbSet<ProviderUsageSnapshotRecord> ProviderUsageSnapshots => Set<ProviderUsageSnapshotRecord>();
+```
+
+Add the model configuration shown above.
+
+Create a migration:
+
+```bash
+dotnet ef migrations add AddProviderUsageMonitoring \
+  --project src/Services/Argus.AgentService/Argus.AgentService.csproj
+```
+
+### Step 3: Add seed data, based on these agent configurations:
+
+DevOps - Opencode - Mightymax M2.5
+DevOps - Gemini - Gemini Flash
+DevOps - Gemini - Gemini Flash Lite
+DevOps - Claude - Haiku
+DevOps - OpenAI - ChatGPT Mini / Nano
+Junior Developer - Gemini - Gemini Flash 
+Junior Developer - Opencode - Mightymax M2.5
+Junior Developer - OpenAI - ChatGPT Mini / Nano
+Developer - Claude - Haiku
+Developer - Claude - Sonnet
+Developer - Opencode - Mightymax M2.7
+Developer - OpenAI - Codex 5.3
+Developer - Gemini - Gemini 3.1 Pro
+Lead Developer - Claude - Sonnet
+Lead Developer - OpenAI - ChatGPT 5.5
+Lead Developer - OpenAI - Codex 5.3
+Lead Developer - Gemini - Gemini 3.1 Pro
+System Architect - Claude - Opus
+System Architect - OpenAI - ChatGPT 5.5
+
+
+Create `ProviderUsageSeedData.cs` with the provider rows from this spec.
+
+Update both stores:
+
+* `InMemoryAgentStore.InitializeAsync`
+* `EfAgentStore.InitializeAsync`
+
+Ensure seed records are inserted only when there are no provider accounts.
+
+### Step 4: Add provider usage service
+
+Create `ProviderUsageService` with these methods:
+
+```csharp
+Task<ProviderUsageSummaryDto> GetSummaryAsync(CancellationToken ct);
+Task<IReadOnlyList<ProviderUsageSnapshotDto>> GetHistoryAsync(Guid accountId, int take, CancellationToken ct);
+Task<ProviderAccountDto> CreateAccountAsync(CreateProviderAccountRequest request, CancellationToken ct);
+Task<ProviderAccountDto?> UpdateAccountAsync(Guid accountId, UpdateProviderAccountRequest request, CancellationToken ct);
+Task<IReadOnlyList<ProviderUsageSnapshotDto>> RefreshAllAsync(CancellationToken ct);
+Task<IReadOnlyList<ProviderUsageSnapshotDto>?> RefreshAsync(Guid accountId, CancellationToken ct);
+Task<ProviderUsageSnapshotDto?> AddManualSnapshotAsync(Guid accountId, ManualUsageSnapshotRequest request, CancellationToken ct);
+Task<int> PauseAgentsForProviderAsync(Guid accountId, CancellationToken ct);
+```
+
+Keep provider keys and status strings case-insensitive.
+
+### Step 5: Add adapters
+
+Implement adapters one at a time. Start with the easy adapters:
+
+1. `ManualUsageAdapter`
+2. `DeepSeekUsageAdapter`
+3. `OpenRouterUsageAdapter`
+4. `OpenAiUsageAdapter`
+5. `AnthropicUsageAdapter`
+6. `GeminiUsageAdapter`
+7. `QwenDashScopeUsageAdapter`
+8. `CodexCliUsageAdapter`
+9. `ClaudeCodeUsageAdapter`
+
+All adapters must return a snapshot rather than throwing for expected provider problems. Throw only for programmer errors. For missing credentials, return `not_configured`.
+
+### Step 6: Register services
+
+In `Argus.AgentService/Program.cs`, add:
+
+```csharp
+builder.Services.AddScoped<ProviderUsageService>();
+builder.Services.AddSingleton<IProviderUsageAdapter, OpenAiUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, AnthropicUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, OpenRouterUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, DeepSeekUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, GeminiUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, QwenDashScopeUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, CodexCliUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, ClaudeCodeUsageAdapter>();
+builder.Services.AddSingleton<IProviderUsageAdapter, ManualUsageAdapter>();
+builder.Services.AddHostedService<ProviderUsageMonitor>();
+```
+
+Use `IHttpClientFactory`; do not instantiate raw `HttpClient` in adapters.
+
+### Step 7: Add AgentService endpoints
+
+Create `ProviderUsageEndpoints.MapRoutes(app)` and call it from `AgentEndpoints.MapRoutes(app)` or directly in `Program.cs`.
+
+Each endpoint should return JSON shaped by contracts. Use `Results.NotFound()` for unknown account ids and `Results.BadRequest()` for invalid manual snapshots.
+
+### Step 8: Add Web BFF proxy endpoints
+
+In `Argus.Web/Program.cs`, add `/ui/provider-usage` endpoints. Follow the existing agent BFF proxy style.
+
+Also update `ArgusServiceEndpoints` only if needed. It already includes `Agent`.
+
+### Step 9: Add API Gateway route
+
+In `Argus.ApiGateway/Program.cs`, add provider usage to the root route list and map:
+
+```csharp
+new { Name = "provider-usage", Path = "/provider-usage", Service = "agent", Description = "Development provider usage monitoring" }
+MapService(app, "/provider-usage", endpoints.Agent);
+```
+
+### Step 10: Add sidebar nav item
+
+Update `src/Argus.Web/Layout/SidebarNav.razor` and add a Development nav link:
+
+```razor
+<NavItem Href="/development/provider-usage" Label="Provider Usage" Icon="..." />
+```
+
+Use the same nav pattern already used for Agents, Agent Tasks, and Schedules.
+
+### Step 11: Build `ProviderUsage.razor`
+
+Implement the page with:
+
+* `LoadData()` from `/ui/provider-usage`
+* `RefreshAll()` POST `/ui/provider-usage/refresh`
+* `RefreshSelected()` POST `/ui/provider-usage/{id}/refresh`
+* `LoadHistory(accountId)` from `/ui/provider-usage/{id}/history?take=100`
+* `SaveManualSnapshot()` POST `/ui/provider-usage/{id}/manual-snapshot`
+* `PauseRelatedAgents()` POST `/ui/provider-usage/{id}/pause-agents`
+
+Use local UI models matching the contracts and keep JSON options case-insensitive.
+
+### Step 12: Add tests
+
+Create `tests/Argus.AgentService.Tests` if it does not already exist.
+
+Minimum tests:
+
+* `ProviderUsageStatusCalculatorTests`
+
+  * healthy over warning threshold
+  * warning at 25%
+  * critical at 10%
+  * exhausted at 0 remaining
+  * stale after 30 minutes
+  * not configured when source is `not_configured`
+* `DeepSeekUsageAdapterTests`
+
+  * parses `is_available` and `balance_infos`
+* `OpenRouterUsageAdapterTests`
+
+  * parses key limit remaining
+  * parses credit balance total minus usage
+* `ProviderLimitErrorClassifierTests`
+
+  * maps 429/rate-limit text to critical
+  * maps 402/insufficient balance/quota exceeded to exhausted
+  * maps 401/403 to error

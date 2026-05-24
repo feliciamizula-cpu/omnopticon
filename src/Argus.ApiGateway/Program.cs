@@ -51,6 +51,8 @@ app.MapGet("/", () => Results.Ok(new
         new { Name = "agents", Path = "/agents", Service = "agent", Description = "Development agent management" },
         new { Name = "agent-tasks", Path = "/agent-tasks", Service = "agent", Description = "Development agent task queue" },
         new { Name = "agent-chat", Path = "/agent-chat", Service = "agent", Description = "Development agent coordinator chat" },
+        new { Name = "code-reviews", Path = "/code-reviews", Service = "agent", Description = "Agent-generated code reviews" },
+        new { Name = "system-reports", Path = "/system-reports", Service = "agent", Description = "Agent-generated system reports" },
         new { Name = "workers", Path = "/workers", Service = "realtime", Description = "Worker management" },
         new { Name = "worker-types", Path = "/worker-types", Service = "realtime", Description = "Worker type definitions" },
         new { Name = "worker-subscriptions", Path = "/worker-subscriptions", Service = "realtime", Description = "Worker subscription management" },
@@ -75,6 +77,8 @@ MapService(app, "/tasks", endpoints.Task);
 MapService(app, "/agents", endpoints.Agent);
 MapService(app, "/agent-tasks", endpoints.Agent);
 MapService(app, "/agent-chat", endpoints.Agent);
+MapService(app, "/code-reviews", endpoints.Agent);
+MapService(app, "/system-reports", endpoints.Agent);
 MapService(app, "/workers", endpoints.Realtime);
 MapService(app, "/worker-types", endpoints.Realtime);
 MapService(app, "/worker-subscriptions", endpoints.Realtime);
