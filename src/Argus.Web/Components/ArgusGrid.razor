@@ -1,7 +1,9 @@
 @typeparam TItem
 @implements IAsyncDisposable
 
+<CascadingValue Value="this" IsFixed="true">
 <div class="ag" style="--ag-cols: @_colsTemplate">
+    @ChildContent
 
     @* ── Toolbar ── *@
     <div class="ag-bar">
@@ -34,7 +36,7 @@
 
         @* Sticky header *@
         <div class="ag-head ag-row-grid">
-            @foreach (var col in Columns)
+            @foreach (var col in ActiveColumns)
             {
                 var c = col;
                 <div class="ag-th @HeadCls(c)" @onclick="() => ClickSort(c)" title="@c.Header">@c.Header</div>
@@ -45,7 +47,7 @@
         @if (_showFilters)
         {
             <div class="ag-filter-row ag-row-grid">
-                @foreach (var col in Columns)
+                @foreach (var col in ActiveColumns)
                 {
                     var c = col;
                     <div class="ag-fc">
@@ -67,7 +69,7 @@
             <Virtualize Items="_processed" ItemSize="28" OverscanCount="8" Context="item">
                 <div class="ag-row ag-row-grid @(IsSelected(item) ? "ag-sel" : "")"
                      @onclick="() => ClickRow(item)">
-                    @foreach (var col in Columns)
+                    @foreach (var col in ActiveColumns)
                     {
                         var c = col;
                         <div class="ag-td @(c.Primary ? "ag-primary" : "")">
@@ -100,7 +102,7 @@
                 var it = item;
                 <div class="ag-row ag-row-grid @(IsSelected(it) ? "ag-sel" : "")"
                      @onclick="() => ClickRow(it)">
-                    @foreach (var col in Columns)
+                    @foreach (var col in ActiveColumns)
                     {
                         var c = col;
                         <div class="ag-td @(c.Primary ? "ag-primary" : "")">
@@ -118,10 +120,12 @@
         }
     </div>
 </div>
+</CascadingValue>
 
 @code {
     [Parameter, EditorRequired] public List<TItem> Items { get; set; } = [];
     [Parameter, EditorRequired] public List<GridColumn<TItem>> Columns { get; set; } = [];
+    [Parameter] public RenderFragment? ChildContent { get; set; }
 
     /// <summary>Highlighted row. Uses ItemKey for comparison when set, otherwise reference equality.</summary>
     [Parameter] public TItem? SelectedItem { get; set; }
@@ -157,22 +161,28 @@
 
     // ── Cached result (rebuilt only on state changes, not every render) ──
     private List<TItem> _processed = [];
+    private readonly List<GridColumn<TItem>> _registeredColumns = [];
 
     // ── Live-refresh timer ──
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
 
+    private IReadOnlyList<GridColumn<TItem>> ActiveColumns =>
+        Columns.Count > 0 ? Columns : _registeredColumns;
+
     protected override void OnParametersSet()
     {
+        var activeColumns = ActiveColumns;
+
         // Column metadata — cheap to recompute; guards against column list changes
-        var newTemplate = string.Join(" ", Columns.Select(c => c.Width ?? "minmax(0, 1fr)"));
+        var newTemplate = string.Join(" ", activeColumns.Select(c => c.Width ?? "minmax(0, 1fr)"));
         if (newTemplate != _colsTemplate)
         {
             _colsTemplate = newTemplate;
-            _hasFilterable = Columns.Any(c => c.Searchable && c.Value is not null);
-            _groupable = Columns.Where(c => c.Sortable && c.Value is not null).Select(c => c.Header).ToList();
+            _hasFilterable = activeColumns.Any(c => c.Searchable && c.Value is not null);
+            _groupable = activeColumns.Where(c => c.Sortable && c.Value is not null).Select(c => c.Header).ToList();
         }
-        _groupCol = _groupBy is not null ? Columns.FirstOrDefault(c => c.Header == _groupBy) : null;
+        _groupCol = _groupBy is not null ? activeColumns.FirstOrDefault(c => c.Header == _groupBy) : null;
 
         Recompute();
 
@@ -189,13 +199,14 @@
 
     private void Recompute()
     {
+        var activeColumns = ActiveColumns;
         IEnumerable<TItem> rows = Items;
 
         // 1. Global search
         if (_search.Length > 0)
         {
             var q = _search;
-            rows = rows.Where(item => Columns.Any(c =>
+            rows = rows.Where(item => activeColumns.Any(c =>
                 c.Searchable && c.Value?.Invoke(item)
                     ?.Contains(q, StringComparison.OrdinalIgnoreCase) == true));
         }
@@ -204,7 +215,7 @@
         foreach (var (header, filter) in _colFilters)
         {
             if (filter.Length == 0) continue;
-            var col = Columns.FirstOrDefault(c => c.Header == header);
+            var col = activeColumns.FirstOrDefault(c => c.Header == header);
             if (col?.Value is null) continue;
             var fv = filter;
             rows = rows.Where(item =>
@@ -214,7 +225,7 @@
         // 3. Sort
         if (_sortCol is not null)
         {
-            var col = Columns.FirstOrDefault(c => c.Header == _sortCol);
+            var col = activeColumns.FirstOrDefault(c => c.Header == _sortCol);
             if (col?.Value is not null)
             {
                 rows = _sortAsc
@@ -259,8 +270,29 @@
     {
         var v = e.Value?.ToString();
         _groupBy = string.IsNullOrEmpty(v) ? null : v;
-        _groupCol = _groupBy is not null ? Columns.FirstOrDefault(c => c.Header == _groupBy) : null;
+        _groupCol = _groupBy is not null ? ActiveColumns.FirstOrDefault(c => c.Header == _groupBy) : null;
         Recompute();
+    }
+
+    public void RegisterColumn(ArgusGridColumn<TItem> column)
+    {
+        var mapped = new GridColumn<TItem>
+        {
+            Header = column.Header,
+            Value = column.Value,
+            Cell = column.CellTemplate,
+            Width = column.Width,
+            Sortable = column.Sortable,
+            Searchable = column.Searchable
+        };
+
+        _registeredColumns.RemoveAll(c => c.Header == column.Header);
+        _registeredColumns.Add(mapped);
+    }
+
+    public void RemoveColumn(ArgusGridColumn<TItem> column)
+    {
+        _registeredColumns.RemoveAll(c => c.Header == column.Header);
     }
 
     private string GetFilter(GridColumn<TItem> col) =>
