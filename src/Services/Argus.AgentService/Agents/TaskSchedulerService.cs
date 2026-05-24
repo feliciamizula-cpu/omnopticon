@@ -7,13 +7,13 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Background service that polls for scheduled tasks and dispatches them for execution.
-/// Interval defaults to 5 minutes in Development, configurable via TASK_SCHEDULER_INTERVAL_SECONDS.
+/// Interval defaults to 1 minute, configurable via TASK_SCHEDULER_INTERVAL_SECONDS.
 /// </summary>
 public sealed class TaskSchedulerService(
     IServiceScopeFactory scopeFactory,
     ILogger<TaskSchedulerService> logger) : BackgroundService
 {
-    private static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -27,6 +27,7 @@ public sealed class TaskSchedulerService(
         {
             await Task.Delay(interval, stoppingToken);
             await DispatchDueTasksAsync(stoppingToken);
+            await DispatchPendingTodoTasksAsync(stoppingToken);
         }
     }
 
@@ -43,7 +44,7 @@ public sealed class TaskSchedulerService(
 
             foreach (var task in tasks)
             {
-                // Trigger-based tasks: wait for external events, not the scheduler
+                // Trigger-based tasks wait for explicit trigger dispatch.
                 if (task.TriggerEvent is not null)
                     continue;
 
@@ -53,11 +54,7 @@ public sealed class TaskSchedulerService(
 
                 logger.LogInformation("Dispatching scheduled task '{TaskId}': {Description}", task.TaskId, task.Description);
 
-                _ = Task.Run(async () =>
-                {
-                    try { await executor.ExecuteAsync(task.TaskId, ct); }
-                    catch (Exception ex) { logger.LogError(ex, "Scheduled task '{TaskId}' execution error", task.TaskId); }
-                }, ct);
+                await executor.ExecuteAsync(task.TaskId, ct);
             }
         }
         catch (Exception ex)
@@ -65,4 +62,35 @@ public sealed class TaskSchedulerService(
             logger.LogError(ex, "TaskSchedulerService dispatch error");
         }
     }
+
+    private async Task DispatchPendingTodoTasksAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<IAgentStore>();
+            var executor = scope.ServiceProvider.GetRequiredService<TaskExecutionService>();
+
+            var pending = await store.ListTasksAsync(status: "pending", cancellationToken: ct);
+            foreach (var task in pending.OrderBy(PriorityRank).ThenBy(t => t.CreatedAt))
+            {
+                logger.LogInformation("Dispatching pending task '{TaskId}': {Description}", task.TaskId, task.Description);
+                await executor.ExecuteAsync(task.TaskId, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "TaskSchedulerService pending task dispatch error");
+        }
+    }
+
+    private static int PriorityRank(Argus.Contracts.Agents.AgentTaskDto task) =>
+        (task.Priority ?? "").Trim().ToLowerInvariant() switch
+        {
+            "critical" => 0,
+            "high" => 1,
+            "medium" or "normal" => 2,
+            "low" => 3,
+            _ => 4
+        };
 }

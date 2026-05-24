@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" />
+    <PackageReference Include="Cronos" />
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
     <PackageReference Include="Microsoft.Extensions.AI" />

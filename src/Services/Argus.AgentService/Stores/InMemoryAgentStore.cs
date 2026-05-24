@@ -2,6 +2,7 @@ namespace Argus.AgentService.Stores;
 
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Argus.AgentService.Agents;
 using Argus.AgentService.Data;
 using Argus.AgentService.ProviderUsage;
 using Argus.Contracts.Agents;
@@ -139,7 +140,10 @@ public sealed class InMemoryAgentStore : IAgentStore
             TargetRole = request.TargetRole,
             TaskType = request.TaskType,
             ScheduleExpression = request.ScheduleExpression,
-            TriggerEvent = request.TriggerEvent
+            TriggerEvent = request.TriggerEvent,
+            NextRunAt = request.ScheduleExpression is not null
+                ? AgentScheduleCalculator.GetNextRun(request.ScheduleExpression, DateTimeOffset.UtcNow.AddSeconds(-1)) ?? DateTimeOffset.UtcNow
+                : null
         };
 
         _tasks.TryAdd(taskId, record);
@@ -169,6 +173,10 @@ public sealed class InMemoryAgentStore : IAgentStore
             record.TriggerEvent = string.IsNullOrWhiteSpace(request.TriggerEvent) ? null : request.TriggerEvent;
         if (request.ResultOutput != null)
             record.ResultOutput = request.ResultOutput;
+        if (request.LastRunAt.HasValue)
+            record.LastRunAt = request.LastRunAt.Value;
+        if (request.NextRunAt.HasValue)
+            record.NextRunAt = request.NextRunAt.Value;
 
         return Task.FromResult<AgentTaskDto?>(record.ToDto());
     }
@@ -183,6 +191,7 @@ public sealed class InMemoryAgentStore : IAgentStore
         switch (normalizedStatus)
         {
             case "pending":
+            case "scheduled":
                 record.ClaimedAt = null;
                 record.CompletedAt = null;
                 break;

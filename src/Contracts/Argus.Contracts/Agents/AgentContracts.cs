@@ -73,7 +73,9 @@ public sealed record UpdateAgentTaskRequest(
     string? TaskType = null,
     string? ScheduleExpression = null,
     string? TriggerEvent = null,
-    string? ResultOutput = null);
+    string? ResultOutput = null,
+    DateTimeOffset? LastRunAt = null,
+    DateTimeOffset? NextRunAt = null);
 
 public sealed record CodeReviewDto(
     Guid ReviewId,
