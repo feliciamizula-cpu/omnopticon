@@ -103,15 +103,13 @@
                     </div>
                     <div class="dev-form-field">
                         <label>Deadline (UTC)</label>
-                        <input type="datetime-local" class="dev-input"
-                               value="@(_deadline?.ToString("yyyy-MM-ddTHH:mm") ?? "")"
-                               @onchange="e => _deadline = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null" />
+                        <input type="datetime-local" class="dev-input" @bind="_deadlineString" />
                     </div>
                     @if (IsEditing)
                     {
                         <div class="dev-form-field">
                             <label>Status</label>
-                            <select class="dev-input" @bind="_status">
+                            <select class="dev-input" @bind="_form.Status">
                                 <option value="pending">pending</option>
                                 <option value="in_progress">in_progress</option>
                                 <option value="completed">completed</option>
@@ -137,8 +135,8 @@
     private bool _showModal = false;
     private Guid? _editingTodoId;
     private bool IsEditing => _editingTodoId.HasValue;
-    private TodoForm _form = new();
-    private DateTime? _deadline = null;
+    private CreateTodoRequest _form = new() { Priority = "normal" };
+    private string _deadlineString = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -161,22 +159,24 @@
     private void OpenCreateModal()
     {
         _editingTodoId = null;
-        _form = new TodoForm { Priority = "normal" };
-        _deadline = null;
+        _form = new() { Priority = "normal" };
+        _deadlineString = "";
         _showModal = true;
     }
 
     private void OpenEditModal(TodoItemDto todo)
     {
         _editingTodoId = todo.TodoId;
-        _form = new TodoForm
+        _form = new CreateTodoRequest
         {
             Name = todo.Name,
             Instructions = todo.Instructions,
             Priority = todo.Priority,
-            WorkerType = todo.WorkerType
+            WorkerType = todo.WorkerType,
+            // Deadline handled separately
         };
-        _deadline = todo.Deadline?.LocalDateTime;
+        _deadlineString = todo.Deadline?.ToString("yyyy-MM-ddTHH:mm") ?? "";
+        // Use a separate request for status
         _status = todo.Status;
         _showModal = true;
     }
@@ -185,6 +185,12 @@
 
     private async Task SaveTodo()
     {
+        // Parse deadline if provided
+        DateTimeOffset? deadline = null;
+        if (!string.IsNullOrWhiteSpace(_deadlineString) && DateTimeOffset.TryParse(_deadlineString, out var parsed))
+        {
+            deadline = parsed;
+        }
         if (IsEditing && _editingTodoId.HasValue)
         {
             var update = new UpdateTodoRequest(
@@ -192,7 +198,7 @@
                 Instructions: _form.Instructions,
                 Priority: _form.Priority,
                 WorkerType: _form.WorkerType,
-                Deadline: _deadline.HasValue ? new DateTimeOffset(_deadline.Value) : null,
+                Deadline: deadline,
                 Status: _status
             );
             var resp = await Http.PutAsJsonAsync($"/todos/{_editingTodoId}", update);
@@ -201,11 +207,11 @@
         else
         {
             var create = new CreateTodoRequest(
-                _form.Name,
-                _form.Instructions,
-                _form.Priority,
-                _form.WorkerType,
-                _deadline.HasValue ? new DateTimeOffset(_deadline.Value) : null
+                Name: _form.Name,
+                Instructions: _form.Instructions,
+                Priority: _form.Priority,
+                WorkerType: _form.WorkerType,
+                Deadline: deadline
             );
             var resp = await Http.PostAsJsonAsync("/todos", create);
             await resp.Content.ReadAsStringAsync();
@@ -223,13 +229,5 @@
     private void CloseModal()
     {
         _showModal = false;
-    }
-
-    private class TodoForm
-    {
-        public string Name { get; set; } = "";
-        public string Instructions { get; set; } = "";
-        public string Priority { get; set; } = "normal";
-        public string? WorkerType { get; set; }
     }
 }

@@ -3,12 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'src/Argus.Web/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'src/Argus.Web/**'
 
 jobs:
   restore:
@@ -168,12 +164,8 @@ jobs:
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'src/Argus.Web/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'src/Argus.Web/**'
 
 jobs:
   build-test:
