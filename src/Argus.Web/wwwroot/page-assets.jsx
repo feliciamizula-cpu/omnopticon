@@ -346,6 +346,33 @@ function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowCl
     { k: "lastSeen", l: "Last Seen", cn: "c-seen" },
   ];
 
+  const [colWidths, setColWidths] = useState({
+    "_check": 22, "_icon": 18, "type": 88, "value": 280, "status": 92, "scope": 78,
+    "confidence": 84, "risk": 64, "interest": 68, "tags": 180, "parentValue": 200, "worker": 130, "lastSeen": 90,
+  });
+
+  const [resizing, setResizing] = useState(null);
+
+  const handleMouseDown = useCallback((e, k) => {
+    e.preventDefault();
+    setResizing({ key: k, startX: e.clientX, startWidth: colWidths[k] });
+  }, [colWidths]);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMouseMove = (e) => {
+      const delta = e.clientX - resizing.startX;
+      setColWidths(prev => ({ ...prev, [resizing.key]: Math.max(20, resizing.startWidth + delta) }));
+    };
+    const handleMouseUp = () => setResizing(null);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [resizing]);
+
   return (
     <div className="asset-grid-wrap">
       <table className="asset-grid">
@@ -354,10 +381,20 @@ function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowCl
             {cols.map((c) => (
               <th
                 key={c.k}
-                className={`${c.cn} ${sortKey === c.k ? "sorted" : ""}`}
+                className={`${c.cn} ${sortKey === c.k ? "sorted" : ""} ${c.l ? "resizable" : ""}`}
+                style={{ width: colWidths[c.k], minWidth: colWidths[c.k], position: "relative" }}
                 onClick={() => c.k !== "_check" && c.k !== "_icon" && toggleSort(c.k)}
               >
                 {c.l}{c.l && <span className="sort-arrow">{sortArrow(c.k)}</span>}
+                {c.l && (
+                  <div
+                    onMouseDown={(e) => handleMouseDown(e, c.k)}
+                    style={{
+                      position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize",
+                      zIndex: 3,
+                    }}
+                  />
+                )}
               </th>
             ))}
           </tr>
@@ -369,7 +406,7 @@ function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowCl
               className={`${selected?.id === a.id ? "selected" : ""} ${flashRow === a.id ? "flash" : ""}`}
               onClick={(e) => onRowClick(a, e)}
             >
-              <td className="c-check">
+              <td className="c-check" style={{ width: colWidths["_check"], minWidth: colWidths["_check"] }}>
                 <span
                   className={"cell-checkbox" + (multiSel.has(a.id) ? " on" : "")}
                   onClick={(e) => {
@@ -382,43 +419,43 @@ function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowCl
                   }}
                 />
               </td>
-              <td className="c-icon"><TypeGlyph type={a.type} /></td>
-              <td className="c-type"><span className="mono" style={{ color: "var(--fg-2)", fontSize: 10.5 }}>{a.type}</span></td>
-              <td className="c-value"><ValueCell asset={a} /></td>
-              <td className="c-status"><StatusPill status={a.status} /></td>
-              <td className="c-scope">
+              <td className="c-icon" style={{ width: colWidths["_icon"], minWidth: colWidths["_icon"] }}><TypeGlyph type={a.type} /></td>
+              <td className="c-type" style={{ width: colWidths["type"], minWidth: colWidths["type"] }}><span className="mono" style={{ color: "var(--fg-2)", fontSize: 10.5 }}>{a.type}</span></td>
+              <td className="c-value" style={{ width: colWidths["value"], minWidth: colWidths["value"] }}><ValueCell asset={a} /></td>
+              <td className="c-status" style={{ width: colWidths["status"], minWidth: colWidths["status"] }}><StatusPill status={a.status} /></td>
+              <td className="c-scope" style={{ width: colWidths["scope"], minWidth: colWidths["scope"] }}>
                 {a.scope === "InScope"
                   ? <span style={{ color: "var(--green)" }}>IN</span>
                   : a.scope === "OutOfScope" ? <span style={{ color: "var(--fg-3)" }}>OUT</span>
                   : <span style={{ color: "var(--fg-2)" }}>{a.scope}</span>}
               </td>
-              <td className="c-conf">
+              <td className="c-conf" style={{ width: colWidths["confidence"], minWidth: colWidths["confidence"] }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                   <Bar value={a.confidence} tone={a.confidence > 85 ? "green" : a.confidence > 60 ? "amber" : "red"} width={36} />
                   <span className="tabular" style={{ fontSize: 10, color: "var(--fg-2)" }}>{a.confidence}</span>
                 </span>
               </td>
-              <td className="c-risk">
+              <td className="c-risk" style={{ width: colWidths["risk"], minWidth: colWidths["risk"] }}>
                 <span className="risk-num">
                   <span className="n tabular" style={{ color: a.risk > 70 ? "var(--red)" : a.risk > 40 ? "var(--amber)" : "var(--fg-2)" }}>{a.risk}</span>
                   <LED value={a.risk} max={8} tone={a.risk > 70 ? "red" : a.risk > 40 ? "amber" : "green"} />
                 </span>
               </td>
-              <td className="c-int">
+              <td className="c-int" style={{ width: colWidths["interest"], minWidth: colWidths["interest"] }}>
                 <span className="risk-num">
                   <span className="n tabular" style={{ color: a.interest > 70 ? "var(--magenta)" : "var(--fg-1)" }}>{a.interest}</span>
                   <LED value={a.interest} max={8} tone={a.interest > 70 ? "magenta" : "cyan"} />
                 </span>
               </td>
-              <td className="c-tags">
+              <td className="c-tags" style={{ width: colWidths["tags"], minWidth: colWidths["tags"] }}>
                 {a.tags.slice(0, 4).map((t) => <TagChip key={t} tag={t} />)}
                 {a.tags.length > 4 && <span className="mono" style={{ color: "var(--fg-3)", fontSize: 10 }}>+{a.tags.length - 4}</span>}
               </td>
-              <td className="c-parent">
+              <td className="c-parent" style={{ width: colWidths["parentValue"], minWidth: colWidths["parentValue"] }}>
                 {a.parentValue && <span className="mono" style={{ fontSize: 10.5 }}>↑ {a.parentValue}</span>}
               </td>
-              <td className="c-worker"><span className="mono" style={{ fontSize: 10.5 }}>{a.worker}</span></td>
-              <td className="c-seen"><span className="tabular">{fmtTime(a.lastSeen)} ago</span></td>
+              <td className="c-worker" style={{ width: colWidths["worker"], minWidth: colWidths["worker"] }}><span className="mono" style={{ fontSize: 10.5 }}>{a.worker}</span></td>
+              <td className="c-seen" style={{ width: colWidths["lastSeen"], minWidth: colWidths["lastSeen"] }}><span className="tabular">{fmtTime(a.lastSeen)} ago</span></td>
             </tr>
           ))}
         </tbody>
