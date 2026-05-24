@@ -971,3 +971,244 @@ textarea.dev-input {
     grid-column: auto;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   ArgusGrid — shared reusable datagrid
+   Uses CSS grid rows (not <table>) so <Virtualize> works natively.
+   Column layout is driven by the --ag-cols custom property set once
+   on the .ag container and inherited by all header/row/filter divs.
+   ═══════════════════════════════════════════════════════════ */
+
+.ag {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Toolbar ── */
+.ag-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.ag-search {
+  width: 170px;
+  height: 22px;
+  padding: 0 7px;
+  background: var(--bg-0);
+  border: 1px solid var(--line-2);
+  color: var(--fg-0);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  flex-shrink: 0;
+}
+.ag-search:focus { border-color: var(--accent); }
+.ag-search::-webkit-search-cancel-button { display: none; }
+
+.ag-icon-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-3);
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+.ag-icon-btn:hover, .ag-icon-btn.active { color: var(--accent); border-color: var(--accent); }
+
+.ag-select {
+  height: 22px;
+  padding: 0 5px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ag-count {
+  margin-left: auto;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ag-count-sep { margin: 0 2px; color: var(--line-3); }
+
+/* ── Scroll container ── */
+.ag-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-0);
+  /* scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+/* ── Shared row grid layout ── */
+.ag-row-grid {
+  display: grid;
+  grid-template-columns: var(--ag-cols);
+}
+
+/* ── Header ── */
+.ag-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-2);
+}
+
+.ag-th {
+  height: 28px;
+  padding: 0 8px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+
+.ag-th.ag-sortable { cursor: pointer; }
+.ag-th.ag-sortable:hover { color: var(--fg-1); }
+.ag-th.ag-asc::after  { content: " ↑"; color: var(--accent); flex-shrink: 0; }
+.ag-th.ag-desc::after { content: " ↓"; color: var(--accent); flex-shrink: 0; }
+
+/* ── Column filter row ── */
+.ag-filter-row {
+  position: sticky;
+  top: 28px;
+  z-index: 2;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.ag-fc {
+  padding: 3px 4px;
+}
+
+.ag-fi {
+  width: 100%;
+  height: 19px;
+  padding: 0 4px;
+  background: var(--bg-0);
+  border: 1px solid var(--line-1);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  outline: none;
+  box-sizing: border-box;
+}
+.ag-fi:focus { border-color: var(--accent); }
+
+/* ── Data rows ── */
+.ag-row {
+  cursor: pointer;
+  border-bottom: 1px solid var(--line-0);
+  min-height: 28px;
+}
+.ag-row:hover .ag-td { background: var(--bg-1); }
+.ag-row.ag-sel .ag-td { background: var(--bg-2) !important; }
+.ag-row.ag-sel .ag-td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+
+.ag-td {
+  height: 28px;
+  padding: 0 8px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ag-td.ag-primary {
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+/* ── Group rows ── */
+.ag-group-row {
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--line-1);
+  min-height: 24px;
+}
+
+.ag-group-cell {
+  height: 24px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ag-group-key {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+}
+
+.ag-group-count {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
+/* ── Empty state ── */
+.ag-empty {
+  padding: 30px;
+  text-align: center;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ── Action cells ── */
+.ag-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* ── Pane container (replaces dev-list-pane when using ArgusGrid) ── */
+.ag-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-0);
+}
