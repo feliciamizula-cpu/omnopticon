@@ -3,6 +3,7 @@ name: CD - Deploy to GCP Staging
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -42,16 +43,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-       - name: Build Docker image
-         run: |
+      - name: Build Docker image
+        run: |
            docker build \
              --cache-from type=local,src=/tmp/.buildx-cache \
              --cache-to type=local,dest=/tmp/.buildx-cache,mode=max \
              -t ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest \
              -f deploy/Dockerfile.service .
 
-       - name: Push Docker image
-         run: |
+      - name: Push Docker image
+        run: |
            docker push ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
 
   deploy-cloudrun:
