@@ -349,6 +349,12 @@ app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
 app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
 app.MapPost("/ui/agent-chat", ProxyPostChat);
 
+app.MapGet("/ui/todos", ProxyGetTodos);
+app.MapPost("/ui/todos", ProxyPostTodo);
+app.MapGet("/ui/todos/{todoId:guid}", ProxyGetTodoById);
+app.MapPut("/ui/todos/{todoId:guid}", ProxyPutTodo);
+app.MapDelete("/ui/todos/{todoId:guid}", ProxyDeleteTodo);
+
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/refresh", ProxyRefreshProviderUsage);
 app.MapPost("/ui/provider-usage/{providerId}/refresh", ProxyRefreshProvider);
@@ -467,6 +473,51 @@ async Task<IResult> ProxyDeleteTask(string taskId, IHttpClientFactory httpClient
     var client = httpClientFactory.CreateClient();
     client.BaseAddress = new Uri(endpoints.Agent);
     var response = await client.DeleteAsync($"/agent-tasks/{taskId}", ct);
+    return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
+}
+
+async Task<IResult> ProxyGetTodos(string? status, string? priority, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = "/todos";
+    var query = new List<string>();
+    if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+    if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={Uri.EscapeDataString(priority)}");
+    if (query.Count > 0) path += "?" + string.Join("&", query);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, path, ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostTodo(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/todos", payload, ct);
+}
+
+async Task<IResult> ProxyGetTodoById(Guid todoId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/todos/{todoId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyPutTodo(Guid todoId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PutJsonAsync(endpoints.Agent, $"/todos/{todoId}", payload, ct);
+}
+
+async Task<IResult> ProxyDeleteTodo(Guid todoId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = httpClientFactory.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Agent);
+    var response = await client.DeleteAsync($"/todos/{todoId}", ct);
     return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
 }
 
@@ -682,6 +733,11 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
                 return JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""");
             }
 
+            if (path.Contains("provider-usage/routing-preview", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
             if (path.Contains("provider-usage", StringComparison.OrdinalIgnoreCase))
             {
                 return ProviderUsageDefaults.EmptyOverview();
@@ -689,7 +745,8 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 
             if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("agent-tasks", StringComparison.OrdinalIgnoreCase)
-                || path.Contains("agent-chat", StringComparison.OrdinalIgnoreCase))
+                || path.Contains("agent-chat", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("todos", StringComparison.OrdinalIgnoreCase))
             {
                 return JsonNode.Parse("""{"items":[],"count":0}""");
             }

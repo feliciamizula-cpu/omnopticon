@@ -159,12 +159,15 @@
         await LoadTodos();
     }
 
+    private record TodoListResponse(List<TodoItemDto> Items, int Count);
+
     private async Task LoadTodos()
     {
         _loading = true;
         try
         {
-            _todos = await Http.GetFromJsonAsync<List<TodoItemDto>>("/todos") ?? new();
+            var response = await Http.GetFromJsonAsync<TodoListResponse>("/ui/todos");
+            _todos = response?.Items ?? new();
             _error = null;
         }
         catch (Exception ex)
@@ -214,7 +217,7 @@
                 Deadline: deadline,
                 Status: _status
             );
-            var resp = await Http.PutAsJsonAsync($"/todos/{_editingTodoId}", update);
+            var resp = await Http.PutAsJsonAsync($"/ui/todos/{_editingTodoId}", update);
             await resp.Content.ReadAsStringAsync();
         }
         else
@@ -226,7 +229,7 @@
                 WorkerType: _form.WorkerType,
                 Deadline: deadline
             );
-            var resp = await Http.PostAsJsonAsync("/todos", create);
+            var resp = await Http.PostAsJsonAsync("/ui/todos", create);
             await resp.Content.ReadAsStringAsync();
         }
         await LoadTodos();
@@ -235,7 +238,7 @@
 
     private async Task DeleteTodo(Guid todoId)
     {
-        await Http.DeleteAsync($"/todos/{todoId}");
+        await Http.DeleteAsync($"/ui/todos/{todoId}");
         await LoadTodos();
     }
 

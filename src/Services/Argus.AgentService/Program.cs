@@ -200,10 +200,23 @@ internal static class AgentEndpoints
         return Results.Ok(new { items = todos, count = todos.Count });
     }
 
-    private static async Task<IResult> CreateTodo(CreateTodoRequest request, ITodoStore store, CancellationToken ct)
+    private static async Task<IResult> CreateTodo(
+        CreateTodoRequest request,
+        ITodoStore todoStore,
+        IAgentStore agentStore,
+        CancellationToken ct)
     {
-        var todo = await store.CreateTodoAsync(request, ct);
-        return Results.Created($"/todos/{todo.TodoId}", todo);
+        var todo = await todoStore.CreateTodoAsync(request, ct);
+
+        var taskRequest = new CreateAgentTaskRequest(
+            Description: $"[Todo:{todo.TodoId}] {todo.Name} — {todo.Instructions}",
+            Priority: todo.Priority,
+            AssignedTo: null,
+            TargetRole: todo.WorkerType ?? "development");
+        await agentStore.CreateTaskAsync(taskRequest, ct);
+
+        var inProgress = await todoStore.UpdateTodoAsync(todo.TodoId, new UpdateTodoRequest(Status: "in_progress"), ct);
+        return Results.Created($"/todos/{todo.TodoId}", inProgress ?? todo);
     }
 
     private static async Task<IResult> GetTodo(Guid todoId, ITodoStore store, CancellationToken ct)

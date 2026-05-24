@@ -41,23 +41,22 @@ RUN npm install -g @google/gemini-cli 2>/dev/null && \
 RUN npm install -g opencode-ai 2>/dev/null && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode || true
 
-RUN npm install -g openai 2>/dev/null && \
-    ln -sf /usr/local/lib/node_modules/openai/bin/run.js /usr/local/bin/openai && \
-    ln -sf /usr/local/lib/node_modules/openai/bin/run.js /usr/local/bin/codex || true
+RUN npm install -g openai @openai/codex 2>/dev/null && \
+    ln -sf /usr/local/lib/node_modules/openai/bin/run.js /usr/local/bin/openai || true
 
 # Download Claude CLI directly from Anthropic
 RUN curl -fsSL https://downloads.anthropic.com/claude/Claude-latest-linux-x86_64 -o /usr/local/bin/claude && \
     chmod +x /usr/local/bin/claude || echo "Claude download may have failed"
 
 # Create fallback symlinks
-RUN ln -sf /usr/local/bin/gemini /usr/local/bin/claude 2>/dev/null || true && \
-    ln -sf /usr/local/bin/gemini /usr/local/bin/codex 2>/dev/null || true
+RUN ln -sf /usr/local/bin/gemini /usr/local/bin/claude 2>/dev/null || true
 
 # Verify
 RUN echo "=== CLI check ===" && node --version && npm --version && \
     (which gemini && echo "gemini OK") || echo "gemini not found" && \
     (which opencode && echo "opencode OK") || echo "opencode not found" && \
     (which openai && echo "openai OK") || echo "openai not found" && \
+    (which codex && codex --version 2>&1 && echo "codex OK") || echo "codex not found" && \
     (/usr/local/bin/claude --version 2>&1 || echo "claude not working")
 
 ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
