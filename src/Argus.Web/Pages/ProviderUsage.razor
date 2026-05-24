@@ -98,8 +98,8 @@
                                 </div>
 
                                 <div class="provider-actions">
-                                    <button class="btn primary tiny" @onclick="() => Login(provider)" disabled="@_busyProviderIds.Contains(provider.ProviderId)">Login / Recheck</button>
-                                    <button class="btn ghost tiny" @onclick="() => RefreshProvider(provider)" disabled="@_busyProviderIds.Contains(provider.ProviderId)">Refresh Provider</button>
+                                    <button class="btn primary tiny" @onclick="() => Login(provider)" disabled="@(_refreshing || _loading || _busyProviderIds.Contains(provider.ProviderId))">Login / Recheck</button>
+                                    <button class="btn ghost tiny" @onclick="() => RefreshProvider(provider)" disabled="@(_refreshing || _loading || _busyProviderIds.Contains(provider.ProviderId))">Refresh Provider</button>
                                 </div>
                             </section>
                         }
@@ -178,6 +178,7 @@ Usage windows are populated from configured provider usage commands or configure
     {
         _loading = true;
         _error = null;
+        _notice = null;
         try
         {
             _overview = await Http.GetFromJsonAsync<ProviderUsageOverviewDto>(Ui("/ui/provider-usage"));
@@ -207,7 +208,8 @@ Usage windows are populated from configured provider usage commands or configure
                 return;
             }
 
-            _overview = await response.Content.ReadFromJsonAsync<ProviderUsageOverviewDto>();
+            _overview = await response.Content.ReadFromJsonAsync<ProviderUsageOverviewDto>()
+                ?? new ProviderUsageOverviewDto(DateTimeOffset.UtcNow, [], null);
             _routing = await Http.GetFromJsonAsync<ProviderRouteSelectionDto>(Ui("/ui/provider-usage/routing-preview"));
             _notice = "Provider CLI, auth, usage, and routing status refreshed.";
         }
