@@ -7,6 +7,167 @@ on:
     branches: [main]
 
 jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('global.json','**/*.csproj') }}
+          restore-keys: nuget-
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore eShop.slnx
+
+  build:
+    needs: restore
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build Release
+        run: dotnet build eShop.slnx --configuration Release --no-restore
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project:
+          - tests/Argus.ApiGateway.Tests/Argus.ApiGateway.Tests.csproj
+          - tests/Argus.Workers.AssetScoring.Tests/Argus.Workers.AssetScoring.Tests.csproj
+          - tests/Argus.Workers.HttpProbe.Tests/Argus.Workers.HttpProbe.Tests.csproj
+          - tests/Argus.Workers.HtmlDomSpider.Tests/Argus.Workers.HtmlDomSpider.Tests.csproj
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Test ${{ matrix.project }}
+        run: |
+          dotnet test ${{ matrix.project }} \
+            --configuration Release \
+            --no-build \
+            --logger trx \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.project }}
+          path: ./coverage
+
+  static-analysis:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Verify code formatting
+        run: dotnet format --verify-no-changes
+      - name: Build with warnings as errors
+        run: dotnet build eShop.slnx -warnaserror
+      - name: Reviewdog (dotnet format)
+        uses: reviewdog/action@v1
+        with:
+          name: dotnet-format
+          reporter: github-pr-review
+          filter_mode: added
+          fail_on_error: true
+          tool_name: dotnet-format
+          command: dotnet format --verify-no-changes
+
+  security:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: List vulnerable NuGet packages
+        run: dotnet list package --vulnerable
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: csharp
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v2
+
+  compose-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build AppHost
+        run: dotnet build src/Argus.AppHost/Argus.AppHost.csproj --configuration Release
+      - name: Start containers
+        run: |
+          cp deploy/argus.env.example deploy/argus.env
+          docker compose --env-file deploy/argus.env -f deploy/compose.yaml up --build -d
+      - name: Wait for services
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Services are ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Services failed to start"
+          docker compose --env-file deploy/argus.env -f deploy/compose.yaml logs
+          exit 1
+      - name: Run smoke test
+        run: |
+          curl -fsS http://localhost:8080/ui/state | jq -e '.programs' > /dev/null
+      - name: Cleanup
+        if: always()
+        run: docker compose --env-file deploy/argus.env -f deploy/compose.yaml down -v
+
+  image-scan:
+    needs: compose-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images (quiet)
+        run: docker compose -f deploy/compose.yaml build --quiet
+      - name: Scan images with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/argus-api-gateway:latest
+          format: sarif
+          output: trivy.sarif
+      - name: Upload Trivy SARIF report
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: trivy.sarif
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
   build-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
