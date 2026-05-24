@@ -19,8 +19,9 @@ if not os.path.exists(db_path):
 
 try:
     now = int(time.time())
-    five_h  = now - 5  * 3600
-    seven_d = now - 7  * 86400
+    five_h   = now - 5  * 3600
+    twenty_four_h = now - 24 * 3600
+    seven_d  = now - 7  * 86400
     thirty_d = now - 30 * 86400
 
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -34,14 +35,16 @@ try:
         return int(row[0]) if row else 0
 
     used_5h   = sum_tokens(five_h)
+    used_24h  = sum_tokens(twenty_four_h)
     used_7d   = sum_tokens(seven_d)
     used_30d  = sum_tokens(thirty_d)
     con.close()
 
     result: dict = {}
-    if used_5h  > 0: result["fiveHour"] = {"used": used_5h,  "source": "subscription"}
-    if used_7d  > 0: result["weekly"]   = {"used": used_7d,  "source": "subscription"}
-    if used_30d > 0: result["monthly"]  = {"used": used_30d, "source": "subscription"}
+    if used_5h  > 0: result["fiveHour"]      = {"used": used_5h,  "source": "subscription"}
+    if used_24h > 0: result["twentyFourHour"] = {"used": used_24h, "source": "subscription"}
+    if used_7d  > 0: result["weekly"]         = {"used": used_7d,  "source": "subscription"}
+    if used_30d > 0: result["monthly"]        = {"used": used_30d, "source": "subscription"}
 
     print(json.dumps(result) if result else "{}")
 

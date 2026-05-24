@@ -17,6 +17,7 @@ public sealed record ProviderUsageDto(
     string LoginCommand,
     string LoginInstructions,
     ProviderUsageWindowDto FiveHour,
+    ProviderUsageWindowDto TwentyFourHour,
     ProviderUsageWindowDto Weekly,
     ProviderUsageWindowDto Monthly,
     decimal RoutingScore,

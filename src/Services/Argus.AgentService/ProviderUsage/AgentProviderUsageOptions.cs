@@ -23,6 +23,7 @@ internal sealed class AgentProviderOptions
     public string DisplayModelHint { get; set; } = string.Empty;
     public string LoginInstructions { get; set; } = string.Empty;
     public AgentUsageWindowOptions FiveHour { get; set; } = new() { WindowId = "fiveHour", Label = "5 hour" };
+    public AgentUsageWindowOptions TwentyFourHour { get; set; } = new() { WindowId = "twentyFourHour", Label = "24 hour" };
     public AgentUsageWindowOptions Weekly { get; set; } = new() { WindowId = "weekly", Label = "weekly" };
     public AgentUsageWindowOptions Monthly { get; set; } = new() { WindowId = "monthly", Label = "monthly" };
 }

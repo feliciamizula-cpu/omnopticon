@@ -23,9 +23,9 @@ ENV DOTNET_EnableDiagnostics=0
 
 EXPOSE 8080
 
-# Install Node.js 20.x from NodeSource (compatible with this image's glibc)
+# Install Node.js 20.x from NodeSource
 RUN apt-get update && \
-    apt-get install -y curl && \
+    apt-get install -y curl python3 && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && \
@@ -34,18 +34,30 @@ RUN apt-get update && \
 # Copy published app
 COPY --from=build /app/publish .
 
-# Install CLI tools as npm packages globally
+# Install CLI tools
 RUN npm install -g @google/gemini-cli 2>/dev/null && \
     ln -sf /usr/local/lib/node_modules/@google/gemini-cli/bundle/gemini.js /usr/local/bin/gemini || true
 
 RUN npm install -g opencode-ai 2>/dev/null && \
     ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode || true
 
-# Create symlinks for standard CLI names
+RUN npm install -g openai 2>/dev/null && \
+    ln -sf /usr/local/lib/node_modules/openai/bin/run.js /usr/local/bin/openai && \
+    ln -sf /usr/local/lib/node_modules/openai/bin/run.js /usr/local/bin/codex || true
+
+# Download Claude CLI directly from Anthropic
+RUN curl -fsSL https://downloads.anthropic.com/claude/Claude-latest-linux-x86_64 -o /usr/local/bin/claude && \
+    chmod +x /usr/local/bin/claude || echo "Claude download may have failed"
+
+# Create fallback symlinks
 RUN ln -sf /usr/local/bin/gemini /usr/local/bin/claude 2>/dev/null || true && \
     ln -sf /usr/local/bin/gemini /usr/local/bin/codex 2>/dev/null || true
 
 # Verify
-RUN echo "=== CLI check ===" && node --version && npm --version && which gemini || echo "gemini not found"
+RUN echo "=== CLI check ===" && node --version && npm --version && \
+    (which gemini && echo "gemini OK") || echo "gemini not found" && \
+    (which opencode && echo "opencode OK") || echo "opencode not found" && \
+    (which openai && echo "openai OK") || echo "openai not found" && \
+    (/usr/local/bin/claude --version 2>&1 || echo "claude not working")
 
 ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]

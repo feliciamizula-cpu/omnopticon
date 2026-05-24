@@ -583,10 +583,27 @@ internal sealed class AgentProviderUsageService(
             Executable = "codex",
             VersionArguments = "--version",
             LoginArguments = "login",
-            AuthCheckArguments = "auth status",
+            AuthCheckArguments = "login status",
             AuthEnvironmentVariables = ["OPENAI_API_KEY", "CODEX_HOME"],
             DisplayModelHint = "Codex / ChatGPT",
             LoginInstructions = "Run the Codex/OpenAI CLI login flow for the account that owns your OpenAI usage.",
+            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            Weekly = new() { WindowId = "weekly", Label = "weekly" },
+            Monthly = new() { WindowId = "monthly", Label = "monthly" }
+        },
+        new()
+        {
+            Id = "nvidia",
+            Name = "NVIDIA",
+            ToolId = "nvidia",
+            ToolAliases = ["nvidia", "nim", "opencode-nvidia"],
+            Executable = "opencode",
+            VersionArguments = "--version",
+            LoginArguments = "providers login",
+            AuthCheckArguments = string.Empty,
+            AuthEnvironmentVariables = ["NVIDIA_API_KEY", "NIM_API_KEY"],
+            DisplayModelHint = "NVIDIA NIM models",
+            LoginInstructions = "Set the NVIDIA_API_KEY environment variable or run 'opencode providers login' to configure NVIDIA credentials.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }

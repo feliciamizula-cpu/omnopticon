@@ -16,7 +16,6 @@ x-common-env: &common-env
   ARGUS_EVENT_ROUTER_SERVICE: http://event-router-service:8080
   ARGUS_REALTIME_SERVICE: http://realtime-service:8080
   ARGUS_PROXY_REGISTRY_SERVICE: http://proxy-registry-service:8080
-  ARGUS_AGENT_SERVICE: http://agent-service:8080
   ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
   ConnectionStrings__redis: redis:6379
   ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
@@ -190,6 +189,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY}
+    volumes:
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro
+      - /tmp:/tmp:ro
 
   review-report:
     image: python:3-slim

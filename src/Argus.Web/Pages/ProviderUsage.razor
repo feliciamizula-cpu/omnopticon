@@ -70,6 +70,7 @@
                                 </div>
                                 <div class="provider-windows">
                                     <ProviderWindowBar Window="provider.FiveHour" />
+                                    <ProviderWindowBar Window="provider.TwentyFourHour" />
                                     <ProviderWindowBar Window="provider.Weekly" />
                                     <ProviderWindowBar Window="provider.Monthly" />
                                 </div>
@@ -111,11 +112,12 @@
                                 </tbody>
                             </table>
 
-                            @if (_selectedProvider.FiveHour.IsKnown || _selectedProvider.Weekly.IsKnown || _selectedProvider.Monthly.IsKnown)
+                            @if (_selectedProvider.FiveHour.IsKnown || _selectedProvider.TwentyFourHour.IsKnown || _selectedProvider.Weekly.IsKnown || _selectedProvider.Monthly.IsKnown)
                             {
                                 <div class="section-label">USAGE WINDOWS</div>
                                 <div class="usage-window-stack">
                                     <UsageWindow Window="_selectedProvider.FiveHour" />
+                                    <UsageWindow Window="_selectedProvider.TwentyFourHour" />
                                     <UsageWindow Window="_selectedProvider.Weekly" />
                                     <UsageWindow Window="_selectedProvider.Monthly" />
                                 </div>

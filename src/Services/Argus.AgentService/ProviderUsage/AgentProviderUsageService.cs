@@ -225,6 +225,7 @@ internal sealed class AgentProviderUsageService(
             BuildCommand(definition.Executable, definition.LoginArguments),
             definition.LoginInstructions,
             usageWindows.FiveHour,
+            usageWindows.TwentyFourHour,
             usageWindows.Weekly,
             usageWindows.Monthly,
             routingScore,
@@ -272,16 +273,16 @@ internal sealed class AgentProviderUsageService(
         CliToolStatusDto toolStatus,
         CancellationToken cancellationToken)
     {
-        if (!toolStatus.IsAvailable)
-        {
-            return (false, "CLI missing", null);
-        }
-
         var credentialVariable = definition.AuthEnvironmentVariables
             .FirstOrDefault(name => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name)));
         if (!string.IsNullOrWhiteSpace(credentialVariable))
         {
             return (true, $"Credential present in {credentialVariable}", null);
+        }
+
+        if (!toolStatus.IsAvailable)
+        {
+            return (false, "CLI missing", null);
         }
 
         if (string.IsNullOrWhiteSpace(definition.AuthCheckArguments))
@@ -342,6 +343,7 @@ internal sealed class AgentProviderUsageService(
 
         return new UsageWindows(
             commandUsage?.FiveHour ?? BuildWindow(definition.FiveHour, DefaultResetLead),
+            commandUsage?.TwentyFourHour ?? BuildWindow(definition.TwentyFourHour, TimeSpan.FromHours(24)),
             commandUsage?.Weekly ?? BuildWindow(definition.Weekly, TimeSpan.FromDays(7)),
             commandUsage?.Monthly ?? BuildWindow(definition.Monthly, TimeSpan.FromDays(30)));
     }
@@ -359,6 +361,7 @@ internal sealed class AgentProviderUsageService(
             var root = node["usage"] ?? node["windows"] ?? node;
             return new UsageWindows(
                 ParseWindowNode(root["fiveHour"] ?? root["five_hour"] ?? root["5h"], definition.FiveHour, DefaultResetLead),
+                ParseWindowNode(root["twentyFourHour"] ?? root["twenty_four_hour"] ?? root["daily"] ?? root["24h"], definition.TwentyFourHour, TimeSpan.FromHours(24)),
                 ParseWindowNode(root["weekly"] ?? root["week"], definition.Weekly, TimeSpan.FromDays(7)),
                 ParseWindowNode(root["monthly"] ?? root["month"], definition.Monthly, TimeSpan.FromDays(30)));
         }
@@ -440,7 +443,7 @@ internal sealed class AgentProviderUsageService(
             return 0;
         }
 
-        var known = new[] { windows.FiveHour, windows.Weekly, windows.Monthly }
+        var known = new[] { windows.FiveHour, windows.TwentyFourHour, windows.Weekly, windows.Monthly }
             .Where(window => window.IsKnown && !string.Equals(window.Source, "subscription", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
@@ -507,6 +510,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = ValueOrDefault(configured.DisplayModelHint, fallback.DisplayModelHint),
             LoginInstructions = ValueOrDefault(configured.LoginInstructions, fallback.LoginInstructions),
             FiveHour = MergeWindow(fallback.FiveHour, configured.FiveHour),
+            TwentyFourHour = MergeWindow(fallback.TwentyFourHour, configured.TwentyFourHour),
             Weekly = MergeWindow(fallback.Weekly, configured.Weekly),
             Monthly = MergeWindow(fallback.Monthly, configured.Monthly)
         };
@@ -547,6 +551,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = "Mightymax / provider models",
             LoginInstructions = "Run the Opencode auth flow for the account that owns your development quota.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
         },
@@ -568,6 +573,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = "Gemini Flash / Pro",
             LoginInstructions = "Run the Gemini CLI auth flow for the Google account used by the agent team.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
         },
@@ -587,6 +593,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = "Haiku / Sonnet",
             LoginInstructions = "Run the Claude CLI login flow for the Anthropic account that owns your Claude usage.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
         },
@@ -606,6 +613,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = "Codex / ChatGPT",
             LoginInstructions = "Run the Codex/OpenAI CLI login flow for the account that owns your OpenAI usage.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
         }
@@ -626,6 +634,7 @@ internal sealed class AgentProviderUsageService(
             BuildCommand(definition.Executable, definition.LoginArguments),
             definition.LoginInstructions,
             window with { WindowId = "fiveHour", Label = "5 hour" },
+            window with { WindowId = "twentyFourHour", Label = "24 hour" },
             window with { WindowId = "weekly", Label = "weekly" },
             window with { WindowId = "monthly", Label = "monthly" },
             0,
@@ -772,6 +781,7 @@ internal sealed class AgentProviderUsageService(
 
     private sealed record UsageWindows(
         ProviderUsageWindowDto FiveHour,
+        ProviderUsageWindowDto TwentyFourHour,
         ProviderUsageWindowDto Weekly,
         ProviderUsageWindowDto Monthly);
 
