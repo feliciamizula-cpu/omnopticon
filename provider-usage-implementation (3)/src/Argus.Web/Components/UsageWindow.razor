@@ -42,8 +42,11 @@
 
     private static string WindowTone(ProviderUsageWindowDto window)
     {
-        if (!window.IsKnown) return "unknown";
-        if (string.Equals(window.Source, "subscription", StringComparison.OrdinalIgnoreCase)) return "unknown";
+        if (!window.IsKnown)
+        {
+            return "unknown";
+        }
+
         return window.RemainingPercent switch
         {
             <= 0 => "empty",

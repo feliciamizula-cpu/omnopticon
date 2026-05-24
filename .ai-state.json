@@ -1,0 +1,140 @@
+{
+  "_meta": {
+    "purpose": "Multi-agent coordination file for the Omnopticon/Argus project.",
+    "updated": "2026-05-24T06:15:00Z",
+    "instructions": "Before touching any file listed here, check 'lockedBy'. Update this file when you start or finish work on any area. Use 'notes' to leave breadcrumbs for other agents."
+  },
+
+  "agents": {
+    "claude-code": {
+      "tool": "Claude Code (claude-sonnet-4-6)",
+      "role": "Primary developer — full stack .NET / Blazor / Python",
+      "session": "active",
+      "focus": "Provider usage dashboard (ProviderUsage.razor + AgentService backend)"
+    },
+    "agent-2": {
+      "tool": "unknown — ask user",
+      "role": "TBD",
+      "session": "unknown",
+      "focus": "TBD"
+    },
+    "agent-3": {
+      "tool": "unknown — ask user",
+      "role": "TBD",
+      "session": "unknown",
+      "focus": "TBD"
+    }
+  },
+
+  "project": {
+    "name": "Omnopticon / Argus",
+    "type": ".NET 10 microservices, Blazor Server frontend",
+    "root": "/home/derekdperez/omnopticon",
+    "webApp": "src/Argus.Web/",
+    "agentService": "src/Services/Argus.AgentService/",
+    "contracts": "src/Contracts/Argus.Contracts/",
+    "deploy": "deploy/compose.yaml (Docker Compose)",
+    "devArtifacts": "artifacts/bin/ (AppHost hot-rebuilds on source change)",
+    "publicUrl": "http://34.63.95.161:8080",
+    "database": "PostgreSQL (argusdb) + Redis + RabbitMQ"
+  },
+
+  "recentWork": {
+    "completedThisSession": [
+      {
+        "what": "Added Python usage scripts for Claude, Gemini, and Codex providers",
+        "files": [
+          "src/Services/Argus.AgentService/scripts/claude-usage.py",
+          "src/Services/Argus.AgentService/scripts/gemini-usage.py",
+          "src/Services/Argus.AgentService/scripts/codex-usage.py"
+        ],
+        "notes": "claude reads ~/.claude.json cachedExtraUsageDisabledReason. gemini reads /tmp/gemini-client-error-*.json. codex queries ~/.codex/state_5.sqlite (timestamps in UNIX seconds). Codex windows tagged source='subscription' to avoid blocking routing score."
+      },
+      {
+        "what": "Fixed Gemini auth bug: gemini CLI has no auth subcommand; running 'gemini auth whoami' makes a real API call and burns quota. Fixed by setting AuthCheckArguments='' (env-var detection only).",
+        "files": [
+          "src/Services/Argus.AgentService/ProviderUsage/AgentProviderUsageService.cs"
+        ]
+      },
+      {
+        "what": "AgentService: wired usage scripts into DefaultProviders(), patched ComputeRoutingScore to skip subscription-tagged windows",
+        "files": [
+          "src/Services/Argus.AgentService/ProviderUsage/AgentProviderUsageService.cs"
+        ]
+      },
+      {
+        "what": "New ProviderWindowBar.razor compact bar component for provider cards",
+        "files": [
+          "src/Argus.Web/Components/ProviderWindowBar.razor"
+        ],
+        "notes": "Shows % remaining for quota windows, 'X.XM used' for subscription windows, violet left-border for subscription, red for exhausted, green/cyan/amber by remaining %."
+      },
+      {
+        "what": "Rewrote ProviderUsage.razor — replaced bare pt-* table divs with provider-grid card layout",
+        "files": [
+          "src/Argus.Web/Pages/ProviderUsage.razor"
+        ],
+        "notes": "Each card: name+score header, 3 status chips, 3 inline ProviderWindowBar components, footer with last-checked + refresh."
+      },
+      {
+        "what": "Added CSS for card interactivity and pw-* compact bar classes",
+        "files": [
+          "src/Argus.Web/wwwroot/css/development.css"
+        ]
+      },
+      {
+        "what": "Fixed UsageWindow.razor to render subscription windows as 'unknown' tone (was incorrectly showing red 'empty' when limit=0)",
+        "files": [
+          "src/Argus.Web/Components/UsageWindow.razor"
+        ]
+      }
+    ],
+
+    "inProgress": {
+      "what": "Debugging Blazor circuit exception on the provider usage page",
+      "error": "Unhandled exception on circuit — circuit terminated. DetailedErrors not enabled so root cause is unknown.",
+      "timestamp": "2026-05-24T06:07:48Z",
+      "suspectedCauses": [
+        "ProviderWindowBar receives a null Window parameter if ProviderUsageWindowDto properties deserialize as null",
+        "Could be a pre-existing error from before this session's changes",
+        "JSON camelCase/PascalCase mismatch on ProviderRouteSelectionDto deserialization"
+      ],
+      "nextStep": "Enable DetailedErrors in Program.cs (builder.Services.Configure<CircuitOptions>(o => o.DetailedErrors = true)) or read AgentService container logs to find root exception",
+      "lockedBy": "claude-code"
+    }
+  },
+
+  "fileLocks": {
+    "src/Services/Argus.AgentService/ProviderUsage/AgentProviderUsageService.cs": {
+      "lockedBy": "claude-code",
+      "reason": "Active debug session — may need further edits"
+    },
+    "src/Argus.Web/Pages/ProviderUsage.razor": {
+      "lockedBy": "claude-code",
+      "reason": "Debugging circuit exception"
+    },
+    "src/Argus.Web/Components/ProviderWindowBar.razor": {
+      "lockedBy": "claude-code",
+      "reason": "New component, debugging circuit exception"
+    }
+  },
+
+  "keyFacts": {
+    "deployment": "Docker Compose in deploy/compose.yaml. The Aspire AppHost (run by derekdperez user) hot-rebuilds debug artifacts and restarts services automatically when source changes. Containers run as root.",
+    "dockerLogging": "Docker logging driver does NOT support 'docker logs' reading. Check /tmp/argus-web.log for web logs (note: may be stale if process restarted into container).",
+    "agentServiceScripts": "Python scripts in src/Services/Argus.AgentService/scripts/ are copied to output dir via .csproj Content include. Run via python3 with the script path.",
+    "noGitRepo": "git is NOT initialized in this directory. No commits, no branches.",
+    "codexDb": "~/.codex/state_5.sqlite — threads table with columns: id, created_at (UNIX SECONDS), updated_at, model_provider, tokens_used",
+    "claudeQuota": "~/.claude.json — cachedExtraUsageDisabledReason='out_of_credits' means quota exhausted",
+    "geminiQuota": "/tmp/gemini-client-error-*.json — error.message contains 'reset after Xh Ym Zs' for quota exhaustion",
+    "subscriptionRouting": "Windows with source='subscription' are excluded from ComputeRoutingScore's exhaustion check so they never block routing",
+    "blazorServer": "Argus.Web uses Blazor InteractiveServer (not WASM). Circuit exceptions kill the connection. @rendermode InteractiveServerRenderMode(prerender: false) on provider page.",
+    "httpClient": "ProviderUsage.razor injects HttpClient scoped to NavigationManager.BaseUri. All API calls go through BFF proxy routes in Program.cs /ui/* endpoints."
+  },
+
+  "doNotTouch": [
+    "deploy/compose.yaml — deployment config, shared across all services",
+    "src/Contracts/Argus.Contracts/ — shared DTOs, changing these breaks all services",
+    "src/Argus.ServiceDefaults/ — shared service configuration"
+  ]
+}

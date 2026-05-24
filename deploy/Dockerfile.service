@@ -2,6 +2,7 @@
 
 ARG DOTNET_VERSION=10.0
 
+# Build stage
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 WORKDIR /src
 
@@ -11,6 +12,7 @@ ARG PROJECT_PATH
 RUN dotnet restore "$PROJECT_PATH"
 RUN dotnet publish "$PROJECT_PATH" -c Release -o /app/publish --no-restore
 
+# Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
 WORKDIR /app
 
@@ -21,6 +23,29 @@ ENV DOTNET_EnableDiagnostics=0
 
 EXPOSE 8080
 
+# Install Node.js 20.x from NodeSource (compatible with this image's glibc)
+RUN apt-get update && \
+    apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy published app
 COPY --from=build /app/publish .
+
+# Install CLI tools as npm packages globally
+RUN npm install -g @google/gemini-cli 2>/dev/null && \
+    ln -sf /usr/local/lib/node_modules/@google/gemini-cli/bundle/gemini.js /usr/local/bin/gemini || true
+
+RUN npm install -g opencode-ai 2>/dev/null && \
+    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode || true
+
+# Create symlinks for standard CLI names
+RUN ln -sf /usr/local/bin/gemini /usr/local/bin/claude 2>/dev/null || true && \
+    ln -sf /usr/local/bin/gemini /usr/local/bin/codex 2>/dev/null || true
+
+# Verify
+RUN echo "=== CLI check ===" && node --version && npm --version && which gemini || echo "gemini not found"
 
 ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]

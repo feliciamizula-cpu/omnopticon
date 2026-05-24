@@ -256,14 +256,7 @@ internal sealed class AgentProviderUsageService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new CliToolStatusDto(
-                definition.ToolId,
-                definition.Executable,
-                false,
-                "missing",
-                null,
-                NormalizeCommandError(definition.Executable, ex),
-                checkedAt);
+            return new CliToolStatusDto(definition.ToolId, definition.Executable, false, "missing", null, ex.Message, checkedAt);
         }
     }
 
@@ -274,7 +267,7 @@ internal sealed class AgentProviderUsageService(
     {
         if (!toolStatus.IsAvailable)
         {
-            return (false, "CLI missing", null);
+            return (false, "CLI missing", toolStatus.Error);
         }
 
         var credentialVariable = definition.AuthEnvironmentVariables
@@ -313,7 +306,7 @@ internal sealed class AgentProviderUsageService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return (false, "Auth check failed", NormalizeCommandError(definition.Executable, ex));
+            return (false, "Auth check failed", ex.Message);
         }
     }
 
@@ -441,7 +434,7 @@ internal sealed class AgentProviderUsageService(
         }
 
         var known = new[] { windows.FiveHour, windows.Weekly, windows.Monthly }
-            .Where(window => window.IsKnown && !string.Equals(window.Source, "subscription", StringComparison.OrdinalIgnoreCase))
+            .Where(window => window.IsKnown)
             .ToArray();
 
         if (known.Length == 0)
@@ -528,9 +521,6 @@ internal sealed class AgentProviderUsageService(
 
     private static string ValueOrDefault(string? value, string fallback) => string.IsNullOrWhiteSpace(value) ? fallback : value;
 
-    private static string ScriptPath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "scripts", name);
-
     private static AgentProviderOptions[] DefaultProviders() =>
     [
         new()
@@ -559,12 +549,8 @@ internal sealed class AgentProviderUsageService(
             Executable = "gemini",
             VersionArguments = "--version",
             LoginArguments = "auth login",
-            // Gemini CLI has no auth subcommand — "gemini auth ..." passes the text as a prompt.
-            // Auth is detected via environment variables only.
-            AuthCheckArguments = "",
+            AuthCheckArguments = "auth whoami",
             AuthEnvironmentVariables = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"],
-            UsageExecutable = "python3",
-            UsageArguments = ScriptPath("gemini-usage.py"),
             DisplayModelHint = "Gemini Flash / Pro",
             LoginInstructions = "Run the Gemini CLI auth flow for the Google account used by the agent team.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
@@ -582,8 +568,6 @@ internal sealed class AgentProviderUsageService(
             LoginArguments = "login",
             AuthCheckArguments = "whoami",
             AuthEnvironmentVariables = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
-            UsageExecutable = "python3",
-            UsageArguments = ScriptPath("claude-usage.py"),
             DisplayModelHint = "Haiku / Sonnet",
             LoginInstructions = "Run the Claude CLI login flow for the Anthropic account that owns your Claude usage.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
@@ -601,8 +585,6 @@ internal sealed class AgentProviderUsageService(
             LoginArguments = "login",
             AuthCheckArguments = "auth status",
             AuthEnvironmentVariables = ["OPENAI_API_KEY", "CODEX_HOME"],
-            UsageExecutable = "python3",
-            UsageArguments = ScriptPath("codex-usage.py"),
             DisplayModelHint = "Codex / ChatGPT",
             LoginInstructions = "Run the Codex/OpenAI CLI login flow for the account that owns your OpenAI usage.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
@@ -723,23 +705,6 @@ internal sealed class AgentProviderUsageService(
 
         var normalized = value.Trim();
         return normalized.Length <= 4_000 ? normalized : normalized[..4_000];
-    }
-
-    private static string NormalizeCommandError(string executable, Exception ex)
-    {
-        var message = TrimOutput(ex.Message);
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            return $"Executable '{executable}' is not available.";
-        }
-
-        if (message.Contains("No such file or directory", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("cannot find the file specified", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"Executable '{executable}' is not installed in this runtime environment.";
-        }
-
-        return message;
     }
 
     private static decimal? ReadDecimal(JsonNode node, string propertyName)

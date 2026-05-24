@@ -6,7 +6,6 @@ namespace Argus.AgentService.Stores;
 public sealed class InMemoryTodoStore : ITodoStore
 {
     private readonly ConcurrentDictionary<Guid, TodoItemDto> _todos = new();
-    private int _nextId = 1; // for string IDs if needed, but using Guid
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {

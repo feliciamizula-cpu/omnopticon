@@ -46,49 +46,39 @@
         {
             <div class="provider-layout">
                 <div class="provider-grid-wrap">
-                    <div class="provider-table">
-                        <div class="pt-head">
-                            <div class="pt-cell pt-provider">Provider</div>
-                            <div class="pt-cell pt-tool">CLI Status</div>
-                            <div class="pt-cell pt-auth">Auth</div>
-                            <div class="pt-cell pt-routing">Routing</div>
-                            <div class="pt-cell pt-score">Score</div>
-                            <div class="pt-cell pt-checked">Last Checked</div>
-                            <div class="pt-cell pt-actions">Actions</div>
-                        </div>
-                        <div class="pt-body">
-                            @foreach (var provider in Providers)
-                            {
-                                <div class="pt-row @(IsSelected(provider) ? "selected" : "")" @onclick="() => SelectProvider(provider)">
-                                    <div class="pt-cell pt-provider">
+                    <div class="provider-grid">
+                        @foreach (var provider in Providers)
+                        {
+                            <div class="provider-card @(IsSelected(provider) ? "selected" : "")" @onclick="() => SelectProvider(provider)">
+                                <div class="provider-card-head">
+                                    <div class="provider-title-line">
                                         <span class="dot @(ProviderDot(provider))"></span>
-                                        <span class="pt-name">@provider.ProviderName</span>
+                                        <div>
+                                            <div class="provider-title">@provider.ProviderName</div>
+                                            <div class="provider-subtitle">@provider.DisplayModelHint</div>
+                                        </div>
                                     </div>
-                                    <div class="pt-cell pt-tool">
-                                        <span class="dev-pill @ToolTone(provider)">@ToolStatusText(provider)</span>
-                                        @if (provider.ToolStatus.IsAvailable)
-                                        {
-                                            <span class="pt-exe mono">@provider.ToolStatus.Executable</span>
-                                        }
-                                    </div>
-                                    <div class="pt-cell pt-auth">
-                                        <span class="dev-pill @AuthTone(provider)">@(provider.IsAuthenticated ? "logged in" : "not logged in")</span>
-                                    </div>
-                                    <div class="pt-cell pt-routing">
-                                        <span class="dev-pill @RoutingTone(provider)">@provider.RoutingStatus</span>
-                                    </div>
-                                    <div class="pt-cell pt-score">
-                                        <span class="pt-score-value">@provider.RoutingScore.ToString("0.#")</span>
-                                    </div>
-                                    <div class="pt-cell pt-checked">
-                                        @FormatRelative(provider.LastCheckedAt)
-                                    </div>
-                                    <div class="pt-cell pt-actions">
-                                        <button class="btn ghost tiny" @onclick:stopPropagation="true" @onclick="() => RefreshProvider(provider)" disabled="@_refreshing">Refresh</button>
+                                    <div class="provider-score">
+                                        <span class="score-value @ScoreTone(provider)">@provider.RoutingScore.ToString("0.#")</span>
+                                        <span class="score-label">score</span>
                                     </div>
                                 </div>
-                            }
-                        </div>
+                                <div class="dev-chipline compact">
+                                    <span class="dev-pill @ToolTone(provider)">@ToolStatusText(provider)</span>
+                                    <span class="dev-pill @AuthTone(provider)">@(provider.IsAuthenticated ? "logged in" : "not logged in")</span>
+                                    <span class="dev-pill @RoutingTone(provider)">@provider.RoutingStatus</span>
+                                </div>
+                                <div class="provider-windows">
+                                    <ProviderWindowBar Window="provider.FiveHour" />
+                                    <ProviderWindowBar Window="provider.Weekly" />
+                                    <ProviderWindowBar Window="provider.Monthly" />
+                                </div>
+                                <div class="provider-card-foot">
+                                    <span class="provider-checked">@FormatRelative(provider.LastCheckedAt)</span>
+                                    <button class="btn ghost tiny" @onclick:stopPropagation="true" @onclick="() => RefreshProvider(provider)" disabled="@_refreshing">Refresh</button>
+                                </div>
+                            </div>
+                        }
                     </div>
                 </div>
 
@@ -136,22 +126,22 @@
                                 <div class="dev-error" style="margin-top: 8px;">@_selectedProvider.LastError</div>
                             }
 
-@if (!_selectedProvider.IsAuthenticated)
-                             {
-                                 <div class="section-label">LOGIN COMMAND</div>
-                                 <div class="provider-command-box">
-                                     <div class="provider-command mono">@_selectedProvider.LoginCommand</div>
-                                     <div class="provider-login-help">@_selectedProvider.LoginInstructions</div>
-                                 </div>
-                             }
+                            @if (!_selectedProvider.IsAuthenticated)
+                            {
+                                <div class="section-label">LOGIN COMMAND</div>
+                                <div class="provider-command-box">
+                                    <div class="provider-command mono">@_selectedProvider.LoginCommand</div>
+                                    <div class="provider-login-help">@_selectedProvider.LoginInstructions</div>
+                                </div>
+                            }
 
-                             <div class="dev-action-row">
-                                 @if (!_selectedProvider.IsAuthenticated)
-                                 {
-                                     <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_refreshing || _loading)">Login / Recheck</button>
-                                 }
-                                 <button class="btn ghost tiny" @onclick="() => RefreshProvider(_selectedProvider)" disabled="@_refreshing">Refresh</button>
-                             </div>
+                            <div class="dev-action-row">
+                                @if (!_selectedProvider.IsAuthenticated)
+                                {
+                                    <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_refreshing || _loading)">Login / Recheck</button>
+                                }
+                                <button class="btn ghost tiny" @onclick="() => RefreshProvider(_selectedProvider)" disabled="@_refreshing">Refresh</button>
+                            </div>
                         </div>
                     }
                 </aside>
@@ -171,8 +161,6 @@
     private string? _notice;
 
     private IReadOnlyList<ProviderUsageDto> Providers => _overview?.Providers ?? [];
-
-    private bool IsRouteRunnable => _routing?.IsRunnable ?? _overview?.RecommendedRoute?.IsRunnable ?? false;
 
     private string RouteLabel =>
         _routing?.ProviderName
@@ -280,7 +268,7 @@
 
     private void SelectProvider(ProviderUsageDto provider)
     {
-        _selectedProvider = provider;
+        _selectedProvider = _selectedProvider?.ProviderId == provider.ProviderId ? null : provider;
     }
 
     private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
@@ -302,37 +290,25 @@
 
     private static string ProviderDot(ProviderUsageDto provider)
     {
-        if (!provider.ToolStatus.IsAvailable)
-        {
-            return "red";
-        }
-
-        if (!provider.IsAuthenticated)
-        {
-            return "amber";
-        }
-
+        if (!provider.ToolStatus.IsAvailable) return "red";
+        if (!provider.IsAuthenticated) return "amber";
         return provider.RoutingScore > 0 ? "green" : "red";
     }
+
+    private static string ScoreTone(ProviderUsageDto provider) => provider.RoutingScore switch
+    {
+        <= 0 => "tone-red",
+        < 20 => "tone-amber",
+        _ => "tone-green"
+    };
 
     private static string ToolTone(ProviderUsageDto provider) => provider.ToolStatus.IsAvailable ? "green" : "red";
 
     private static string AuthTone(ProviderUsageDto provider)
     {
-        if (!provider.ToolStatus.IsAvailable)
-        {
-            return "dim";
-        }
-        if (provider.IsAuthenticated)
-        {
-            return "green";
-        }
-        // If the provider attempted a login and failed, Signaled by LastError
-        if (!string.IsNullOrWhiteSpace(provider.LastError))
-        {
-            return "red";
-        }
-        // Not logged in, neutral color (use dim or default)
+        if (!provider.ToolStatus.IsAvailable) return "dim";
+        if (provider.IsAuthenticated) return "green";
+        if (!string.IsNullOrWhiteSpace(provider.LastError)) return "red";
         return "dim";
     }
 
@@ -343,15 +319,12 @@
         _ => "green"
     };
 
-    private static string ToolStatusText(ProviderUsageDto provider) => provider.ToolStatus.IsAvailable ? "tool ready" : "tool missing";
+    private static string ToolStatusText(ProviderUsageDto provider) =>
+        provider.ToolStatus.IsAvailable ? "tool ready" : "tool missing";
 
     private static string ToolStatusLine(ProviderUsageDto provider)
     {
-        if (provider.ToolStatus.IsAvailable)
-        {
-            return $"{provider.ToolStatus.Executable} available";
-        }
-
+        if (provider.ToolStatus.IsAvailable) return $"{provider.ToolStatus.Executable} available";
         return string.IsNullOrWhiteSpace(provider.ToolStatus.Error)
             ? $"{provider.ToolStatus.Executable} missing"
             : provider.ToolStatus.Error;
@@ -359,24 +332,11 @@
 
     private static string FormatRelative(DateTimeOffset? value)
     {
-        if (value is null)
-        {
-            return "never";
-        }
-
+        if (value is null) return "never";
         var diff = DateTimeOffset.UtcNow - value.Value;
-        if (diff.TotalSeconds < 60)
-        {
-            return "just now";
-        }
-        if (diff.TotalMinutes < 60)
-        {
-            return $"{(int)diff.TotalMinutes}m ago";
-        }
-        if (diff.TotalHours < 24)
-        {
-            return $"{(int)diff.TotalHours}h ago";
-        }
+        if (diff.TotalSeconds < 60) return "just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
         return $"{(int)diff.TotalDays}d ago";
     }
 

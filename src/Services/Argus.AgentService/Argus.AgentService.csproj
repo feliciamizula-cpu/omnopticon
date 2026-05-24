@@ -15,4 +15,9 @@
     <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.EventBus\Argus.BuildingBlocks.EventBus.csproj" />
     <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="scripts\*.py">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

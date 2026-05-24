@@ -1,0 +1,86 @@
+@using Argus.Contracts.Agents
+
+<div class="pw @Tone" title="@BarTitle">
+    <div class="pw-top">
+        <span class="pw-label">@Window.Label</span>
+        <span class="pw-value">@ValueText</span>
+    </div>
+    <div class="pw-bar">
+        <div class="pw-fill" style="@($"width: {BarWidth:0.#}%")"></div>
+    </div>
+    @if (Window.IsKnown)
+    {
+        <div class="pw-meta">@MetaText</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProviderUsageWindowDto Window { get; set; } = default!;
+
+    private bool IsSubscription =>
+        string.Equals(Window.Source, "subscription", StringComparison.OrdinalIgnoreCase);
+
+    private string Tone
+    {
+        get
+        {
+            if (!Window.IsKnown) return "pw-unknown";
+            if (IsSubscription) return "pw-sub";
+            return Window.RemainingPercent switch
+            {
+                <= 0 => "pw-empty",
+                < 20 => "pw-low",
+                < 60 => "pw-medium",
+                _ => "pw-high"
+            };
+        }
+    }
+
+    private string ValueText
+    {
+        get
+        {
+            if (!Window.IsKnown) return "—";
+            if (IsSubscription) return $"{FormatCompact(Window.Used)} used";
+            return $"{Window.RemainingPercent:0.#}%";
+        }
+    }
+
+    private string MetaText
+    {
+        get
+        {
+            if (IsSubscription) return "subscription";
+            if (Window.ResetsAt.HasValue) return $"resets {FormatReset(Window.ResetsAt)}";
+            return Window.Source;
+        }
+    }
+
+    private double BarWidth => (!Window.IsKnown || IsSubscription)
+        ? 0
+        : Math.Clamp((double)Window.RemainingPercent, 0, 100);
+
+    private string BarTitle => (Window.IsKnown && !IsSubscription && Window.Limit > 0)
+        ? $"{Window.Label}: {FormatAmount(Window.Remaining)} remaining of {FormatAmount(Window.Limit)}"
+        : $"{Window.Label}: {Window.Source}";
+
+    private static string FormatReset(DateTimeOffset? value)
+    {
+        if (value is null) return "unknown";
+        var diff = value.Value - DateTimeOffset.UtcNow;
+        if (diff.TotalSeconds <= 0) return "soon";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h {diff.Minutes}m";
+        return $"{(int)diff.TotalDays}d";
+    }
+
+    private static string FormatCompact(decimal value)
+    {
+        if (value >= 1_000_000) return $"{value / 1_000_000:0.#}M";
+        if (value >= 1_000) return $"{value / 1_000:0.#}K";
+        return value.ToString("N0");
+    }
+
+    private static string FormatAmount(decimal value) =>
+        value == Math.Truncate(value) ? value.ToString("N0") : value.ToString("N1");
+}
