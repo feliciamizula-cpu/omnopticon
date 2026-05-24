@@ -6,20 +6,55 @@ function AgentsPage({ liveTick }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [filterRole, setFilterRole] = useState("all");
+  const [selectedAgents, setSelectedAgents] = useState([]);
 
   const agent = AGENTS.find(a => a.id === selectedId) || AGENTS[0];
 
   const filtered = filterRole === "all" ? AGENTS : AGENTS.filter(a => a.role === filterRole);
 
-  // Compute fleet stats
-  const stats = useMemo(() => ({
-    working: AGENTS.filter(a => a.workStatus === "working").length,
-    idle: AGENTS.filter(a => a.workStatus === "idle").length,
-    stalled: AGENTS.filter(a => a.workStatus === "stalled").length,
-    disabled: AGENTS.filter(a => !a.enabled).length,
-    tokens: AGENTS.reduce((s, a) => s + a.tokensToday, 0),
-    cost: AGENTS.reduce((s, a) => s + a.costToday, 0),
-  }), []);
+  const toggleAgentSelection = (id, e) => {
+    e.stopPropagation();
+    setSelectedAgents(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedAgents.length === filtered.length) {
+      setSelectedAgents([]);
+    } else {
+      setSelectedAgents(filtered.map(a => a.id));
+    }
+  };
+
+  const bulkEnable = () => {
+    selectedAgents.forEach(id => {
+      const a = AGENTS.find(a => a.id === id);
+      if (a) a.enabled = true;
+    });
+    setSelectedAgents([]);
+    liveTick && liveTick();
+  };
+
+  const bulkDisable = () => {
+    selectedAgents.forEach(id => {
+      const a = AGENTS.find(a => a.id === id);
+      if (a) a.enabled = false;
+    });
+    setSelectedAgents([]);
+    liveTick && liveTick();
+  };
+
+// Compute fleet stats
+const stats = useMemo(() => ({
+  working: AGENTS.filter(a => a.workStatus === "working").length,
+  idle: AGENTS.filter(a => a.workStatus === "idle").length,
+  stalled: AGENTS.filter(a => a.workStatus === "stalled").length,
+  disabled: AGENTS.filter(a => !a.enabled).length,
+  tokens: AGENTS.reduce((s, a) => s + a.tokensToday, 0),
+  cost: AGENTS.reduce((s, a) => s + a.costToday, 0),
+  quota: AGENTS.reduce((s, a) => s + (a.quota?.cost || 0), 0),
+}), []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
@@ -43,6 +78,15 @@ function AgentsPage({ liveTick }) {
         </div>
       </div>
 
+      {selectedAgents.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: "var(--bg-2)", borderBottom: "1px solid var(--line-1)", flexShrink: 0 }}>
+          <span className="mono" style={{ fontSize: 11, color: "var(--fg-2)" }}>{selectedAgents.length} selected</span>
+          <button className="btn ghost tiny" onClick={bulkEnable}>Enable</button>
+          <button className="btn ghost tiny" onClick={bulkDisable}>Disable</button>
+          <button className="btn ghost tiny" onClick={() => setSelectedAgents([])}>Clear</button>
+        </div>
+      )}
+
       {/* Top stats strip */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", background: "var(--line-1)", gap: 1, flexShrink: 0 }}>
         <FleetStat l="Total agents" v={AGENTS.length} sub={`${stats.disabled} disabled`} />
@@ -50,18 +94,42 @@ function AgentsPage({ liveTick }) {
         <FleetStat l="Idle" v={stats.idle} sub="awaiting tasks" />
         <FleetStat l="Stalled" v={stats.stalled} tone={stats.stalled ? "red" : ""} sub={stats.stalled ? "needs attention" : "ok"} />
         <FleetStat l="CLIs in use" v={new Set(AGENTS.map(a => a.cli)).size} sub={[...new Set(AGENTS.map(a => a.cli))].join(", ")} />
-        <FleetStat l="Tokens · 24h" v={fmtNum(stats.tokens)} tone="amber" sub="across fleet" />
-        <FleetStat l="Spend · 24h" v={"$" + stats.cost.toFixed(2)} tone="amber" sub="usage estimate" />
-        <FleetStat l="Tasks · in_progress" v={AGENT_TASKS.filter(t => t.status === "in_progress").length} tone="magenta" sub={`${AGENT_TASKS.filter(t => t.status === "pending").length} pending`} />
+<FleetStat l="Tokens · 24h" v={fmtNum(stats.tokens)} tone="amber" sub="across fleet" />
+<FleetStat 
+  l="Spend · 24h"
+  v={"$" + stats.cost.toFixed(2)}
+  tone={stats.quota ? stats.cost / stats.quota > 0.9 ? "red" : stats.cost / stats.quota > 0.7 ? "amber" : "" : "amber"}
+  sub={stats.quota ? `$${stats.cost.toFixed(2)} of $${stats.quota.toFixed(2)}` : "usage estimate"}
+/>
+<div style={{ gridColumn: "span 1", background: "var(--bg-1)", padding: "8px 12px" }}> 
+  {stats.quota && (
+    <div style={{ height: 4, background: "var(--bg-2)", marginTop: 2 }}> 
+      <div 
+        style={{ 
+          height: "100%", 
+          width: `${Math.min(100, (stats.cost / stats.quota) * 100)}%`,
+          background: stats.cost / stats.quota > 0.9 ? "var(--red)" : stats.cost / stats.quota > 0.7 ? "var(--amber)" : "var(--accent)",
+        }}
+      />
+    </div>
+  )}
+</div>
+<FleetStat l="Tasks · in_progress" v={AGENT_TASKS.filter(t => t.status === "in_progress").length} tone="magenta" sub={`${AGENT_TASKS.filter(t => t.status === "pending").length} pending`} />
       </div>
 
       {/* Main: card grid + detail panel */}
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
         <div style={{ overflow: "auto", padding: 12, background: "var(--bg-0)", flex: 1, minWidth: 0 }}>
-          <div className="mono-label" style={{ marginBottom: 8 }}>FLEET · {filtered.length} agents</div>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+            <div className="mono-label">FLEET · {filtered.length} agents</div>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <span className={"cell-checkbox" + (selectedAgents.length === filtered.length && filtered.length > 0 ? " on" : "")} onClick={toggleAllSelection} style={{ cursor: "pointer" }} />
+              <span className="mono" style={{ fontSize: 10, color: "var(--fg-3)" }}>select all</span>
+            </div>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 1, background: "var(--line-1)" }}>
             {filtered.map(a => (
-              <AgentCard key={a.id} agent={a} selected={selectedId === a.id} onClick={() => setSelectedId(a.id)} liveTick={liveTick} />
+              <AgentCard key={a.id} agent={a} selected={selectedId === a.id} onClick={() => setSelectedId(a.id)} liveTick={liveTick} isSelected={selectedAgents.includes(a.id)} onSelect={(e) => toggleAgentSelection(a.id, e)} />
             ))}
           </div>
         </div>
@@ -87,7 +155,7 @@ function FleetStat({ l, v, sub, tone }) {
   );
 }
 
-function AgentCard({ agent, selected, onClick, liveTick }) {
+function AgentCard({ agent, selected, onClick, liveTick, isSelected, onSelect }) {
   const cli = AGENT_CLIS.find(c => c.id === agent.cli);
   const role = AGENT_ROLES.find(r => r.id === agent.role);
   const statusColor =
@@ -116,8 +184,9 @@ function AgentCard({ agent, selected, onClick, liveTick }) {
         position: "relative",
       }}
     >
-      {/* Top row: name + role + cli + status */}
+      {/* Top row: checkbox + name + role + cli + status */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span className={"cell-checkbox" + (isSelected ? " on" : "")} onClick={onSelect} style={{ cursor: "pointer" }} />
         <span className={"dot " + (statusColor === "cyan" ? "cyan pulse" : statusColor === "red" ? "red pulse" : statusColor === "amber" ? "amber" : statusColor === "fg-2" ? "" : "")} />
         <span className="cond uppercase" style={{ fontSize: 13, color: "var(--fg-0)", fontWeight: 700, letterSpacing: "0.04em" }}>{agent.name}</span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: `var(--${role.color})` }}>{role.glyph} {role.label}</span>
