@@ -354,7 +354,8 @@ internal static class TaskDedupeHash
 {
     public static string Compute(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
     {
-        var input = $"{programId:N}:{scopeId:N}:{taskType}:{inputAssetId:N}:{workerCapability}";
+        var scopePart = scopeId?.ToString("N") ?? string.Empty;
+        var input = $"{programId:N}:{scopePart}:{taskType}:{inputAssetId:N}:{workerCapability}";
         var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }

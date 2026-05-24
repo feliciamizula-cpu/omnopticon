@@ -252,7 +252,7 @@ internal static class AgentEndpoints
 
         // Parse actions from response
         var actions = new List<AgentAction>();
-        var displayReply = ExtractAndExecuteActions(aiReply, actions, store, ct).Result;
+        var displayReply = await ExtractAndExecuteActions(aiReply, actions, store, ct);
 
         // Persist assistant message
         var assistantMsg = await store.SaveChatMessageAsync("assistant", displayReply, ct);
