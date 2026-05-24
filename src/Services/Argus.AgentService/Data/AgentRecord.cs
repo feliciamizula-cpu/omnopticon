@@ -7,6 +7,8 @@ public sealed class AgentRecord
     public Guid AgentId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
+    public string? RoleDescription { get; set; }
+    public int SortOrder { get; set; }
     public string Status { get; set; } = "active";
     public string ResponsibilitiesJson { get; set; } = "[]";
     public string? CurrentTaskId { get; set; }
@@ -24,7 +26,7 @@ public sealed class AgentRecord
     {
         var responsibilities = System.Text.Json.JsonSerializer.Deserialize<string[]>(ResponsibilitiesJson) ?? [];
         return new AgentDto(
-            AgentId, Name, Role, Status, responsibilities, CurrentTaskId, WorkStatus,
+            AgentId, Name, Role, RoleDescription, SortOrder, Status, responsibilities, CurrentTaskId, WorkStatus,
             LastHeartbeatAt, LastError, Tool, Model, CreatedAt, UpdatedAt);
     }
 }

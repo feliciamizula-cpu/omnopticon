@@ -1,4 +1,5 @@
 using Argus.AgentService;
+using Argus.AgentService.Agents;
 using Argus.AgentService.Data;
 using Argus.AgentService.ProviderUsage;
 using Argus.AgentService.ProviderUsage.Adapters;
@@ -35,10 +36,15 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusd
     builder.Services.AddSingleton<IProviderUsageAdapter, ClaudeCodeUsageAdapter>();
     builder.Services.AddSingleton<IProviderUsageAdapter, ManualUsageAdapter>();
     builder.Services.AddHostedService<ProviderUsageMonitor>();
+    builder.Services.AddScoped<AgentSelectionService>();
+    builder.Services.AddScoped<TaskExecutionService>();
+    builder.Services.AddHostedService<TaskSchedulerService>();
 }
 else
 {
     builder.Services.AddSingleton<IAgentStore, InMemoryAgentStore>();
+    builder.Services.AddScoped<AgentSelectionService>();
+    builder.Services.AddScoped<TaskExecutionService>();
 }
 
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AgentService");

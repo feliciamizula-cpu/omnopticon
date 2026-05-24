@@ -63,6 +63,8 @@ public sealed class InMemoryAgentStore : IAgentStore
             AgentId = id,
             Name = request.Name,
             Role = request.Role,
+            RoleDescription = request.RoleDescription,
+            SortOrder = request.SortOrder,
             Status = "active",
             ResponsibilitiesJson = JsonSerializer.Serialize(request.Responsibilities),
             Tool = request.Tool,
@@ -82,6 +84,10 @@ public sealed class InMemoryAgentStore : IAgentStore
             record.Name = request.Name;
         if (!string.IsNullOrWhiteSpace(request.Role))
             record.Role = request.Role;
+        if (request.RoleDescription != null)
+            record.RoleDescription = string.IsNullOrWhiteSpace(request.RoleDescription) ? null : request.RoleDescription;
+        if (request.SortOrder.HasValue)
+            record.SortOrder = request.SortOrder.Value;
         if (!string.IsNullOrWhiteSpace(request.Status))
             record.Status = request.Status;
         if (request.Responsibilities != null)
@@ -128,8 +134,12 @@ public sealed class InMemoryAgentStore : IAgentStore
             TaskId = taskId,
             Description = request.Description,
             Priority = request.Priority,
-            Status = "pending",
-            AssignedTo = request.AssignedTo
+            Status = request.ScheduleExpression is not null || request.TriggerEvent is not null ? "scheduled" : "pending",
+            AssignedTo = request.AssignedTo,
+            TargetRole = request.TargetRole,
+            TaskType = request.TaskType,
+            ScheduleExpression = request.ScheduleExpression,
+            TriggerEvent = request.TriggerEvent
         };
 
         _tasks.TryAdd(taskId, record);
@@ -149,6 +159,16 @@ public sealed class InMemoryAgentStore : IAgentStore
             ApplyStatusTransition(record, request.Status);
         if (request.AssignedTo != null)
             record.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? null : request.AssignedTo;
+        if (request.TargetRole != null)
+            record.TargetRole = string.IsNullOrWhiteSpace(request.TargetRole) ? null : request.TargetRole;
+        if (request.TaskType != null)
+            record.TaskType = string.IsNullOrWhiteSpace(request.TaskType) ? null : request.TaskType;
+        if (request.ScheduleExpression != null)
+            record.ScheduleExpression = string.IsNullOrWhiteSpace(request.ScheduleExpression) ? null : request.ScheduleExpression;
+        if (request.TriggerEvent != null)
+            record.TriggerEvent = string.IsNullOrWhiteSpace(request.TriggerEvent) ? null : request.TriggerEvent;
+        if (request.ResultOutput != null)
+            record.ResultOutput = request.ResultOutput;
 
         return Task.FromResult<AgentTaskDto?>(record.ToDto());
     }

@@ -253,8 +253,8 @@
         var sourceAgents = _agents.Count == 0
             ? new List<AgentDto>
             {
-                new(Guid.NewGuid(), "Development Agent", "development", "active", ["implementation", "tests"], null, "idle", now.AddSeconds(-30), null, "claude", "claude-sonnet-4-6", now.AddDays(-2), now),
-                new(Guid.NewGuid(), "DevOps Agent", "devops", "active", ["builds", "deployments"], null, "idle", now.AddSeconds(-45), null, "opencode", "max-2.7", now.AddDays(-1), now)
+                new(Guid.NewGuid(), "Development Agent", "development", null, 0, "active", ["implementation", "tests"], null, "idle", now.AddSeconds(-30), null, "claude", "claude-sonnet-4-6", now.AddDays(-2), now),
+                new(Guid.NewGuid(), "DevOps Agent", "devops", null, 0, "active", ["builds", "deployments"], null, "idle", now.AddSeconds(-45), null, "opencode", "max-2.7", now.AddDays(-1), now)
             }
             : _agents;
 

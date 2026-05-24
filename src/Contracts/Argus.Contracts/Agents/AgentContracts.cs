@@ -4,6 +4,8 @@ public sealed record AgentDto(
     Guid AgentId,
     string Name,
     string Role,
+    string? RoleDescription,
+    int SortOrder,
     string Status,
     string[] Responsibilities,
     string? CurrentTaskId,
@@ -20,11 +22,15 @@ public sealed record CreateAgentRequest(
     string Role,
     string[] Responsibilities,
     string Tool,
-    string Model);
+    string Model,
+    string? RoleDescription = null,
+    int SortOrder = 0);
 
 public sealed record UpdateAgentRequest(
     string? Name = null,
     string? Role = null,
+    string? RoleDescription = null,
+    int? SortOrder = null,
     string? Status = null,
     string[]? Responsibilities = null,
     string? Tool = null,
@@ -36,22 +42,63 @@ public sealed record AgentTaskDto(
     string Priority,
     string Status,
     string? AssignedTo,
+    string? TargetRole,
+    string? TaskType,
+    string? ScheduleExpression,
+    string? TriggerEvent,
+    string? ResultOutput,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ClaimedAt,
     DateTimeOffset? CompletedAt,
+    DateTimeOffset? LastRunAt,
+    DateTimeOffset? NextRunAt,
     string? RecoveryContext,
     int Attempts);
 
 public sealed record CreateAgentTaskRequest(
     string Description,
     string Priority,
-    string? AssignedTo = null);
+    string? AssignedTo = null,
+    string? TargetRole = null,
+    string? TaskType = null,
+    string? ScheduleExpression = null,
+    string? TriggerEvent = null);
 
 public sealed record UpdateAgentTaskRequest(
     string? Description = null,
     string? Priority = null,
     string? Status = null,
-    string? AssignedTo = null);
+    string? AssignedTo = null,
+    string? TargetRole = null,
+    string? TaskType = null,
+    string? ScheduleExpression = null,
+    string? TriggerEvent = null,
+    string? ResultOutput = null);
+
+public sealed record CodeReviewDto(
+    Guid ReviewId,
+    string? SourceTaskId,
+    Guid? AgentId,
+    string ReviewContent,
+    string? CommitRef,
+    string Status,
+    DateTimeOffset CreatedAt);
+
+public sealed record CreateCodeReviewRequest(
+    string ReviewContent,
+    string? SourceTaskId = null,
+    Guid? AgentId = null,
+    string? CommitRef = null);
+
+public sealed record SystemReportDto(
+    Guid ReportId,
+    Guid? AgentId,
+    string ReportContent,
+    DateTimeOffset CreatedAt);
+
+public sealed record CreateSystemReportRequest(
+    string ReportContent,
+    Guid? AgentId = null);
 
 public sealed record ChatMessageDto(
     Guid MessageId,
