@@ -256,7 +256,14 @@ internal sealed class AgentProviderUsageService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new CliToolStatusDto(definition.ToolId, definition.Executable, false, "missing", null, ex.Message, checkedAt);
+            return new CliToolStatusDto(
+                definition.ToolId,
+                definition.Executable,
+                false,
+                "missing",
+                null,
+                NormalizeCommandError(definition.Executable, ex),
+                checkedAt);
         }
     }
 
@@ -267,7 +274,7 @@ internal sealed class AgentProviderUsageService(
     {
         if (!toolStatus.IsAvailable)
         {
-            return (false, "CLI missing", toolStatus.Error);
+            return (false, "CLI missing", null);
         }
 
         var credentialVariable = definition.AuthEnvironmentVariables
@@ -306,7 +313,7 @@ internal sealed class AgentProviderUsageService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return (false, "Auth check failed", ex.Message);
+            return (false, "Auth check failed", NormalizeCommandError(definition.Executable, ex));
         }
     }
 
@@ -705,6 +712,23 @@ internal sealed class AgentProviderUsageService(
 
         var normalized = value.Trim();
         return normalized.Length <= 4_000 ? normalized : normalized[..4_000];
+    }
+
+    private static string NormalizeCommandError(string executable, Exception ex)
+    {
+        var message = TrimOutput(ex.Message);
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return $"Executable '{executable}' is not available.";
+        }
+
+        if (message.Contains("No such file or directory", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("cannot find the file specified", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Executable '{executable}' is not installed in this runtime environment.";
+        }
+
+        return message;
     }
 
     private static decimal? ReadDecimal(JsonNode node, string propertyName)

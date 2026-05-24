@@ -86,7 +86,7 @@
                                     <UsageWindow Window="provider.Monthly" />
                                 </div>
 
-                                @if (!string.IsNullOrWhiteSpace(provider.LastError))
+                                @if (!string.IsNullOrWhiteSpace(provider.LastError) && provider.ToolStatus.IsAvailable)
                                 {
                                     <div class="dev-error">@provider.LastError</div>
                                 }
