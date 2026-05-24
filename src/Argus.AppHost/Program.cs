@@ -72,7 +72,12 @@ var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("pro
 var agentService = builder.AddProject<Projects.Argus_AgentService>("agent-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WaitFor(rabbitMq)
+    .WithEnvironment("OPENCODE_AUTH_TOKEN", "<OPENCODE_AUTH_TOKEN>")
+    .WithEnvironment("OPENROUTER_API_KEY", "<OPENROUTER_API_KEY>")
+    .WithEnvironment("OPENAI_API_KEY", "<OPENAI_API_KEY>")
+    .WithEnvironment("ANTHROPIC_API_KEY", "<ANTHROPIC_API_KEY>")
+    .WithEnvironment("FIREWORKS_API_KEY", "<FIREWORKS_API_KEY>");
 
 asset.WithReference(realtime);
 task.WithReference(realtime);
@@ -227,7 +232,7 @@ builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithReference(eventRouter);
 
 builder.AddProject<Projects.Argus_Web>("argus-web")
-    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8081")
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8080")
     .WithReference(programScope)
     .WithReference(asset)
     .WithReference(artifact)

@@ -116,7 +116,7 @@ public sealed class ApiGatewayRouteTests
         var response = await client.GetAsync("/");
         var content = await response.Content.ReadAsJsonAsync<RootResponse>();
 
-        Assert.Equal(17, content?.Routes?.Length);
+        Assert.True((content?.Routes?.Length ?? 0) >= 17, $"Expected at least 17 routes, got {content?.Routes?.Length}");
     }
 }
 

@@ -17,16 +17,16 @@
             <a class="page-tab active" href="/provider-usage">Provider Usage <span class="tab-count">@(_overview?.Providers.Length ?? 0)</span></a>
             <span class="page-tab-spacer"></span>
             <div class="page-tab-actions">
-                <button class="btn ghost tiny" @onclick="Load" disabled="@_loading">Refresh</button>
-                <button class="btn primary tiny" @onclick="RefreshAll" disabled="@_refreshing">Run Checks</button>
+                <button class="btn ghost tiny" @onclick="LoadAsync" disabled="@_loading">Refresh</button>
+                <button class="btn primary tiny" @onclick="RefreshAllAsync" disabled="@_refreshing">Run Checks</button>
             </div>
         </div>
 
         <div class="dev-stats-strip">
-            <DevStat Label="Providers" Value='@((_overview?.Providers.Length ?? 0).ToString("N0"))' Sub="configured CLI accounts" />
-            <DevStat Label="Logged In" Value='@(Providers.Count(p => p.IsAuthenticated).ToString("N0"))' Sub="auth checks passing" />
-            <DevStat Label="CLI Tools" Value='@(Providers.Count(p => p.ToolStatus.IsAvailable).ToString("N0"))' Sub="version command succeeded" />
-            <DevStat Label="Auto Route" Value='@(RouteLabel)' Sub='@(_routing?.Reason ?? _overview?.RecommendedRoute?.Reason ?? "waiting for provider checks")' />
+            <DevStat Label="Providers" Value="@((_overview?.Providers.Length ?? 0).ToString())" Sub="configured CLI accounts" />
+            <DevStat Label="Logged In" Value="@LoggedInCount.ToString()" Sub="auth checks passing" />
+            <DevStat Label="CLI Tools" Value="@CliToolsCount.ToString()" Sub="version command succeeded" />
+            <DevStat Label="Auto Route" Value="@RouteLabel" Sub="@(_routing?.Reason ?? _overview?.RecommendedRoute?.Reason ?? "waiting for provider checks")" />
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_error))
@@ -46,105 +46,108 @@
         {
             <div class="provider-layout">
                 <div class="provider-grid-wrap">
-                    <div class="provider-grid">
-                        @foreach (var provider in Providers)
-                        {
-                            <section class="provider-card">
-                                <div class="provider-card-head">
-                                    <div class="provider-title-line">
-                                        <span class="dot @ProviderDot(provider)"></span>
-                                        <div>
-                                            <div class="provider-title">@provider.ProviderName</div>
-                                            <div class="provider-subtitle mono">@provider.ToolStatus.Executable --version</div>
-                                        </div>
+                    <div class="provider-table">
+                        <div class="pt-head">
+                            <div class="pt-cell pt-provider">Provider</div>
+                            <div class="pt-cell pt-tool">CLI Status</div>
+                            <div class="pt-cell pt-auth">Auth</div>
+                            <div class="pt-cell pt-routing">Routing</div>
+                            <div class="pt-cell pt-score">Score</div>
+                            <div class="pt-cell pt-checked">Last Checked</div>
+                            <div class="pt-cell pt-actions">Actions</div>
+                        </div>
+                        <div class="pt-body">
+                            @foreach (var provider in Providers)
+                            {
+                                <div class="pt-row @(IsSelected(provider) ? "selected" : "")" @onclick="() => SelectProvider(provider)">
+                                    <div class="pt-cell pt-provider">
+                                        <span class="dot @(ProviderDot(provider))"></span>
+                                        <span class="pt-name">@provider.ProviderName</span>
                                     </div>
-                                    <div class="provider-score">
-                                        <span class="score-value">@provider.RoutingScore.ToString("0.#")</span>
-                                        <span class="score-label">route</span>
+                                    <div class="pt-cell pt-tool">
+                                        <span class="dev-pill @ToolTone(provider)">@ToolStatusText(provider)</span>
+                                        @if (provider.ToolStatus.IsAvailable)
+                                        {
+                                            <span class="pt-exe mono">@provider.ToolStatus.Executable</span>
+                                        }
+                                    </div>
+                                    <div class="pt-cell pt-auth">
+                                        <span class="dev-pill @AuthTone(provider)">@(provider.IsAuthenticated ? "logged in" : "not logged in")</span>
+                                    </div>
+                                    <div class="pt-cell pt-routing">
+                                        <span class="dev-pill @RoutingTone(provider)">@provider.RoutingStatus</span>
+                                    </div>
+                                    <div class="pt-cell pt-score">
+                                        <span class="pt-score-value">@provider.RoutingScore.ToString("0.#")</span>
+                                    </div>
+                                    <div class="pt-cell pt-checked">
+                                        @FormatRelative(provider.LastCheckedAt)
+                                    </div>
+                                    <div class="pt-cell pt-actions">
+                                        <button class="btn ghost tiny" @onclick:stopPropagation="true" @onclick="() => RefreshProvider(provider)" disabled="@_refreshing">Refresh</button>
                                     </div>
                                 </div>
-
-                                <div class="dev-chipline compact">
-                                    <span class="dev-pill @ToolTone(provider)">@ToolStatusText(provider)</span>
-                                    <span class="dev-pill @AuthTone(provider)">@(provider.IsAuthenticated ? "logged in" : "not logged in")</span>
-                                    <span class="dev-pill @RoutingTone(provider)">@provider.RoutingStatus</span>
-                                </div>
-
-                                <table class="kv-table provider-kv">
-                                    <tbody>
-                                    <tr><td>Provider</td><td>@provider.DisplayModelHint</td></tr>
-                                    <tr><td>Tool status</td><td>@ToolStatusLine(provider)</td></tr>
-                                    <tr><td>Version</td><td class="mono">@(provider.ToolStatus.Version ?? "—")</td></tr>
-                                    <tr><td>Auth status</td><td>@provider.AuthStatus</td></tr>
-                                    <tr><td>Reset data</td><td>@KnownUsageCount(provider)/3 windows configured</td></tr>
-                                    </tbody>
-                                </table>
-
-                                <div class="usage-window-stack">
-                                    <UsageWindow Window="provider.FiveHour" />
-                                    <UsageWindow Window="provider.Weekly" />
-                                    <UsageWindow Window="provider.Monthly" />
-                                </div>
-
-                                @if (!string.IsNullOrWhiteSpace(provider.LastError) && provider.ToolStatus.IsAvailable)
-                                {
-                                    <div class="dev-error">@provider.LastError</div>
-                                }
-
-                                <div class="provider-command-box">
-                                    <div class="mono-label">LOGIN COMMAND</div>
-                                    <div class="provider-command mono">@provider.LoginCommand</div>
-                                    <div class="provider-login-help">@provider.LoginInstructions</div>
-                                </div>
-
-                                <div class="provider-actions">
-                                    <button class="btn primary tiny" @onclick="() => Login(provider)" disabled="@(_refreshing || _loading || _busyProviderIds.Contains(provider.ProviderId))">Login / Recheck</button>
-                                    <button class="btn ghost tiny" @onclick="() => RefreshProvider(provider)" disabled="@(_refreshing || _loading || _busyProviderIds.Contains(provider.ProviderId))">Refresh Provider</button>
-                                </div>
-                            </section>
-                        }
+                            }
+                        </div>
                     </div>
                 </div>
 
                 <aside class="dev-inspector provider-inspector">
-                    <div class="dev-inspector-head">
-                        <div class="type-row">
-                            <span class="dev-pill @(IsRouteRunnable ? "green" : "red")">routing</span>
-                            <span class="asset-id">AUTO</span>
+                    @if (_selectedProvider is null)
+                    {
+                        <div class="dev-empty">Select a provider to view details</div>
+                    }
+                    else
+                    {
+                        <div class="dev-inspector-head">
+                            <div class="type-row">
+                                <span class="dev-pill @ToolTone(_selectedProvider)">@ToolStatusText(_selectedProvider)</span>
+                                <span class="dev-pill @AuthTone(_selectedProvider)">@(_selectedProvider.IsAuthenticated ? "logged in" : "not logged in")</span>
+                                <span class="asset-id">@_selectedProvider.ProviderId</span>
+                            </div>
+                            <div class="value-big">@_selectedProvider.ProviderName</div>
+                            <div class="submeta">@_selectedProvider.DisplayModelHint</div>
                         </div>
-                        <div class="value-big">Task Routing</div>
-                        <div class="submeta">
-                            <span>policy <b>highest available usage first</b></span>
-                        </div>
-                    </div>
-                    <div class="dev-inspector-body">
-                        <div class="section-label">CURRENT DECISION</div>
-                        <table class="kv-table">
-                            <tbody>
-                            <tr><td>Runnable</td><td><span class="dev-pill @(IsRouteRunnable ? "green" : "red")">@(IsRouteRunnable ? "yes" : "no")</span></td></tr>
-                            <tr><td>Provider</td><td>@(_routing?.ProviderName ?? _overview?.RecommendedRoute?.ProviderName ?? "—")</td></tr>
-                            <tr><td>CLI</td><td class="mono">@(_routing?.ToolId ?? _overview?.RecommendedRoute?.ToolId ?? "—")</td></tr>
-                            <tr><td>Agent</td><td>@(_routing?.AgentName ?? "—")</td></tr>
-                            <tr><td>Score</td><td>@((_routing?.RoutingScore ?? _overview?.RecommendedRoute?.RoutingScore ?? 0).ToString("0.#"))</td></tr>
-                            <tr><td>Reason</td><td>@(_routing?.Reason ?? _overview?.RecommendedRoute?.Reason ?? "No routing decision yet.")</td></tr>
-                            </tbody>
-                        </table>
+                        <div class="dev-inspector-body">
+                            <table class="kv-table">
+                                <tbody>
+                                    <tr><td>Routing Score</td><td><span class="dev-pill @RoutingTone(_selectedProvider)">@_selectedProvider.RoutingScore.ToString("0.#")</span></td></tr>
+                                    <tr><td>Routing Status</td><td>@_selectedProvider.RoutingStatus</td></tr>
+                                    <tr><td>Tool</td><td class="mono">@_selectedProvider.ToolStatus.Executable</td></tr>
+                                    <tr><td>Tool Status</td><td>@ToolStatusLine(_selectedProvider)</td></tr>
+                                    <tr><td>Version</td><td class="mono">@(_selectedProvider.ToolStatus.Version ?? "—")</td></tr>
+                                    <tr><td>Auth Status</td><td>@_selectedProvider.AuthStatus</td></tr>
+                                    <tr><td>Last Checked</td><td>@FormatRelative(_selectedProvider.LastCheckedAt)</td></tr>
+                                </tbody>
+                            </table>
 
-                        <div class="section-label">ROUTING RULES</div>
-                        <div class="dev-note">
-Tasks created without an explicit assignee are routed automatically. The AgentService checks provider CLI availability, authentication, and available usage windows. It selects the active agent whose CLI maps to the provider with the highest remaining usage score. Explicit task assignment still overrides automatic routing.
-                        </div>
+                            @if (_selectedProvider.FiveHour.IsKnown || _selectedProvider.Weekly.IsKnown || _selectedProvider.Monthly.IsKnown)
+                            {
+                                <div class="section-label">USAGE WINDOWS</div>
+                                <div class="usage-window-stack">
+                                    <UsageWindow Window="_selectedProvider.FiveHour" />
+                                    <UsageWindow Window="_selectedProvider.Weekly" />
+                                    <UsageWindow Window="_selectedProvider.Monthly" />
+                                </div>
+                            }
 
-                        <div class="section-label">USAGE DATA SOURCE</div>
-                        <div class="dev-note">
-Usage windows are populated from configured provider usage commands or configured window values. CLI version and auth state are checked directly by running each configured CLI command on the server host.
-                        </div>
+                            @if (!string.IsNullOrWhiteSpace(_selectedProvider.LastError) && _selectedProvider.ToolStatus.IsAvailable)
+                            {
+                                <div class="dev-error" style="margin-top: 8px;">@_selectedProvider.LastError</div>
+                            }
 
-                        <div class="dev-action-row">
-                            <button class="btn ghost tiny" @onclick="Load" disabled="@_loading">Reload</button>
-                            <button class="btn primary tiny" @onclick="RefreshAll" disabled="@_refreshing">Run All Checks</button>
+                            <div class="section-label">LOGIN COMMAND</div>
+                            <div class="provider-command-box">
+                                <div class="provider-command mono">@_selectedProvider.LoginCommand</div>
+                                <div class="provider-login-help">@_selectedProvider.LoginInstructions</div>
+                            </div>
+
+                            <div class="dev-action-row">
+                                <button class="btn primary tiny" @onclick="() => Login(_selectedProvider)" disabled="@(_refreshing || _loading)">Login / Recheck</button>
+                                <button class="btn ghost tiny" @onclick="() => RefreshProvider(_selectedProvider)" disabled="@_refreshing">Refresh</button>
+                            </div>
                         </div>
-                    </div>
+                    }
                 </aside>
             </div>
         }
@@ -154,13 +157,13 @@ Usage windows are populated from configured provider usage commands or configure
 @code {
     private ProviderUsageOverviewDto? _overview;
     private ProviderRouteSelectionDto? _routing;
-    private readonly HashSet<string> _busyProviderIds = new(StringComparer.OrdinalIgnoreCase);
+    private ProviderUsageDto? _selectedProvider;
     private bool _loading;
     private bool _refreshing;
     private string? _error;
     private string? _notice;
 
-    private IReadOnlyList<ProviderUsageDto> Providers => _overview?.Providers ?? Array.Empty<ProviderUsageDto>();
+    private IReadOnlyList<ProviderUsageDto> Providers => _overview?.Providers ?? [];
 
     private bool IsRouteRunnable => _routing?.IsRunnable ?? _overview?.RecommendedRoute?.IsRunnable ?? false;
 
@@ -171,10 +174,10 @@ Usage windows are populated from configured provider usage commands or configure
 
     protected override async Task OnInitializedAsync()
     {
-        await Load();
+        await LoadAsync();
     }
 
-    private async Task Load()
+    private async Task LoadAsync()
     {
         _loading = true;
         _error = null;
@@ -194,7 +197,7 @@ Usage windows are populated from configured provider usage commands or configure
         }
     }
 
-    private async Task RefreshAll()
+    private async Task RefreshAllAsync()
     {
         _refreshing = true;
         _error = null;
@@ -225,7 +228,6 @@ Usage windows are populated from configured provider usage commands or configure
 
     private async Task RefreshProvider(ProviderUsageDto provider)
     {
-        _busyProviderIds.Add(provider.ProviderId);
         _error = null;
         _notice = null;
         try
@@ -237,22 +239,17 @@ Usage windows are populated from configured provider usage commands or configure
                 return;
             }
 
-            await Load();
+            await LoadAsync();
             _notice = $"{provider.ProviderName} status refreshed.";
         }
         catch (Exception ex)
         {
             _error = $"Unable to refresh {provider.ProviderName}: {ex.Message}";
         }
-        finally
-        {
-            _busyProviderIds.Remove(provider.ProviderId);
-        }
     }
 
     private async Task Login(ProviderUsageDto provider)
     {
-        _busyProviderIds.Add(provider.ProviderId);
         _error = null;
         _notice = null;
         try
@@ -265,17 +262,18 @@ Usage windows are populated from configured provider usage commands or configure
             }
 
             var login = await response.Content.ReadFromJsonAsync<ProviderLoginResponseDto>();
-            await Load();
+            await LoadAsync();
             _notice = FormatLoginNotice(login);
         }
         catch (Exception ex)
         {
             _error = $"Unable to run {provider.ProviderName} login command: {ex.Message}";
         }
-        finally
-        {
-            _busyProviderIds.Remove(provider.ProviderId);
-        }
+    }
+
+    private void SelectProvider(ProviderUsageDto provider)
+    {
+        _selectedProvider = provider;
     }
 
     private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
@@ -291,6 +289,9 @@ Usage windows are populated from configured provider usage commands or configure
         var error = string.IsNullOrWhiteSpace(login.Error) ? string.Empty : $"\n\nERROR\n{login.Error}";
         return $"{login.ProviderName}: {login.Message}\nCommand: {login.Command}{output}{error}";
     }
+
+    private bool IsSelected(ProviderUsageDto provider) =>
+        _selectedProvider?.ProviderId == provider.ProviderId;
 
     private static string ProviderDot(ProviderUsageDto provider)
     {
@@ -340,40 +341,29 @@ Usage windows are populated from configured provider usage commands or configure
             : provider.ToolStatus.Error;
     }
 
-    private static int KnownUsageCount(ProviderUsageDto provider) =>
-        new[] { provider.FiveHour, provider.Weekly, provider.Monthly }.Count(window => window.IsKnown);
-
-    private static string FormatReset(DateTimeOffset? value)
+    private static string FormatRelative(DateTimeOffset? value)
     {
         if (value is null)
         {
-            return "unknown";
+            return "never";
         }
 
-        return value.Value.ToLocalTime().ToString("MMM d, h:mm tt");
-    }
-
-    private static string FormatAmount(decimal value) => value == Math.Truncate(value)
-        ? value.ToString("N0")
-        : value.ToString("N1");
-
-    private static double PercentWidth(ProviderUsageWindowDto window) => window.IsKnown
-        ? Math.Clamp((double)window.RemainingPercent, 0, 100)
-        : 0;
-
-    private static string WindowTone(ProviderUsageWindowDto window)
-    {
-        if (!window.IsKnown)
+        var diff = DateTimeOffset.UtcNow - value.Value;
+        if (diff.TotalSeconds < 60)
         {
-            return "unknown";
+            return "just now";
         }
-
-        return window.RemainingPercent switch
+        if (diff.TotalMinutes < 60)
         {
-            <= 0 => "empty",
-            < 20 => "low",
-            < 60 => "medium",
-            _ => "high"
-        };
+            return $"{(int)diff.TotalMinutes}m ago";
+        }
+        if (diff.TotalHours < 24)
+        {
+            return $"{(int)diff.TotalHours}h ago";
+        }
+        return $"{(int)diff.TotalDays}d ago";
     }
+
+    private int LoggedInCount => _overview?.Providers.Count(p => p.IsAuthenticated) ?? 0;
+    private int CliToolsCount => _overview?.Providers.Count(p => p.ToolStatus.IsAvailable) ?? 0;
 }

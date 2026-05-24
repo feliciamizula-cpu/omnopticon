@@ -1,0 +1,233 @@
+@page "/todos"
+@page "/development/todos"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Argus.Contracts.Agents
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageHeader Title="Todos" Subtitle="@($"{_todos?.Count ?? 0} total")" />
+
+<div class="page-body dev-page">
+    <div class="dev-action-row" style="margin-bottom: 12px;">
+        <button class="btn primary" @onclick="OpenCreateModal">+ New Todo</button>
+        <button class="btn ghost" @onclick="LoadTodos" style="margin-left: 8px;">Refresh</button>
+    </div>
+    @if (_loading)
+    {
+        <div class="empty-state">
+            <div class="app-loading-spinner"></div>
+            <p>Loading todos…</p>
+        </div>
+    }
+    else if (_todos == null || !_todos.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div class="empty-state-title">No todos yet</div>
+            <div class="empty-state-description">Create a todo to get started.</div>
+        </div>
+    }
+    else
+    {
+        <table class="dev-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Instructions</th>
+                    <th>Priority</th>
+                    <th>Worker</th>
+                    <th>Deadline</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Completed</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var todo in _todos)
+                {
+                    <tr>
+                        <td>@todo.Name</td>
+                        <td class="mono">@todo.Instructions</td>
+                        <td>@todo.Priority</td>
+                        <td>@(todo.WorkerType ?? "-")</td>
+                        <td>@(todo.Deadline?.ToLocalTime().ToString("yyyy-MM-dd") ?? "-")</td>
+                        <td>@todo.Status</td>
+                        <td>@todo.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                        <td>@(todo.CompletedAt?.ToLocalTime().ToString("yyyy-MM-dd") ?? "-")</td>
+                        <td>
+                            <button class="btn btn-sm" @onclick="() => OpenEditModal(todo)">Edit</button>
+                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteTodo(todo.TodoId)" style="margin-left:4px;">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@if (_showModal)
+{
+    <div class="dev-modal-overlay" @onclick="CloseModal">
+        <div class="dev-modal" @onclick:stopPropagation="true">
+            <div class="dev-modal-head">
+                <span class="dot @(IsEditing ? "amber" : "green")"></span>
+                @(IsEditing ? "Edit Todo" : "Create Todo")
+                <button class="dev-icon-btn" @onclick="CloseModal">×</button>
+            </div>
+            <div class="dev-modal-body">
+                <div class="dev-form-grid">
+                    <div class="dev-form-field">
+                        <label>Name</label>
+                        <input class="dev-input" @bind="_form.Name" @bind:event="oninput" placeholder="Todo name" />
+                    </div>
+                    <div class="dev-form-field full">
+                        <label>Instructions</label>
+                        <textarea class="dev-input" rows="3" @bind="_form.Instructions" @bind:event="oninput"></textarea>
+                    </div>
+                    <div class="dev-form-field">
+                        <label>Priority</label>
+                        <select class="dev-input" @bind="_form.Priority">
+                            <option value="critical">critical</option>
+                            <option value="high">high</option>
+                            <option value="normal">normal</option>
+                            <option value="medium">medium</option>
+                            <option value="low">low</option>
+                        </select>
+                    </div>
+                    <div class="dev-form-field">
+                        <label>Worker Type</label>
+                        <input class="dev-input" @bind="_form.WorkerType" placeholder="optional" />
+                    </div>
+                    <div class="dev-form-field">
+                        <label>Deadline (UTC)</label>
+                        <input type="datetime-local" class="dev-input" @bind="_deadlineString" />
+                    </div>
+                    @if (IsEditing)
+                    {
+                        <div class="dev-form-field">
+                            <label>Status</label>
+                            <select class="dev-input" @bind="_form.Status">
+                                <option value="pending">pending</option>
+                                <option value="in_progress">in_progress</option>
+                                <option value="completed">completed</option>
+                                <option value="cancelled">cancelled</option>
+                            </select>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="dev-modal-foot">
+                <button class="btn ghost" @onclick="CloseModal">Cancel</button>
+                <button class="btn primary" @onclick="SaveTodo" disabled="@(string.IsNullOrWhiteSpace(_form.Name) || string.IsNullOrWhiteSpace(_form.Instructions))">
+                    @(IsEditing ? "Save" : "Create")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TodoItemDto> _todos = new();
+    private bool _loading = true;
+    private bool _showModal = false;
+    private Guid? _editingTodoId;
+    private bool IsEditing => _editingTodoId.HasValue;
+    private CreateTodoRequest _form = new() { Priority = "normal" };
+    private string _deadlineString = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTodos();
+    }
+
+    private async Task LoadTodos()
+    {
+        _loading = true;
+        try
+        {
+            _todos = await Http.GetFromJsonAsync<List<TodoItemDto>>("/todos") ?? new();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        _editingTodoId = null;
+        _form = new() { Priority = "normal" };
+        _deadlineString = "";
+        _showModal = true;
+    }
+
+    private void OpenEditModal(TodoItemDto todo)
+    {
+        _editingTodoId = todo.TodoId;
+        _form = new CreateTodoRequest
+        {
+            Name = todo.Name,
+            Instructions = todo.Instructions,
+            Priority = todo.Priority,
+            WorkerType = todo.WorkerType,
+            // Deadline handled separately
+        };
+        _deadlineString = todo.Deadline?.ToString("yyyy-MM-ddTHH:mm") ?? "";
+        // Use a separate request for status
+        _status = todo.Status;
+        _showModal = true;
+    }
+
+    private string _status = "pending";
+
+    private async Task SaveTodo()
+    {
+        // Parse deadline if provided
+        DateTimeOffset? deadline = null;
+        if (!string.IsNullOrWhiteSpace(_deadlineString) && DateTimeOffset.TryParse(_deadlineString, out var parsed))
+        {
+            deadline = parsed;
+        }
+        if (IsEditing && _editingTodoId.HasValue)
+        {
+            var update = new UpdateTodoRequest(
+                Name: _form.Name,
+                Instructions: _form.Instructions,
+                Priority: _form.Priority,
+                WorkerType: _form.WorkerType,
+                Deadline: deadline,
+                Status: _status
+            );
+            var resp = await Http.PutAsJsonAsync($"/todos/{_editingTodoId}", update);
+            await resp.Content.ReadAsStringAsync(); // force response consumption
+        }
+        else
+        {
+            var create = new CreateTodoRequest(
+                Name: _form.Name,
+                Instructions: _form.Instructions,
+                Priority: _form.Priority,
+                WorkerType: _form.WorkerType,
+                Deadline: deadline
+            );
+            var resp = await Http.PostAsJsonAsync("/todos", create);
+            await resp.Content.ReadAsStringAsync();
+        }
+        await LoadTodos();
+        CloseModal();
+    }
+
+    private async Task DeleteTodo(Guid todoId)
+    {
+        await Http.DeleteAsync($"/todos/{todoId}");
+        await LoadTodos();
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+    }
+}

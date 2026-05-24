@@ -70,69 +70,66 @@
                     }
                     else
                     {
-                        <div class="dev-grid">
-                            @foreach (var agent in FilteredAgents)
-                            {
-                                var currentTask = CurrentTask(agent);
-                                <div class="dev-card @(SelectedAgent?.AgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "disabled" : "")"
-                                     @onclick="() => SelectAgent(agent)">
-                                    <div class="dev-card-top">
-                                        <span class="dot @StatusDot(agent) @(IsWorking(agent) ? "pulse" : "")"></span>
-                                        <span class="tone-@RoleTone(agent.Role) mono">@RoleGlyph(agent.Role)</span>
-                                        <span class="dev-card-title">@agent.Name</span>
-                                        <span class="dev-pill @StatusTone(agent)">@AgentStatusLabel(agent)</span>
-                                        <span class="dev-card-id">@ShortId(agent.AgentId)</span>
+                        <div class="agent-table">
+                            <div class="at-head">
+                                <div class="at-cell at-status"></div>
+                                <div class="at-cell at-name">Name</div>
+                                <div class="at-cell at-tool">CLI</div>
+                                <div class="at-cell at-role">Role</div>
+                                <div class="at-cell at-status-col">Status</div>
+                                <div class="at-cell at-tasks">Tasks</div>
+                                <div class="at-cell at-heartbeat">Heartbeat</div>
+                                <div class="at-cell at-workstatus">Work</div>
+                            </div>
+                            <div class="at-body">
+                                @foreach (var agent in FilteredAgents)
+                                {
+                                    var currentTask = CurrentTask(agent);
+                                    <div class="at-row @(SelectedAgent?.AgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "disabled" : "")"
+                                         @onclick="() => SelectAgent(agent)">
+                                        <div class="at-cell at-status">
+                                            <span class="dot @StatusDot(agent) @(IsWorking(agent) ? "pulse" : "")"></span>
+                                        </div>
+                                        <div class="at-cell at-name">
+                                            <span class="tone-@RoleTone(agent.Role) mono">@RoleGlyph(agent.Role)</span>
+                                            <span class="at-agent-name">@agent.Name</span>
+                                            <span class="at-agent-id">@ShortId(agent.AgentId)</span>
+                                        </div>
+                                        <div class="at-cell at-tool">
+                                            <span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span>
+                                            <span class="at-model">@agent.Model</span>
+                                        </div>
+                                        <div class="at-cell at-role">
+                                            <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
+                                        </div>
+                                        <div class="at-cell at-status-col">
+                                            <span class="dev-pill @StatusTone(agent)">@AgentStatusLabel(agent)</span>
+                                        </div>
+                                        <div class="at-cell at-tasks">
+                                            @AssignedTaskCount(agent)
+                                        </div>
+                                        <div class="at-cell at-heartbeat">
+                                            <span class="@HeartbeatTone(agent)">@Relative(agent.LastHeartbeatAt)</span>
+                                        </div>
+                                        <div class="at-cell at-workstatus">
+                                            @if (currentTask is not null)
+                                            {
+                                                <span class="at-current-task" title="@currentTask.Description">@currentTask.TaskId</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="at-idle">idle</span>
+                                            }
+                                        </div>
                                     </div>
-
-                                    <div class="dev-command-line">
-                                        <span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span>
-                                        <span style="color: var(--fg-3);"> › </span>
-                                        <span>@agent.Model</span>
-                                        @if (!string.IsNullOrWhiteSpace(agent.WorkStatus))
-                                        {
-                                            <span style="color: var(--fg-3);"> · @agent.WorkStatus</span>
-                                        }
-                                    </div>
-
-                                    <div class="dev-current-task @(currentTask is not null ? "active" : "")">
-                                        @if (currentTask is not null)
-                                        {
-                                            <div class="label">
-                                                CURRENT · <span style="color: var(--accent);">@currentTask.TaskId</span>
-                                                <span style="margin-left: 8px; color: var(--fg-3);">attempt @Math.Max(1, currentTask.Attempts)</span>
-                                            </div>
-                                            <div class="body">@currentTask.Description</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="body" style="color: var(--fg-3);">// idle — no task claimed</div>
-                                        }
-                                    </div>
-
                                     @if (!string.IsNullOrWhiteSpace(agent.LastError))
                                     {
-                                        <div class="dev-error">⚠ @agent.LastError</div>
+                                        <div class="at-error-row">
+                                            <span class="dev-error">⚠ @agent.LastError</span>
+                                        </div>
                                     }
-
-                                    <div class="dev-mini-grid">
-                                        <div class="dev-mini"><div class="l">role</div><div class="v">@RoleLabel(agent.Role)</div></div>
-                                        <div class="dev-mini"><div class="l">tasks</div><div class="v">@AssignedTaskCount(agent)</div></div>
-                                        <div class="dev-mini"><div class="l">heartbeat</div><div class="v @HeartbeatTone(agent)">@Relative(agent.LastHeartbeatAt)</div></div>
-                                        <div class="dev-mini"><div class="l">updated</div><div class="v">@Relative(agent.UpdatedAt)</div></div>
-                                    </div>
-
-                                    <div class="dev-chipline">
-                                        @foreach (var item in agent.Responsibilities.Take(4))
-                                        {
-                                            <span class="dev-chip"><span style="color: var(--accent);">↻</span>@item</span>
-                                        }
-                                        @if (agent.Responsibilities.Length > 4)
-                                        {
-                                            <span class="dev-chip">+@(agent.Responsibilities.Length - 4)</span>
-                                        }
-                                    </div>
-                                </div>
-                            }
+                                }
+                            </div>
                         </div>
                     }
                 </div>

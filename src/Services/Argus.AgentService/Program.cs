@@ -33,6 +33,7 @@ builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.Agen
 builder.Services.AddHttpClient();
 builder.Services.Configure<AgentProviderUsageOptions>(builder.Configuration.GetSection("AgentProviderUsage"));
 builder.Services.AddSingleton<IAgentProviderUsageService, AgentProviderUsageService>();
+builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
@@ -77,6 +78,12 @@ internal static class AgentEndpoints
         app.MapGet("/agent-tasks/{taskId}", GetTask);
         app.MapPut("/agent-tasks/{taskId}", UpdateTask);
         app.MapDelete("/agent-tasks/{taskId}", DeleteTask);
+        // Todo endpoints
+        app.MapGet("/todos", ListTodos);
+        app.MapPost("/todos", CreateTodo);
+        app.MapGet("/todos/{todoId:guid}", GetTodo);
+        app.MapPut("/todos/{todoId:guid}", UpdateTodo);
+        app.MapDelete("/todos/{todoId:guid}", DeleteTodo);
 
         // Provider usage endpoints
         app.MapGet("/provider-usage", GetProviderUsage);
@@ -185,6 +192,37 @@ internal static class AgentEndpoints
         return deleted ? Results.NoContent() : Results.NotFound();
     }
 
+
+    // Todo handlers
+    private static async Task<IResult> ListTodos(ITodoStore store, string? status, string? priority, CancellationToken ct)
+    {
+        var todos = await store.ListTodosAsync(status, priority, ct);
+        return Results.Ok(new { items = todos, count = todos.Count });
+    }
+
+    private static async Task<IResult> CreateTodo(CreateTodoRequest request, ITodoStore store, CancellationToken ct)
+    {
+        var todo = await store.CreateTodoAsync(request, ct);
+        return Results.Created($"/todos/{todo.TodoId}", todo);
+    }
+
+    private static async Task<IResult> GetTodo(Guid todoId, ITodoStore store, CancellationToken ct)
+    {
+        var todo = await store.GetTodoAsync(todoId, ct);
+        return todo is not null ? Results.Ok(todo) : Results.NotFound();
+    }
+
+    private static async Task<IResult> UpdateTodo(Guid todoId, UpdateTodoRequest request, ITodoStore store, CancellationToken ct)
+    {
+        var todo = await store.UpdateTodoAsync(todoId, request, ct);
+        return todo is not null ? Results.Ok(todo) : Results.NotFound();
+    }
+
+    private static async Task<IResult> DeleteTodo(Guid todoId, ITodoStore store, CancellationToken ct)
+    {
+        var deleted = await store.DeleteTodoAsync(todoId, ct);
+        return deleted ? Results.NoContent() : Results.NotFound();
+    }
 
     // Provider usage handlers
     private static async Task<IResult> GetProviderUsage(IAgentProviderUsageService providerUsage, CancellationToken ct)
