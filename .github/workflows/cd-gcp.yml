@@ -78,6 +78,8 @@ jobs:
           region: ${{ env.REGION }}
           env_vars: |
             ASPNETCORE_ENVIRONMENT=Staging
+            ARGUS_VERSION=${{ github.sha }}
+            ARGUS_BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_id }}
 
       - name: Show service URL
         run: |

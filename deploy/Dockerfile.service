@@ -39,6 +39,8 @@ WORKDIR /app
 ARG GIT_SHA
 ARG BUILD_DATE
 ARG ASSEMBLY_NAME=Argus.Web
+ENV ARGUS_VERSION=${GIT_SHA}
+ENV ARGUS_BUILD_DATE=${BUILD_DATE}
 ENV ASPNETCORE_URLS=http://+:8080
 ENV DOTNET_EnableDiagnostics=0
 ENV DOTNET_GCConserveMemory=9
@@ -47,5 +49,7 @@ ENV ASSEMBLY_DLL=${ASSEMBLY_NAME}.dll
 EXPOSE 8080
 
 COPY --from=build /app/publish .
+
+RUN echo "window.__ARGUS_BUILD__ = { version: \"${GIT_SHA}\", date: \"${BUILD_DATE}\" };" > /app/wwwroot/version.js
 
 ENTRYPOINT ["sh", "-c", "exec dotnet $ASSEMBLY_DLL"]

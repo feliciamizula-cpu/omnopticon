@@ -1085,6 +1085,18 @@ textarea.dev-input {
   padding-right: 0;
 }
 
+.provider-details-table td:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.detail-reset {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  color: var(--fg-3);
+}
+
 .usage-window-stack {
   display: grid;
   gap: 8px;

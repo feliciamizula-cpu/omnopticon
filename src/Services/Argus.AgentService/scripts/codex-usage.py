@@ -9,7 +9,6 @@ windows onto a 0-100 percent scale.
 import json
 import select
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 
@@ -53,7 +52,7 @@ def send(process, request_id, method, params=None):
     process.stdin.flush()
 
 
-def window_from_codex(name, payload):
+def window_from_codex(name, payload, source):
     if not isinstance(payload, dict):
         return None
 
@@ -68,7 +67,7 @@ def window_from_codex(name, payload):
         "limit": 100,
         "used": round(used, 1),
         "remaining": round(max(0.0, 100.0 - used), 1),
-        "source": "codex-app-server",
+        "source": source,
     }
     if reset is not None:
         window["resetsAt"] = reset
@@ -119,22 +118,48 @@ def main():
         result = response.get("result") or {}
         buckets = result.get("rateLimitsByLimitId") or {}
         codex = buckets.get("codex") or result.get("rateLimits") or {}
+        plan_type = codex.get("planType")
+        source = f"codex-app-server ({plan_type})" if plan_type else "codex-app-server"
 
         output = {}
-        primary = window_from_codex("5 hour", codex.get("primary"))
-        secondary = window_from_codex("weekly", codex.get("secondary"))
+        primary = window_from_codex("5 hour", codex.get("primary"), source)
+        secondary = window_from_codex("weekly", codex.get("secondary"), source)
         if primary is not None:
             output["fiveHour"] = primary
         if secondary is not None:
             output["weekly"] = secondary
 
+        details = []
         credits = codex.get("credits")
         if isinstance(credits, dict):
-            output["credits"] = credits
-        if codex.get("planType"):
-            output["planType"] = codex.get("planType")
+            remaining = credits.get("remaining") or credits.get("remainingCredits")
+            total = credits.get("total") or credits.get("limit") or credits.get("totalCredits")
+            if remaining is not None or total is not None:
+                value = f"{remaining if remaining is not None else '?'}"
+                if total is not None:
+                    value = f"{value}/{total}"
+                details.append({
+                    "key": "credits",
+                    "label": "Codex credits",
+                    "value": str(value),
+                    "source": source,
+                })
+        if plan_type:
+            details.append({
+                "key": "planType",
+                "label": "Codex plan",
+                "value": str(plan_type),
+                "source": source,
+            })
         if codex.get("rateLimitReachedType"):
-            output["rateLimitReachedType"] = codex.get("rateLimitReachedType")
+            details.append({
+                "key": "rateLimitReachedType",
+                "label": "Codex rate limit",
+                "value": str(codex.get("rateLimitReachedType")),
+                "source": source,
+            })
+        if details:
+            output["details"] = details
 
         print(json.dumps(output))
     except Exception:

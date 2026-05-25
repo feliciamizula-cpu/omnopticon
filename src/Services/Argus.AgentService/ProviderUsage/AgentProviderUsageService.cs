@@ -228,6 +228,7 @@ internal sealed class AgentProviderUsageService(
             usageWindows.TwentyFourHour,
             usageWindows.Weekly,
             usageWindows.Monthly,
+            usageWindows.Details,
             routingScore,
             routingStatus,
             checkedAt,
@@ -469,7 +470,8 @@ internal sealed class AgentProviderUsageService(
             commandUsage?.FiveHour ?? BuildWindow(definition.FiveHour, DefaultResetLead),
             commandUsage?.TwentyFourHour ?? BuildWindow(definition.TwentyFourHour, TimeSpan.FromHours(24)),
             commandUsage?.Weekly ?? BuildWindow(definition.Weekly, TimeSpan.FromDays(7)),
-            commandUsage?.Monthly ?? BuildWindow(definition.Monthly, TimeSpan.FromDays(30)));
+            commandUsage?.Monthly ?? BuildWindow(definition.Monthly, TimeSpan.FromDays(30)),
+            commandUsage?.Details ?? []);
     }
 
     private static UsageWindows? TryParseUsageJson(string output, AgentProviderOptions definition)
@@ -487,7 +489,8 @@ internal sealed class AgentProviderUsageService(
                 ParseWindowNode(root["fiveHour"] ?? root["five_hour"] ?? root["5h"], definition.FiveHour, DefaultResetLead),
                 ParseWindowNode(root["twentyFourHour"] ?? root["twenty_four_hour"] ?? root["daily"] ?? root["24h"], definition.TwentyFourHour, TimeSpan.FromHours(24)),
                 ParseWindowNode(root["weekly"] ?? root["week"], definition.Weekly, TimeSpan.FromDays(7)),
-                ParseWindowNode(root["monthly"] ?? root["month"], definition.Monthly, TimeSpan.FromDays(30)));
+                ParseWindowNode(root["monthly"] ?? root["month"], definition.Monthly, TimeSpan.FromDays(30)),
+                ParseDetails(root["details"]));
         }
         catch
         {
@@ -697,7 +700,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = "Gemini Flash / Pro",
             LoginInstructions = "Run the Gemini CLI auth flow for the Google account used by the agent team.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
-            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "daily" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
         },
@@ -762,6 +765,7 @@ internal sealed class AgentProviderUsageService(
             window with { WindowId = "twentyFourHour", Label = "24 hour" },
             window with { WindowId = "weekly", Label = "weekly" },
             window with { WindowId = "monthly", Label = "monthly" },
+            [],
             0,
             "Not checked",
             null,
@@ -904,11 +908,43 @@ internal sealed class AgentProviderUsageService(
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
+    private static ProviderUsageDetailDto[] ParseDetails(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        return array
+            .OfType<JsonNode>()
+            .Select(ParseDetail)
+            .Where(detail => detail is not null)
+            .Cast<ProviderUsageDetailDto>()
+            .ToArray();
+    }
+
+    private static ProviderUsageDetailDto? ParseDetail(JsonNode node)
+    {
+        var key = ReadString(node, "key") ?? ReadString(node, "modelId") ?? ReadString(node, "id");
+        var label = ReadString(node, "label") ?? key;
+        var value = ReadString(node, "value");
+        var source = ReadString(node, "source") ?? "usage-command";
+        var resetsAt = ReadDate(node, "resetsAt") ?? ReadDate(node, "resetAt");
+
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(label) || string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return new ProviderUsageDetailDto(key, label, value, source, resetsAt);
+    }
+
     private sealed record UsageWindows(
         ProviderUsageWindowDto FiveHour,
         ProviderUsageWindowDto TwentyFourHour,
         ProviderUsageWindowDto Weekly,
-        ProviderUsageWindowDto Monthly);
+        ProviderUsageWindowDto Monthly,
+        ProviderUsageDetailDto[] Details);
 
     private sealed record ProcessResult(int? ExitCode, string Output, string Error, bool TimedOut);
 }

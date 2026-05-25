@@ -36,6 +36,14 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                     | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+    KnownIPNetworks = { },
+    KnownProxies = { },
+});
+
 app.MapHub<ArgusHub>("/hubs/argus");
 app.MapDefaultEndpoints();
 app.UseStaticFiles();
@@ -401,6 +409,7 @@ app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
 app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
 
+app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

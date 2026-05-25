@@ -186,6 +186,27 @@
   gap: var(--space-2);
 }
 
+.topbar-brand {
+  min-width: 148px;
+  display: grid;
+  gap: 1px;
+}
+
+.topbar-brand-name {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.topbar-build {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 .topbar-section.right {
   margin-left: auto;
 }

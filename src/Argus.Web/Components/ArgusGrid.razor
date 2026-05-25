@@ -67,8 +67,10 @@
         @if (_groupBy is null)
         {
             <Virtualize Items="_processed" ItemSize="28" OverscanCount="8" Context="item">
-                <div class="ag-row ag-row-grid @(IsSelected(item) ? "ag-sel" : "")"
-                     @onclick="() => ClickRow(item)">
+                <div class="ag-row ag-row-grid @(IsSelected(item) ? "ag-sel" : "") @(RowClass?.Invoke(item) ?? "")"
+                     @onclick="() => ClickRow(item)"
+                     @oncontextmenu="e => HandleContextMenu(item, e)"
+                     @oncontextmenu:preventDefault="@(OnRowContextMenu is not null)">
                     @foreach (var col in ActiveColumns)
                     {
                         var c = col;
@@ -100,8 +102,10 @@
                     </div>
                 }
                 var it = item;
-                <div class="ag-row ag-row-grid @(IsSelected(it) ? "ag-sel" : "")"
-                     @onclick="() => ClickRow(it)">
+                <div class="ag-row ag-row-grid @(IsSelected(it) ? "ag-sel" : "") @(RowClass?.Invoke(it) ?? "")"
+                     @onclick="() => ClickRow(it)"
+                     @oncontextmenu="e => HandleContextMenu(it, e)"
+                     @oncontextmenu:preventDefault="@(OnRowContextMenu is not null)">
                     @foreach (var col in ActiveColumns)
                     {
                         var c = col;
@@ -134,6 +138,13 @@
     [Parameter] public Func<TItem, object?>? ItemKey { get; set; }
 
     [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
+
+    /// <summary>Invoked on right-click. Receives the item and mouse event (coordinates for positioning a menu).</summary>
+    [Parameter] public Func<TItem, MouseEventArgs, Task>? OnRowContextMenu { get; set; }
+
+    /// <summary>Optional extra CSS class(es) to apply to each row. Return empty string for no class.</summary>
+    [Parameter] public Func<TItem, string>? RowClass { get; set; }
+
     [Parameter] public string? EmptyMessage { get; set; }
 
     /// <summary>Renders inside the toolbar, after the built-in controls.</summary>
@@ -314,6 +325,14 @@
     }
 
     private async Task ClickRow(TItem item) => await OnRowClick.InvokeAsync(item);
+
+    private async Task HandleContextMenu(TItem item, MouseEventArgs args)
+    {
+        if (OnRowContextMenu is not null)
+        {
+            await OnRowContextMenu.Invoke(item, args);
+        }
+    }
 
     private bool IsSelected(TItem item)
     {

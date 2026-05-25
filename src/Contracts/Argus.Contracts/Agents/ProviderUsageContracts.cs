@@ -20,6 +20,7 @@ public sealed record ProviderUsageDto(
     ProviderUsageWindowDto TwentyFourHour,
     ProviderUsageWindowDto Weekly,
     ProviderUsageWindowDto Monthly,
+    ProviderUsageDetailDto[] Details,
     decimal RoutingScore,
     string RoutingStatus,
     DateTimeOffset? LastCheckedAt,
@@ -44,6 +45,13 @@ public sealed record ProviderUsageWindowDto(
     DateTimeOffset? ResetsAt,
     bool IsKnown,
     string Source);
+
+public sealed record ProviderUsageDetailDto(
+    string Key,
+    string Label,
+    string Value,
+    string Source,
+    DateTimeOffset? ResetsAt);
 
 public sealed record ProviderLoginResponseDto(
     string ProviderId,

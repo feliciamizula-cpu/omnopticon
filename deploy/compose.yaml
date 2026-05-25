@@ -195,9 +195,10 @@ services:
       CODEX_MONTHLY_LIMIT: ${CODEX_MONTHLY_LIMIT:-0}
     volumes:
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude:/root/.claude:ro
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.gemini:/root/.gemini:ro
-      - /tmp:/tmp:ro
+      - /tmp:/tmp
 
   review-report:
     image: python:3-slim
