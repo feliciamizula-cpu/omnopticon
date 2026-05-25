@@ -29,7 +29,6 @@ COPY src/ src/
 RUN dotnet publish ${PROJECT_PATH} \
     -c Release \
     -o /app/publish \
-    --no-restore \
     -p:TreatWarningsAsErrors=false
 
 # Runtime stage
