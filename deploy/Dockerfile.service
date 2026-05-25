@@ -23,6 +23,7 @@ ARG GIT_SHA
 ARG BUILD_DATE
 ENV ARGUS_VERSION=${GIT_SHA}
 ENV ARGUS_BUILD_DATE=${BUILD_DATE}
+ENV PORT=8080
 
 ARG ASSEMBLY_NAME
 ENV ARGUS_ASSEMBLY_NAME=${ASSEMBLY_NAME}
@@ -69,5 +70,7 @@ RUN echo "=== CLI check ===" && node --version && npm --version && \
 
 # Write version info for frontend
 RUN echo 'window.__ARGUS_BUILD__ = { version: "${GIT_SHA}", date: "${BUILD_DATE}" };' > /app/wwwroot/version.js
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
 
 ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]

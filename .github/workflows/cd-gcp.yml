@@ -78,7 +78,7 @@ jobs:
           region: ${{ env.REGION }}
           env_vars: |
             ASPNETCORE_ENVIRONMENT=Staging
-          allow_unauthenticated: true
+          timeout: 300
 
       - name: Show service URL
         run: |
