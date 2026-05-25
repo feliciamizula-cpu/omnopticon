@@ -47,7 +47,7 @@ jobs:
               --build-arg GIT_SHA=${{ github.sha }} \
               --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
               --load \
-              -t ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest \
+              -t us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus-staging/argus-web:latest \
               -f deploy/Dockerfile.service .
 
       - name: Push Docker image
