@@ -44,8 +44,8 @@ jobs:
       - name: Build Docker image
         run: |
            docker buildx build \
-              --cache-from type=local,src=/tmp/.buildx-cache \
-              --cache-to type=local,dest=/tmp/.buildx-cache,mode=max \
+              --build-arg GIT_SHA=${{ github.sha }} \
+              --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
               --load \
               -t ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest \
               -f deploy/Dockerfile.service .

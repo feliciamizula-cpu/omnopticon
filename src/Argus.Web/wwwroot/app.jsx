@@ -169,7 +169,11 @@ function App() {
           <span className="brand-mark" />
           <div>
             <div className="brand-name">ArgusEngine</div>
-            <div className="brand-build">v0.7.4-mvp · build #2841</div>
+            <div className="brand-build">
+              {window.__ARGUS_BUILD__?.version 
+                ? `v${window.__ARGUS_BUILD__.version.slice(0, 7)} · ${window.__ARGUS_BUILD__.date || ""}`
+                : "v0.7.4-mvp · build #2841"}
+            </div>
           </div>
         </div>
         <div className="target-select">

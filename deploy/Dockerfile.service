@@ -2,6 +2,9 @@
 
 ARG DOTNET_VERSION=10.0
 
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 WORKDIR /src
@@ -15,6 +18,11 @@ RUN dotnet publish "$PROJECT_PATH" -c Release -o /app/publish --no-restore
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
 WORKDIR /app
+
+ARG GIT_SHA
+ARG BUILD_DATE
+ENV ARGUS_VERSION=${GIT_SHA}
+ENV ARGUS_BUILD_DATE=${BUILD_DATE}
 
 ARG ASSEMBLY_NAME
 ENV ARGUS_ASSEMBLY_NAME=${ASSEMBLY_NAME}
@@ -58,5 +66,8 @@ RUN echo "=== CLI check ===" && node --version && npm --version && \
     (which openai && echo "openai OK") || echo "openai not found" && \
     (which codex && codex --version 2>&1 && echo "codex OK") || echo "codex not found" && \
     (/usr/local/bin/claude --version 2>&1 || echo "claude not working")
+
+# Write version info for frontend
+RUN echo 'window.__ARGUS_BUILD__ = { version: "${GIT_SHA}", date: "${BUILD_DATE}" };' > /app/wwwroot/version.js
 
 ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
