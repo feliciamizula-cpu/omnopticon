@@ -19,7 +19,6 @@ function ArgusDataGrid({
   searchable = false,
   filterable = false,
   onContextMenu,
-  rowStyle,
 }) {
   const [colWidths, setColWidths] = useState(() => {
     const widths = {};
@@ -74,11 +73,8 @@ function ArgusDataGrid({
 
   const handleRowContextMenu = (e, row) => {
     e.preventDefault();
-    if (onContextMenu) {
-      onContextMenu(e, row);
-      return;
-    }
     setContextMenu({ x: e.clientX, y: e.clientY, row });
+    onContextMenu && onContextMenu(e, row);
   };
 
   const visibleColumns = columns.filter(c => !c.hidden);
@@ -135,7 +131,6 @@ function ArgusDataGrid({
                 <tr
                   key={id}
                   className={`${isSelected ? "selected" : ""}`}
-                  style={rowStyle ? rowStyle(row) : undefined}
                   onClick={(e) => onSelect && onSelect(row, e)}
                   onContextMenu={(e) => handleRowContextMenu(e, row)}
                 >

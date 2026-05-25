@@ -13,7 +13,7 @@
 <PageHeader Title="Agent Configuration" Subtitle="@($"{_agents.Count:N0} agent configuration{(_agents.Count == 1 ? "" : "s")}")" />
 
 <div class="page-body dev-page agent-config-page">
-    <div class="dev-main agent-config-main">
+    <div class="dev-main">
         <div class="page-tabs">
             <a class="page-tab active" href="/agents">Agents <span class="tab-count">@_agents.Count</span></a>
             <a class="page-tab" href="/agent-tasks">Agent Tasks</a>
@@ -41,130 +41,151 @@
             <DevStat Label="Provider Count" Value="@_agents.Select(ProviderLabel).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString()" Sub='@string.Join(", ", _agents.Select(ProviderLabel).Distinct(StringComparer.OrdinalIgnoreCase).Take(3))' />
         </div>
 
-        <div class="agent-config-body">
-            @if (_loading)
-            {
-                <div class="dev-empty">
-                    <div>
-                        <div class="app-loading-spinner" style="margin: 0 auto 12px;"></div>
-                        <div>// loading agent configurations</div>
+        @if (_loading)
+        {
+            <div class="dev-empty">
+                <div>
+                    <div class="app-loading-spinner" style="margin: 0 auto 12px;"></div>
+                    <div>// loading agent configurations</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="dev-two-pane">
+                <div class="ac-pane">
+                    <div class="ac-filter-bar">
+                        <input class="ac-filter-input" type="text" placeholder="filter…" @bind="_filterText" @bind:event="oninput" />
+                        <span class="ac-filter-count">@SortedFilteredAgents.Count OF @_agents.Count</span>
+                    </div>
+                    <div class="ac-table-wrap">
+                        <table class="ac-table">
+                            <thead>
+                                <tr>
+                                    <th class="ac-col-enabled @SortClass("enabled")" @onclick='() => SortBy("enabled")'>@SortIcon("enabled")</th>
+                                    <th class="@SortClass("name")" @onclick='() => SortBy("name")'>Name@SortIcon("name")</th>
+                                    <th class="ac-col-role @SortClass("role")" @onclick='() => SortBy("role")'>Role@SortIcon("role")</th>
+                                    <th class="ac-col-tool @SortClass("tool")" @onclick='() => SortBy("tool")'>CLI@SortIcon("tool")</th>
+                                    <th class="ac-col-provider @SortClass("provider")" @onclick='() => SortBy("provider")'>Provider@SortIcon("provider")</th>
+                                    <th class="ac-col-model @SortClass("model")" @onclick='() => SortBy("model")'>Model@SortIcon("model")</th>
+                                    <th class="ac-col-command @SortClass("command")" @onclick='() => SortBy("command")'>Command@SortIcon("command")</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var agent in SortedFilteredAgents)
+                                {
+                                    <tr class="@(_selectedAgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "ac-disabled" : "")"
+                                        @onclick="() => SelectAgent(agent)">
+                                        <td class="ac-col-enabled">
+                                            <span class="dot @(IsActive(agent) ? "green" : "")"></span>
+                                        </td>
+                                        <td>@agent.Name</td>
+                                        <td class="ac-col-role">
+                                            <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
+                                        </td>
+                                        <td class="ac-col-tool">
+                                            <span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span>
+                                        </td>
+                                        <td class="ac-col-provider">
+                                            <span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span>
+                                        </td>
+                                        <td class="ac-col-model mono">@agent.Model</td>
+                                        <td class="ac-col-command mono">@AgentCommand(agent)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (SortedFilteredAgents.Count == 0 && _agents.Count > 0)
+                        {
+                            <div class="dev-empty" style="padding: 24px 16px;">// no configurations match this filter</div>
+                        }
+                        @if (_agents.Count == 0)
+                        {
+                            <div class="dev-empty" style="padding: 24px 16px;">// no agent configurations yet</div>
+                        }
                     </div>
                 </div>
-            }
-            else
-            {
-                <div class="agent-grid-wrap">
-                    <ArgusGrid TItem="AgentDto"
-                               Items="_agents"
-                               Columns="_gridColumns"
-                               SelectedItem="_selectedAgent"
-                               ItemKey="a => a.AgentId"
-                               OnRowClick="SelectAgent"
-                               EmptyMessage="// no agent configurations"
-                               RowHeight="36">
-                        <ToolbarContent>
-                            @if (_selected.Count > 0)
-                            {
-                                <button class="btn ghost tiny" @onclick="BulkToggle">↕ Toggle @(_selected.Count) Selected</button>
-                            }
-                        </ToolbarContent>
-                    </ArgusGrid>
-                </div>
 
-                <div class="agent-detail-panel @(_detailPinned || _selectedAgent is not null ? "visible" : "hidden")"
-                     style="@(_detailWidth > 0 ? $"width:{_detailWidth}px" : "")">
-                    <div class="detail-header">
-                        <span class="detail-title">@(_selectedAgent?.Name ?? "Detail")</span>
-                        <div class="detail-controls">
-                            <button class="detail-btn @(_detailPinned ? "active" : "")"
-                                    @onclick="TogglePin" title="@(_detailPinned ? "Unpin panel" : "Pin panel")">
-                                📌
-                            </button>
-                            <button class="detail-btn" @onclick="CloseDetail" title="Close">×</button>
+                <div class="dev-inspector">
+                    @if (_selectedAgentId is null || _agents.All(a => a.AgentId != _selectedAgentId))
+                    {
+                        <div class="dev-empty">// select a configuration</div>
+                    }
+                    else
+                    {
+                        var agent = _agents.First(a => a.AgentId == _selectedAgentId);
+                        <div class="dev-inspector-head">
+                            <div class="type-row">
+                                <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
+                                <span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span>
+                                <span class="asset-id">@ShortId(agent.AgentId)</span>
+                            </div>
+                            <div class="value-big">@agent.Name</div>
+                            <div class="submeta">
+                                <span><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span> · <b>@agent.Model</b></span>
+                                <span class="mono">@AgentCommand(agent)</span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="detail-resize-handle" @onmousedown="StartDetailResize"></div>
-                    <div class="detail-body">
-                        @if (_selectedAgent is null)
-                        {
-                            <div class="dev-empty">// select a configuration</div>
-                        }
-                        else
-                        {
-                            var agent = _selectedAgent;
-                            <div class="dev-inspector-head">
-                                <div class="type-row">
-                                    <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
-                                    <span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span>
-                                    <span class="asset-id">@ShortId(agent.AgentId)</span>
-                                </div>
-                                <div class="value-big">@agent.Name</div>
-                                <div class="submeta">
-                                    <span><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span> · <b>@agent.Model</b></span>
-                                    <span class="mono">@AgentCommand(agent)</span>
-                                </div>
-                            </div>
-                            <div class="dev-inspector-body">
-                                <div class="section-label">CONFIGURATION</div>
-                                <table class="kv-table">
-                                    <tbody>
-                                        <tr><td>Agent ID</td><td class="mono">@agent.AgentId</td></tr>
-                                        <tr><td>Status</td><td><span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span></td></tr>
-                                        <tr><td>Role</td><td><span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span></td></tr>
-                                        <tr><td>CLI Tool</td><td><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span></td></tr>
-                                        <tr><td>Provider</td><td><span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span></td></tr>
-                                        <tr><td>Model</td><td class="mono">@agent.Model</td></tr>
-                                        <tr><td>Command</td><td class="mono">@AgentCommand(agent)</td></tr>
-                                        <tr><td>Sort Order</td><td>@agent.SortOrder</td></tr>
-                                    </tbody>
-                                </table>
+                        <div class="dev-inspector-body">
+                            <div class="section-label">CONFIGURATION</div>
+                            <table class="kv-table">
+                                <tbody>
+                                    <tr><td>Agent ID</td><td class="mono">@agent.AgentId</td></tr>
+                                    <tr><td>Status</td><td><span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span></td></tr>
+                                    <tr><td>Role</td><td><span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span></td></tr>
+                                    <tr><td>CLI Tool</td><td><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span></td></tr>
+                                    <tr><td>Provider</td><td><span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span></td></tr>
+                                    <tr><td>Model</td><td class="mono">@agent.Model</td></tr>
+                                    <tr><td>Command</td><td class="mono">@AgentCommand(agent)</td></tr>
+                                    <tr><td>Sort Order</td><td>@agent.SortOrder</td></tr>
+                                </tbody>
+                            </table>
 
-                                @if (!string.IsNullOrWhiteSpace(agent.RoleDescription))
+                            @if (!string.IsNullOrWhiteSpace(agent.RoleDescription))
+                            {
+                                <div class="section-label">ROLE DESCRIPTION</div>
+                                <div class="dev-note">@agent.RoleDescription</div>
+                            }
+
+                            <div class="section-label">RESPONSIBILITIES</div>
+                            <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
+                                @if (agent.Responsibilities.Length == 0)
                                 {
-                                    <div class="section-label">ROLE DESCRIPTION</div>
-                                    <div class="dev-note">@agent.RoleDescription</div>
+                                    <span class="dev-chip">// none configured</span>
                                 }
-
-                                <div class="section-label">RESPONSIBILITIES</div>
-                                <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
-                                    @if (agent.Responsibilities.Length == 0)
-                                    {
-                                        <span class="dev-chip">// none configured</span>
-                                    }
-                                    else
-                                    {
-                                        @foreach (var item in agent.Responsibilities)
-                                        {
-                                            <span class="dev-chip">@item</span>
-                                        }
-                                    }
-                                </div>
-
-                                @if (!string.IsNullOrWhiteSpace(agent.LastError))
+                                else
                                 {
-                                    <div class="section-label">LAST ERROR</div>
-                                    <div class="dev-note warn">@agent.LastError</div>
+                                    @foreach (var item in agent.Responsibilities)
+                                    {
+                                        <span class="dev-chip">@item</span>
+                                    }
                                 }
-
-                                <div class="section-label">CONTROLS</div>
-                                <div class="dev-action-row">
-                                    @if (IsActive(agent))
-                                    {
-                                        <button class="btn primary tiny" @onclick="() => PauseAgent(agent.AgentId)">Disable</button>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn primary tiny" @onclick="() => ResumeAgent(agent.AgentId)">Enable</button>
-                                    }
-                                    <button class="btn ghost tiny" @onclick="() => OpenEditModal(agent)">Edit Config</button>
-                                    <button class="btn danger tiny" @onclick="() => DeleteAgent(agent.AgentId)">Remove</button>
-                                </div>
                             </div>
-                        }
-                    </div>
+
+                            @if (!string.IsNullOrWhiteSpace(agent.LastError))
+                            {
+                                <div class="section-label">LAST ERROR</div>
+                                <div class="dev-note warn">@agent.LastError</div>
+                            }
+
+                            <div class="section-label">CONTROLS</div>
+                            <div class="dev-action-row">
+                                @if (IsActive(agent))
+                                {
+                                    <button class="btn primary tiny" @onclick="() => PauseAgent(agent.AgentId)">Disable</button>
+                                }
+                                else
+                                {
+                                    <button class="btn primary tiny" @onclick="() => ResumeAgent(agent.AgentId)">Enable</button>
+                                }
+                                <button class="btn ghost tiny" @onclick="() => OpenEditModal(agent)">Edit Config</button>
+                                <button class="btn danger tiny" @onclick="() => DeleteAgent(agent.AgentId)">Remove</button>
+                            </div>
+                        </div>
+                    }
                 </div>
-            }
-        </div>
+            </div>
+        }
     </div>
 </div>
 
@@ -259,29 +280,46 @@
 
     private List<AgentDto> _agents = new();
     private bool _loading = true;
+    private string _filterText = "";
+    private string _sortColumn = "enabled";
+    private bool _sortAsc = false;
     private string? _error;
     private string? _notice;
-    private AgentDto? _selectedAgent;
-    private HashSet<object> _selected = new();
+    private Guid? _selectedAgentId;
 
     private bool _showAgentModal;
     private Guid? _editingAgentId;
     private AgentForm _agentForm = new();
 
-    private bool _detailPinned;
-    private int _detailWidth = 400;
-
-    private List<GridColumn<AgentDto>> _gridColumns = new()
+    private IReadOnlyList<AgentDto> SortedFilteredAgents
     {
-        new() { Header = "Enabled", Width = "60px", Searchable = false, Sortable = false, CellTemplate = ctx => @<span class="dot @(IsActive(ctx) ? "green" : "")"></span> },
-        new() { Header = "Name", Width = "180px", Value = a => a.Name, Primary = true },
-        new() { Header = "Role", Width = "140px", Value = a => RoleLabel(a.Role), Searchable = true },
-        new() { Header = "CLI", Width = "80px", Value = a => ToolLabel(a.Tool) },
-        new() { Header = "Provider", Width = "100px", Value = a => ProviderLabel(a) },
-        new() { Header = "Model", Width = "150px", Value = a => a.Model },
-        new() { Header = "Command", Width = "220px", Value = a => AgentCommand(a), Searchable = true },
-        new() { Header = "Sort", Width = "50px", Value = a => a.SortOrder.ToString(), Sortable = true }
-    };
+        get
+        {
+            IEnumerable<AgentDto> list = string.IsNullOrWhiteSpace(_filterText)
+                ? _agents
+                : _agents.Where(a =>
+                    a.Name.Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || RoleLabel(a.Role).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || NormalizeTool(a.Tool).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || ProviderLabel(a).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || a.Model.Contains(_filterText, StringComparison.OrdinalIgnoreCase));
+
+            var ordered = _sortColumn switch
+            {
+                "name"     => _sortAsc ? list.OrderBy(a => a.Name)             : list.OrderByDescending(a => a.Name),
+                "role"     => _sortAsc ? list.OrderBy(a => RoleLabel(a.Role))  : list.OrderByDescending(a => RoleLabel(a.Role)),
+                "tool"     => _sortAsc ? list.OrderBy(a => NormalizeTool(a.Tool)) : list.OrderByDescending(a => NormalizeTool(a.Tool)),
+                "provider" => _sortAsc ? list.OrderBy(ProviderLabel)           : list.OrderByDescending(ProviderLabel),
+                "model"    => _sortAsc ? list.OrderBy(a => a.Model)            : list.OrderByDescending(a => a.Model),
+                "command"  => _sortAsc ? list.OrderBy(AgentCommand)            : list.OrderByDescending(AgentCommand),
+                _          => _sortAsc ? list.OrderBy(IsActive)                : list.OrderByDescending(IsActive),
+            };
+
+            return _sortColumn == "enabled"
+                ? ordered.ThenBy(a => RoleLabel(a.Role)).ThenBy(a => a.Name).ToList()
+                : ordered.ThenByDescending(IsActive).ThenBy(a => a.Name).ToList();
+        }
+    }
 
     private bool CanSaveAgent =>
         !string.IsNullOrWhiteSpace(_agentForm.Name)
@@ -329,6 +367,7 @@
         {
             return InvokeAsync(() => LoadData(showLoading: false));
         }
+
         return Task.CompletedTask;
     }
 
@@ -369,55 +408,24 @@
 
     private void SelectAgent(AgentDto agent)
     {
-        _selectedAgent = agent;
+        _selectedAgentId = agent.AgentId;
     }
 
-    private void TogglePin()
+    private void SortBy(string col)
     {
-        _detailPinned = !_detailPinned;
+        if (_sortColumn == col)
+        {
+            _sortAsc = !_sortAsc;
+        }
+        else
+        {
+            _sortColumn = col;
+            _sortAsc = col != "enabled";
+        }
     }
 
-    private void CloseDetail()
-    {
-        _selectedAgent = null;
-    }
-
-    private void StartDetailResize(MouseEventArgs e)
-    {
-        var js = (IJSInProcessRuntime?)JS;
-        if (js is null) return;
-
-        js.InvokeVoidAsync("eval", @"
-            (function() {
-                var startX = " + e.ClientX + @";
-                var startW = " + _detailWidth + @";
-                var panel = document.querySelector('.agent-detail-panel');
-                if (!panel) return;
-
-                function onMove(e) {
-                    var dx = e.clientX - startX;
-                    var newW = Math.max(250, Math.min(800, startW + dx));
-                    panel.style.width = newW + 'px';
-                }
-                function onUp() {
-                    document.removeEventListener('mousemove', onMove);
-                    document.removeEventListener('mouseup', onUp);
-                    var w = parseInt(panel.style.width) || 400;
-                    DotNet.invokeMethodAsync('UpdateDetailWidth', w);
-                }
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp);
-            })();
-        ");
-    }
-
-    [JSInvokable]
-    public void UpdateDetailWidth(int width) => _detailWidth = width;
-
-    private async Task BulkToggle()
-    {
-        _notice = "Bulk toggle would operate on " + _selected.Count + " agents";
-    }
+    private string SortIcon(string col) => _sortColumn == col ? (_sortAsc ? " ▲" : " ▼") : "";
+    private string SortClass(string col) => _sortColumn == col ? "ac-sorted" : "";
 
     private void OpenCreateModal()
     {
@@ -554,9 +562,9 @@
             {
                 _error = $"Delete failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
             }
-            if (_selectedAgent?.AgentId == agentId)
+            if (_selectedAgentId == agentId)
             {
-                _selectedAgent = null;
+                _selectedAgentId = null;
             }
             await LoadData();
         }

@@ -142,6 +142,8 @@ public enum AssetType
     JsonDocument,
     ApiEndpoint,
     Technology,
+    Form,
+    Observation,
     FindingCandidate,
     Finding,
     Port,

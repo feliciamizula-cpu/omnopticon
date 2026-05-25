@@ -7,6 +7,7 @@ using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +30,9 @@ else
 }
 
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
+builder.Services.AddScoped<AssetPipelineConsumer>();
+builder.Services.AddScoped<IIntegrationEventConsumer<AssetDiscovered>>(provider => provider.GetRequiredService<AssetPipelineConsumer>());
+builder.Services.AddScoped<IIntegrationEventConsumer<AssetConfirmed>>(provider => provider.GetRequiredService<AssetPipelineConsumer>());
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
@@ -419,6 +423,169 @@ app.MapPost("/tasks/retry-queue/dispatch", async (
 
 app.Run();
 
+internal sealed class AssetPipelineConsumer(
+    ITaskStore store,
+    IIntegrationEventPublisher events,
+    ILogger<AssetPipelineConsumer> logger)
+    : IIntegrationEventConsumer<AssetDiscovered>, IIntegrationEventConsumer<AssetConfirmed>
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static readonly HashSet<string> WebFetchTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Subdomain",
+        "Url",
+        "ApiEndpoint",
+        "JavaScriptFile",
+        "JsonDocument"
+    };
+
+    private static readonly HashSet<string> SpiderTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Subdomain",
+        "Url",
+        "HtmlPage"
+    };
+
+    private static readonly HashSet<string> RegexCandidateTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Url",
+        "ApiEndpoint",
+        "HtmlPage",
+        "JsonDocument",
+        "JavaScriptFile",
+        "HttpResponse",
+        "Observation"
+    };
+
+    public async Task HandleAsync(IntegrationEventEnvelope<AssetDiscovered> envelope, CancellationToken cancellationToken = default)
+    {
+        var asset = envelope.Payload;
+        var assetType = asset.AssetType;
+
+        if (string.Equals(assetType, "Domain", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "subdomain-enumeration", "SubfinderWorker",
+                assetType, new { domain = asset.Value, assetType }, WorkerPriority.High, cancellationToken);
+
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "subdomain-enumeration", "AmassWorker",
+                assetType, new { domain = asset.Value, assetType }, WorkerPriority.High, cancellationToken);
+
+            return;
+        }
+
+        if (WebFetchTypes.Contains(assetType))
+        {
+            var payload = CreateHttpPayload(assetType, asset.Value);
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "http-probe", "HttpProbeWorker",
+                assetType, payload, WorkerPriority.High, cancellationToken);
+        }
+
+        if (SpiderTypes.Contains(assetType))
+        {
+            var payload = CreateSpiderPayload(assetType, asset.Value);
+            if (payload is not null)
+            {
+                await EnqueueAsync(asset.ProgramId, asset.AssetId, "spider", "HtmlDomSpiderWorker",
+                    assetType, payload, WorkerPriority.Normal, cancellationToken);
+            }
+        }
+
+        if (RegexCandidateTypes.Contains(assetType))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "regex-scan-discovered", "RegexScannerWorker",
+                assetType, new { assetId = asset.AssetId, assetType, value = asset.Value, eventStage = "discovered" },
+                WorkerPriority.Normal, cancellationToken);
+        }
+    }
+
+    public async Task HandleAsync(IntegrationEventEnvelope<AssetConfirmed> envelope, CancellationToken cancellationToken = default)
+    {
+        var asset = envelope.Payload;
+        var assetType = asset.AssetType;
+
+        if (RegexCandidateTypes.Contains(assetType))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "regex-scan-confirmed", "RegexScannerWorker",
+                assetType, new { assetId = asset.AssetId, assetType, value = asset.Value, eventStage = "confirmed" },
+                WorkerPriority.High, cancellationToken);
+        }
+
+        if (string.Equals(assetType, "Url", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(assetType, "HtmlPage", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "spider", "HtmlDomSpiderWorker",
+                assetType, CreateSpiderPayload(assetType, asset.Value) ?? new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "headless-spider", "HeadlessSpiderWorker",
+                assetType, new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "fingerprint", "FingerprintWorker",
+                assetType, new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+        }
+
+        if (string.Equals(assetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "js-extract", "JsExtractorWorker",
+                assetType, new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+        }
+    }
+
+    private async Task EnqueueAsync(
+        Guid programId,
+        Guid inputAssetId,
+        string taskType,
+        string workerCapability,
+        string requiredAssetType,
+        object payload,
+        WorkerPriority priority,
+        CancellationToken cancellationToken)
+    {
+        var request = new CreateReconTaskRequest(
+            TaskType: taskType,
+            ProgramId: programId,
+            ScopeId: null,
+            InputAssetId: inputAssetId,
+            InputPayloadJson: JsonSerializer.Serialize(payload, JsonOptions),
+            WorkerCapability: workerCapability,
+            RequiredAssetType: requiredAssetType,
+            MaxAttempts: 3,
+            Priority: priority,
+            DedupeHash: TaskDedupeHash.Compute(programId, null, taskType, inputAssetId, workerCapability));
+
+        var task = await store.CreateAsync(request, cancellationToken);
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+
+        logger.LogInformation("Queued {TaskType} for asset {AssetId} using {WorkerCapability}", taskType, inputAssetId, workerCapability);
+    }
+
+    private static object CreateHttpPayload(string assetType, string value)
+    {
+        return string.Equals(assetType, "Subdomain", StringComparison.OrdinalIgnoreCase)
+            ? new { host = value, assetType }
+            : new { url = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], assetType };
+    }
+
+    private static object? CreateSpiderPayload(string assetType, string value)
+    {
+        if (string.Equals(assetType, "Subdomain", StringComparison.OrdinalIgnoreCase))
+        {
+            return new { url = $"https://{value.TrimEnd('/')}/", host = value, assetType };
+        }
+
+        var url = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        return Uri.TryCreate(url, UriKind.Absolute, out _) ? new { url, assetType } : null;
+    }
+}
+
 internal interface ITaskStore
 {
     Task<IReadOnlyCollection<ReconTaskDto>> QueryAsync(Guid? programId, ReconTaskState? state, string? capability, CancellationToken cancellationToken);
@@ -496,8 +663,13 @@ internal sealed class InMemoryTaskStore : ITaskStore
         lock (_leaseLock)
         {
             var now = DateTimeOffset.UtcNow;
+            var subscribedAssetTypes = request.SubscribedAssetTypes is { Count: > 0 }
+                ? request.SubscribedAssetTypes.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : null;
+
             var candidate = _tasks.Values
                 .Where(task => string.Equals(task.WorkerCapability, request.WorkerCapability, StringComparison.OrdinalIgnoreCase))
+                .Where(task => task.RequiredAssetType is null || subscribedAssetTypes is null || subscribedAssetTypes.Contains(task.RequiredAssetType))
                 .Where(task => task.State is ReconTaskState.Requested or ReconTaskState.Queued or ReconTaskState.RetryPending)
                 .Where(task => task.Priority >= request.MinimumPriority)
                 .OrderByDescending(task => task.Priority)
@@ -681,18 +853,6 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
         var now = DateTimeOffset.UtcNow;
         var lockDuration = TaskMapping.NormalizeLeaseDuration(request.LeaseDuration);
 
-        var capabilityFilter = request.SubscribedAssetTypes?.Count > 0
-            ? string.Join(", ", request.SubscribedAssetTypes.Select((_, i) => $"{{{3 + i}}}"))
-            : null;
-
-        var assetTypeCondition = capabilityFilter is not null
-            ? @"
-                AND (
-                    ""RequiredAssetType"" IS NULL
-                    OR ""RequiredAssetType"" IN (" + capabilityFilter + @")
-                )"
-            : "";
-
         var parameters = new List<object>
         {
             ReconTaskState.Leased.ToString(),
@@ -701,6 +861,20 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
             request.WorkerCapability,
             (int)request.MinimumPriority
         };
+
+        var assetTypeCondition = "";
+        var subscribedAssetTypes = request.SubscribedAssetTypes;
+        if (subscribedAssetTypes?.Count > 0)
+        {
+            var firstAssetTypeParameterIndex = parameters.Count;
+            var capabilityFilter = string.Join(", ", subscribedAssetTypes.Select((_, i) => $"{{{firstAssetTypeParameterIndex + i}}}"));
+            assetTypeCondition = @"
+                AND (
+                    ""RequiredAssetType"" IS NULL
+                    OR ""RequiredAssetType"" IN (" + capabilityFilter + @")
+                )";
+            parameters.AddRange(subscribedAssetTypes);
+        }
 
         var priorityCondition = $@"AND ""Priority"" >= {{4}}";
 
@@ -1089,7 +1263,7 @@ internal static class TaskDedupeHash
     public static string Compute(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
     {
         var scopePart = scopeId?.ToString("N") ?? string.Empty;
-            var input = $"{programId:N}:{scopePart}:{taskType}:{inputAssetId:N}:{workerCapability}";
+        var input = $"{programId:N}:{scopePart}:{taskType}:{inputAssetId:N}:{workerCapability}";
         var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }

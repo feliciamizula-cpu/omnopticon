@@ -8,17 +8,17 @@
     @* ── Toolbar ── *@
     <div class="ag-bar">
         <input class="ag-search" type="search" placeholder="search…"
-               value="@_search" @oninput="OnSearch" @onkeydown="OnSearchKey" />
+               value="@_search" @oninput="OnSearch" />
         @if (_hasFilterable)
         {
             <button class="ag-icon-btn @(_showFilters ? "active" : "")"
                     title="Toggle column filters" @onclick="ToggleFilters">⊟</button>
         }
-        @if (_sortable.Count > 0)
+        @if (_groupable.Count > 1)
         {
-            <select class="ag-select" value="@(_sortCol ?? "")" @onchange="OnSortChange" title="Sort by">
-                <option value="">sort…</option>
-                @foreach (var h in _sortable)
+            <select class="ag-select" value="@(_groupBy ?? "")" @onchange="OnGroupChange" title="Group by">
+                <option value="">group…</option>
+                @foreach (var h in _groupable)
                 {
                     <option value="@h">@h</option>
                 }
@@ -39,9 +39,7 @@
             @foreach (var col in ActiveColumns)
             {
                 var c = col;
-                <div class="ag-th @HeadCls(c)"
-                     style="@(col.Width is not null ? $"min-width:{col.Width};width:{col.Width}" : "")"
-                     @onclick="() => ClickSort(c)" title="@c.Header">@c.Header</div>
+                <div class="ag-th @HeadCls(c)" @onclick="() => ClickSort(c)" title="@c.Header">@c.Header</div>
             }
         </div>
 
@@ -65,27 +63,56 @@
             </div>
         }
 
-        @* Virtualized body *@
-        <Virtualize Items="_processed" ItemSize="28" OverscanCount="8" Context="item">
-            <div class="ag-row ag-row-grid @(IsSelected(item) ? "ag-sel" : "")"
-                 @onclick="() => ClickRow(item)">
-                @foreach (var col in ActiveColumns)
+        @* Virtualized body (no grouping) *@
+        @if (_groupBy is null)
+        {
+            <Virtualize Items="_processed" ItemSize="28" OverscanCount="8" Context="item">
+                <div class="ag-row ag-row-grid @(IsSelected(item) ? "ag-sel" : "")"
+                     @onclick="() => ClickRow(item)">
+                    @foreach (var col in ActiveColumns)
+                    {
+                        var c = col;
+                        <div class="ag-td @(c.Primary ? "ag-primary" : "")">
+                            @if (c.Cell is not null) { @c.Cell(item) }
+                            else { @c.Value?.Invoke(item) }
+                        </div>
+                    }
+                </div>
+            </Virtualize>
+        }
+        else
+        {
+            @* Grouped body: sorted by group key, visual group-header rows *@
+            string? lastGroup = null;
+            @foreach (var item in _processed)
+            {
+                var groupKey = _groupCol?.Value?.Invoke(item) ?? "";
+                @if (groupKey != lastGroup)
                 {
-                    var c = col;
-                    <div class="ag-td @(c.Primary ? "ag-primary" : "")"
-                         style="@(c.Width is not null ? $"width:{c.Width};min-width:{c.Width}" : "")">
-                        @if (c.CellTemplate is not null)
-                        {
-                            @c.CellTemplate(item)
-                        }
-                        else
-                        {
-                            @c.Value?.Invoke(item)
-                        }
+                    lastGroup = groupKey;
+                    var gk = groupKey;
+                    var gcount = _processed.Count(r => (_groupCol?.Value?.Invoke(r) ?? "") == gk);
+                    <div class="ag-group-row ag-row-grid">
+                        <div class="ag-group-cell" style="grid-column: 1 / -1">
+                            <span class="ag-group-key">@(string.IsNullOrEmpty(gk) ? "—" : gk)</span>
+                            <span class="ag-group-count">@gcount</span>
+                        </div>
                     </div>
                 }
-            </div>
-        </Virtualize>
+                var it = item;
+                <div class="ag-row ag-row-grid @(IsSelected(it) ? "ag-sel" : "")"
+                     @onclick="() => ClickRow(it)">
+                    @foreach (var col in ActiveColumns)
+                    {
+                        var c = col;
+                        <div class="ag-td @(c.Primary ? "ag-primary" : "")">
+                            @if (c.Cell is not null) { @c.Cell(it) }
+                            else { @c.Value?.Invoke(it) }
+                        </div>
+                    }
+                </div>
+            }
+        }
 
         @if (_processed.Count == 0)
         {
@@ -100,28 +127,43 @@
     [Parameter, EditorRequired] public List<GridColumn<TItem>> Columns { get; set; } = [];
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
+    /// <summary>Highlighted row. Uses ItemKey for comparison when set, otherwise reference equality.</summary>
     [Parameter] public TItem? SelectedItem { get; set; }
+
+    /// <summary>Extracts a stable key for identity comparison across reloads (e.g. a => a.Id).</summary>
     [Parameter] public Func<TItem, object?>? ItemKey { get; set; }
+
     [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
     [Parameter] public string? EmptyMessage { get; set; }
+
+    /// <summary>Renders inside the toolbar, after the built-in controls.</summary>
     [Parameter] public RenderFragment? ToolbarContent { get; set; }
 
+    /// <summary>Seconds between live-refresh ticks. 0 = disabled.</summary>
     [Parameter] public int LiveRefreshSeconds { get; set; }
+
+    /// <summary>Invoked every LiveRefreshSeconds. Parent should reload Items and re-render.</summary>
     [Parameter] public EventCallback OnLiveRefresh { get; set; }
 
+    // ── Column metadata (stable across re-renders until Columns changes) ──
     private string _colsTemplate = "";
     private bool _hasFilterable;
-    private List<string> _sortable = [];
+    private List<string> _groupable = [];
+    private GridColumn<TItem>? _groupCol;
 
+    // ── Interaction state ──
     private string _search = "";
     private bool _showFilters;
     private string? _sortCol;
     private bool _sortAsc = true;
-    private Dictionary<string, string> _colFilters = new(StringComparer.Ordinal);
+    private string? _groupBy;
+    private readonly Dictionary<string, string> _colFilters = new(StringComparer.Ordinal);
 
+    // ── Cached result (rebuilt only on state changes, not every render) ──
     private List<TItem> _processed = [];
     private readonly List<GridColumn<TItem>> _registeredColumns = [];
 
+    // ── Live-refresh timer ──
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
 
@@ -132,15 +174,19 @@
     {
         var activeColumns = ActiveColumns;
 
+        // Column metadata — cheap to recompute; guards against column list changes
         var newTemplate = string.Join(" ", activeColumns.Select(c => c.Width ?? "minmax(0, 1fr)"));
         if (newTemplate != _colsTemplate)
         {
             _colsTemplate = newTemplate;
             _hasFilterable = activeColumns.Any(c => c.Searchable && c.Value is not null);
-            _sortable = activeColumns.Where(c => c.Sortable && c.Value is not null).Select(c => c.Header).ToList();
+            _groupable = activeColumns.Where(c => c.Sortable && c.Value is not null).Select(c => c.Header).ToList();
         }
+        _groupCol = _groupBy is not null ? activeColumns.FirstOrDefault(c => c.Header == _groupBy) : null;
+
         Recompute();
 
+        // Start timer once (idempotent)
         if (LiveRefreshSeconds > 0 && _timer is null)
         {
             _cts = new CancellationTokenSource();
@@ -149,18 +195,23 @@
         }
     }
 
+    // ── Pipeline ─────────────────────────────────────────────────────────────────
+
     private void Recompute()
     {
         var activeColumns = ActiveColumns;
         IEnumerable<TItem> rows = Items;
 
+        // 1. Global search
         if (_search.Length > 0)
         {
             var q = _search;
             rows = rows.Where(item => activeColumns.Any(c =>
-                c.Searchable && c.Value?.Invoke(item)?.Contains(q, StringComparison.OrdinalIgnoreCase) == true));
+                c.Searchable && c.Value?.Invoke(item)
+                    ?.Contains(q, StringComparison.OrdinalIgnoreCase) == true));
         }
 
+        // 2. Per-column filters
         foreach (var (header, filter) in _colFilters)
         {
             if (filter.Length == 0) continue;
@@ -171,6 +222,7 @@
                 col.Value(item)?.Contains(fv, StringComparison.OrdinalIgnoreCase) == true);
         }
 
+        // 3. Sort
         if (_sortCol is not null)
         {
             var col = activeColumns.FirstOrDefault(c => c.Header == _sortCol);
@@ -182,8 +234,18 @@
             }
         }
 
+        // 4. Group sort (appended; preserves explicit sort within groups)
+        if (_groupBy is not null && _groupCol?.Value is { } gv)
+        {
+            rows = _sortCol is null
+                ? rows.OrderBy(gv, StringComparer.OrdinalIgnoreCase)
+                : ((IOrderedEnumerable<TItem>)rows).ThenBy(gv, StringComparer.OrdinalIgnoreCase);
+        }
+
         _processed = rows.ToList();
     }
+
+    // ── Timer ─────────────────────────────────────────────────────────────────────
 
     private async Task RunTimerAsync(CancellationToken ct)
     {
@@ -195,18 +257,20 @@
                 await OnLiveRefresh.InvokeAsync();
             }
             catch (OperationCanceledException) { break; }
-            catch { }
+            catch { /* swallow transient errors; timer keeps running */ }
         }
     }
 
+    // ── Event handlers ────────────────────────────────────────────────────────────
+
     private void OnSearch(ChangeEventArgs e) { _search = e.Value?.ToString() ?? ""; Recompute(); }
-    private void OnSearchKey(KeyboardEventArgs e) { if (e.Key == "Escape") { _search = ""; Recompute(); } }
     private void ToggleFilters() => _showFilters = !_showFilters;
 
-    private void OnSortChange(ChangeEventArgs e)
+    private void OnGroupChange(ChangeEventArgs e)
     {
         var v = e.Value?.ToString();
-        _sortCol = string.IsNullOrEmpty(v) ? null : v;
+        _groupBy = string.IsNullOrEmpty(v) ? null : v;
+        _groupCol = _groupBy is not null ? ActiveColumns.FirstOrDefault(c => c.Header == _groupBy) : null;
         Recompute();
     }
 
@@ -216,11 +280,12 @@
         {
             Header = column.Header,
             Value = column.Value,
-            CellTemplate = column.CellTemplate,
+            Cell = column.CellTemplate,
             Width = column.Width,
             Sortable = column.Sortable,
             Searchable = column.Searchable
         };
+
         _registeredColumns.RemoveAll(c => c.Header == column.Header);
         _registeredColumns.Add(mapped);
     }

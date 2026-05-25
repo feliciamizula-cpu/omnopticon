@@ -22,6 +22,10 @@ var asset = builder.AddProject<Projects.Argus_AssetService>("asset-service")
     .WithReference(rabbitMq)
     .WaitFor(rabbitMq);
 
+programScope
+    .WithReference(asset)
+    .WaitFor(asset);
+
 var artifact = builder.AddProject<Projects.Argus_ArtifactService>("artifact-service")
     .WithReference(argusDb)
     .WithReference(rabbitMq)
@@ -155,6 +159,14 @@ builder.AddProject<Projects.Argus_Workers_JsExtractor>("js-extractor-worker")
     .WaitFor(task)
     .WaitFor(asset)
     .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_RegexScanner>("regex-scanner-worker")
+    .WithReference(asset)
+    .WithReference(task)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
     .WaitFor(realtime);
 
 builder.AddProject<Projects.Argus_Workers_WordlistDiscovery>("wordlist-discovery-worker")

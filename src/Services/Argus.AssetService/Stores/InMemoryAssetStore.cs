@@ -320,8 +320,20 @@ public sealed class InMemoryAssetStore : IAssetStore
             VerificationStatus = status,
             LifecycleStatus = status == VerificationStatus.Verified
                 ? AssetLifecycleStatus.Confirmed
-                : AssetLifecycleStatus.Rejected
+                : AssetLifecycleStatus.Rejected,
+            Status = status == VerificationStatus.Verified ? AssetStatus.Active : asset.Status,
+            LastScannedAt = status == VerificationStatus.Verified ? DateTimeOffset.UtcNow : asset.LastScannedAt
         };
+        _assets[assetId] = updated;
+        return Task.FromResult(updated);
+    }
+
+    public Task<AssetDto> MarkLastScannedAsync(Guid assetId, CancellationToken cancellationToken)
+    {
+        if (!_assets.TryGetValue(assetId, out var asset))
+            throw new InvalidOperationException("Asset not found.");
+
+        var updated = asset with { LastScannedAt = DateTimeOffset.UtcNow };
         _assets[assetId] = updated;
         return Task.FromResult(updated);
     }

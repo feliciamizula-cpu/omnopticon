@@ -33,7 +33,7 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
 
     public WorkerCapabilityDescriptor Capability { get; } = new(
         "HtmlDomSpiderWorker",
-        ["Url", "HtmlPage"],
+        ["Subdomain", "Url", "HtmlPage"],
         ["Url", "ApiEndpoint", "JavaScriptFile", "CssFile", "Form", "Observation"],
         RequiresHttp: true,
         SupportsCheckpoint: true,

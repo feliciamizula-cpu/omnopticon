@@ -319,7 +319,22 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         asset.LifecycleStatus = status == VerificationStatus.Verified
             ? AssetLifecycleStatus.Confirmed
             : AssetLifecycleStatus.Rejected;
+        if (status == VerificationStatus.Verified)
+        {
+            asset.Status = AssetStatus.Active;
+            asset.LastScannedAt = DateTimeOffset.UtcNow;
+        }
 
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return asset.ToDto();
+    }
+
+    public async Task<AssetDto> MarkLastScannedAsync(Guid assetId, CancellationToken cancellationToken)
+    {
+        var asset = await dbContext.Assets.FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
+            ?? throw new InvalidOperationException("Asset not found.");
+
+        asset.LastScannedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         return asset.ToDto();
     }
@@ -707,6 +722,7 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
             AssetType.JsonDocument => TimeSpan.FromDays(30),
             AssetType.ApiEndpoint => TimeSpan.FromDays(3),
             AssetType.Technology => TimeSpan.FromDays(14),
+            AssetType.Form => TimeSpan.FromDays(14),
             AssetType.Finding => TimeSpan.FromDays(30),
             AssetType.FindingCandidate => TimeSpan.FromDays(30),
             AssetType.Port => TimeSpan.FromDays(7),

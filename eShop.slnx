@@ -38,6 +38,7 @@
     <Project Path="src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj" />
     <Project Path="src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj" />
     <Project Path="src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj" />
+    <Project Path="src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj" />
     <Project Path="src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj" />
     <Project Path="src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj" />
     <Project Path="src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj" />

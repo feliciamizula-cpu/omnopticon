@@ -18,6 +18,7 @@ public interface IAssetStore
     Task<AssetDto> UpdateConfidenceAsync(Guid assetId, decimal confidence, CancellationToken cancellationToken);
     Task<AssetDto> UpdateAsync(Guid assetId, UpdateAssetRequest request, CancellationToken cancellationToken);
     Task<AssetDto> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken);
+    Task<AssetDto> MarkLastScannedAsync(Guid assetId, CancellationToken cancellationToken);
     Task<AssetDto> RejectAsync(Guid assetId, string? reason, CancellationToken cancellationToken);
     Task<AssetDto> MarkHighValueAsync(Guid assetId, bool highValue, string? reason, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<AssetDto>> GetSubgraphAsync(Guid assetId, int? maxDepth, IReadOnlyCollection<AssetType>? assetTypes, CancellationToken cancellationToken);

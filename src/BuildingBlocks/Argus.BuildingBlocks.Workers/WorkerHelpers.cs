@@ -7,55 +7,71 @@ public static class WorkerHelpers
 {
     public static string? GetString(string? payloadJson, string propertyName)
     {
-        if (string.IsNullOrWhiteSpace(payloadJson))
+        if (!TryGetProperty(payloadJson, propertyName, out var value))
         {
             return null;
         }
 
-        using var document = JsonDocument.Parse(payloadJson);
-        return document.RootElement.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
     }
 
     public static bool? GetBool(string? payloadJson, string propertyName)
     {
-        if (string.IsNullOrWhiteSpace(payloadJson))
+        if (!TryGetProperty(payloadJson, propertyName, out var value))
         {
             return null;
         }
 
-        using var document = JsonDocument.Parse(payloadJson);
-        if (document.RootElement.TryGetProperty(propertyName, out var value))
+        if (value.ValueKind == JsonValueKind.True) return true;
+        if (value.ValueKind == JsonValueKind.False) return false;
+        if (value.ValueKind == JsonValueKind.String)
         {
-            if (value.ValueKind == JsonValueKind.True) return true;
-            if (value.ValueKind == JsonValueKind.False) return false;
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                var s = value.GetString();
-                if (bool.TryParse(s, out var result)) return result;
-                if (string.Equals(s, "1")) return true;
-                if (string.Equals(s, "0")) return false;
-            }
+            var s = value.GetString();
+            if (bool.TryParse(s, out var result)) return result;
+            if (string.Equals(s, "1", StringComparison.Ordinal)) return true;
+            if (string.Equals(s, "0", StringComparison.Ordinal)) return false;
         }
+
         return null;
     }
 
     public static int? GetInt(string? payloadJson, string propertyName)
     {
-        if (string.IsNullOrWhiteSpace(payloadJson))
+        if (!TryGetProperty(payloadJson, propertyName, out var value))
         {
             return null;
         }
 
-        using var document = JsonDocument.Parse(payloadJson);
-        if (document.RootElement.TryGetProperty(propertyName, out var value))
-        {
-            if (value.ValueKind == JsonValueKind.Number) return value.GetInt32();
-            if (value.ValueKind == JsonValueKind.String)
-            {
-                if (int.TryParse(value.GetString(), out var result)) return result;
-            }
-        }
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return number;
+        if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out var result)) return result;
+
         return null;
+    }
+
+    private static bool TryGetProperty(string? payloadJson, string propertyName, out JsonElement value)
+    {
+        value = default;
+
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            if (!document.RootElement.TryGetProperty(propertyName, out var element))
+            {
+                return false;
+            }
+
+            value = element.Clone();
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     public static string? GetRegisteredDomain(string host)

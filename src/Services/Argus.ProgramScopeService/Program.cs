@@ -1,5 +1,6 @@
 using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
+using Argus.Contracts.Assets;
 using Argus.Contracts.Events;
 using Argus.Contracts.Programs;
 using Argus.ProgramScopeService;
@@ -7,6 +8,8 @@ using Argus.ProgramScopeService.Providers;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -71,6 +74,73 @@ app.MapGet("/programs/{programId:guid}", async (
 {
     var program = await store.FindProgramAsync(programId, cancellationToken);
     return program is not null ? Results.Ok(program) : Results.NotFound();
+});
+
+app.MapGet("/targets", (
+    Guid? programId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+    store.GetTargetsAsync(programId, cancellationToken));
+
+app.MapGet("/targets/{targetId:guid}", async (
+    Guid targetId,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var target = await store.FindTargetAsync(targetId, cancellationToken);
+    return target is not null ? Results.Ok(target) : Results.NotFound();
+});
+
+app.MapPost("/targets", async (
+    CreateTargetRequest request,
+    IProgramScopeStore store,
+    IHttpClientFactory httpClientFactory,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    if (request.ProgramId == Guid.Empty)
+    {
+        return Results.BadRequest("ProgramId is required.");
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Name))
+    {
+        return Results.BadRequest("Target name is required.");
+    }
+
+    var rootDomains = TargetRequestHelpers.NormalizeDomains(request.RootDomains);
+    if (rootDomains.Count == 0)
+    {
+        return Results.BadRequest("At least one root domain is required.");
+    }
+
+    if (await store.FindProgramAsync(request.ProgramId, cancellationToken) is null)
+    {
+        return Results.NotFound("Program not found.");
+    }
+
+    var target = await store.CreateTargetAsync(request with { RootDomains = rootDomains }, cancellationToken);
+    await TargetAssetSeeder.SeedAsync(target, store, httpClientFactory, events, cancellationToken);
+
+    return Results.Created($"/targets/{target.TargetId}", target);
+});
+
+app.MapPatch("/targets/{targetId:guid}", async (
+    Guid targetId,
+    UpdateTargetRequest request,
+    IProgramScopeStore store,
+    IHttpClientFactory httpClientFactory,
+    IIntegrationEventPublisher events,
+    CancellationToken cancellationToken) =>
+{
+    var target = await store.UpdateTargetAsync(targetId, request, cancellationToken);
+    if (target is null)
+    {
+        return Results.NotFound();
+    }
+
+    await TargetAssetSeeder.SeedAsync(target, store, httpClientFactory, events, cancellationToken);
+    return Results.Ok(target);
 });
 
 app.MapDelete("/programs/{programId:guid}/scopes/{scopeId:guid}", async (
@@ -259,6 +329,10 @@ internal interface IProgramScopeStore
     Task<IReadOnlyCollection<ProgramDto>> GetProgramsAsync(CancellationToken cancellationToken);
     Task<ProgramDto?> FindProgramAsync(Guid programId, CancellationToken cancellationToken);
     Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<TargetDto>> GetTargetsAsync(Guid? programId, CancellationToken cancellationToken);
+    Task<TargetDto?> FindTargetAsync(Guid targetId, CancellationToken cancellationToken);
+    Task<TargetDto> CreateTargetAsync(CreateTargetRequest request, CancellationToken cancellationToken);
+    Task<TargetDto?> UpdateTargetAsync(Guid targetId, UpdateTargetRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken);
     Task<ProgramScopeDto?> CreateScopeAsync(CreateProgramScopeRequest request, CancellationToken cancellationToken);
     Task<bool> DeleteScopeAsync(Guid programId, Guid scopeId, CancellationToken cancellationToken);
@@ -308,6 +382,94 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         _programs[record.ProgramId] = record;
 
         return Task.FromResult(ToDto(record));
+    }
+
+    public Task<IReadOnlyCollection<TargetDto>> GetTargetsAsync(Guid? programId, CancellationToken cancellationToken)
+    {
+        var targets = _programs.Values
+            .Where(program => !programId.HasValue || program.ProgramId == programId.Value)
+            .SelectMany(program => program.Targets)
+            .OrderBy(target => target.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return Task.FromResult<IReadOnlyCollection<TargetDto>>(targets);
+    }
+
+    public Task<TargetDto?> FindTargetAsync(Guid targetId, CancellationToken cancellationToken)
+    {
+        var target = _programs.Values
+            .SelectMany(program => program.Targets)
+            .FirstOrDefault(target => target.TargetId == targetId);
+
+        return Task.FromResult(target);
+    }
+
+    public Task<TargetDto> CreateTargetAsync(CreateTargetRequest request, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(request.ProgramId, out var program))
+        {
+            throw new InvalidOperationException("Program not found.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var target = new TargetDto(
+            Guid.NewGuid(),
+            request.ProgramId,
+            request.Name.Trim(),
+            TargetRequestHelpers.CreateSlug(request.Name),
+            request.Description,
+            TargetStatus.Active,
+            TargetRequestHelpers.NormalizeDomains(request.RootDomains),
+            TargetRequestHelpers.NormalizeProtocols(request.AllowedProtocols),
+            request.DefaultRateLimitPolicyId,
+            request.ProxyProfileId,
+            request.ReconProfileId,
+            now,
+            now);
+
+        lock (program.Targets)
+        {
+            program.Targets.Add(target);
+            program.UpdatedAt = now;
+        }
+
+        return Task.FromResult(target);
+    }
+
+    public Task<TargetDto?> UpdateTargetAsync(Guid targetId, UpdateTargetRequest request, CancellationToken cancellationToken)
+    {
+        foreach (var program in _programs.Values)
+        {
+            lock (program.Targets)
+            {
+                var index = program.Targets.FindIndex(target => target.TargetId == targetId);
+                if (index < 0)
+                {
+                    continue;
+                }
+
+                var existing = program.Targets[index];
+                var updated = existing with
+                {
+                    Name = string.IsNullOrWhiteSpace(request.Name) ? existing.Name : request.Name.Trim(),
+                    Slug = string.IsNullOrWhiteSpace(request.Name) ? existing.Slug : TargetRequestHelpers.CreateSlug(request.Name),
+                    Description = request.Description ?? existing.Description,
+                    Status = request.Status ?? existing.Status,
+                    RootDomains = request.RootDomains is null ? existing.RootDomains : TargetRequestHelpers.NormalizeDomains(request.RootDomains),
+                    AllowedProtocols = request.AllowedProtocols is null ? existing.AllowedProtocols : TargetRequestHelpers.NormalizeProtocols(request.AllowedProtocols),
+                    DefaultRateLimitPolicyId = request.DefaultRateLimitPolicyId ?? existing.DefaultRateLimitPolicyId,
+                    ProxyProfileId = request.ProxyProfileId ?? existing.ProxyProfileId,
+                    ReconProfileId = request.ReconProfileId ?? existing.ReconProfileId,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+
+                program.Targets[index] = updated;
+                program.UpdatedAt = updated.UpdatedAt;
+                return Task.FromResult<TargetDto?>(updated);
+            }
+        }
+
+        return Task.FromResult<TargetDto?>(null);
     }
 
     public Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken)
@@ -558,6 +720,7 @@ internal sealed class InMemoryProgramRecord
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<ProgramScopeDto> Scopes { get; init; } = [];
+    public List<TargetDto> Targets { get; init; } = [];
     public List<ProgramRuleRevisionDto> RuleRevisions { get; init; } = [];
     public List<ScopeExclusionRecord> ScopeExclusions { get; init; } = [];
     public List<RateLimitPolicyRecord> RateLimitPolicies { get; init; } = [];
@@ -606,6 +769,64 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return program.ToDto();
+    }
+
+    public async Task<IReadOnlyCollection<TargetDto>> GetTargetsAsync(Guid? programId, CancellationToken cancellationToken)
+    {
+        var query = dbContext.Targets.AsNoTracking();
+
+        if (programId.HasValue)
+        {
+            query = query.Where(target => target.ProgramId == programId.Value);
+        }
+
+        var targets = await query
+            .OrderBy(target => target.Name)
+            .ToArrayAsync(cancellationToken);
+
+        return targets.Select(target => target.ToDto()).ToArray();
+    }
+
+    public async Task<TargetDto?> FindTargetAsync(Guid targetId, CancellationToken cancellationToken)
+    {
+        var target = await dbContext.Targets
+            .AsNoTracking()
+            .FirstOrDefaultAsync(target => target.TargetId == targetId, cancellationToken);
+
+        return target?.ToDto();
+    }
+
+    public async Task<TargetDto> CreateTargetAsync(CreateTargetRequest request, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs.FirstOrDefaultAsync(program => program.ProgramId == request.ProgramId, cancellationToken)
+            ?? throw new InvalidOperationException("Program not found.");
+
+        var now = DateTimeOffset.UtcNow;
+        var target = TargetRecord.From(request, now);
+        dbContext.Targets.Add(target);
+        program.UpdatedAt = now;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return target.ToDto();
+    }
+
+    public async Task<TargetDto?> UpdateTargetAsync(Guid targetId, UpdateTargetRequest request, CancellationToken cancellationToken)
+    {
+        var target = await dbContext.Targets.FirstOrDefaultAsync(target => target.TargetId == targetId, cancellationToken);
+        if (target is null)
+        {
+            return null;
+        }
+
+        target.Apply(request);
+        var program = await dbContext.Programs.FirstOrDefaultAsync(program => program.ProgramId == target.ProgramId, cancellationToken);
+        if (program is not null)
+        {
+            program.UpdatedAt = target.UpdatedAt;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return target.ToDto();
     }
 
     public async Task<IReadOnlyCollection<ProgramScopeDto>> GetScopesAsync(CancellationToken cancellationToken)
@@ -964,6 +1185,7 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
 internal sealed class ProgramScopeDbContext(DbContextOptions<ProgramScopeDbContext> options) : DbContext(options)
 {
     public DbSet<ProgramRecord> Programs => Set<ProgramRecord>();
+    public DbSet<TargetRecord> Targets => Set<TargetRecord>();
     public DbSet<ProgramScopeRecord> Scopes => Set<ProgramScopeRecord>();
     public DbSet<ProgramRuleRevisionRecord> RuleRevisions => Set<ProgramRuleRevisionRecord>();
     public DbSet<ScopeExclusionRecord> ScopeExclusions => Set<ScopeExclusionRecord>();
@@ -982,6 +1204,21 @@ internal sealed class ProgramScopeDbContext(DbContextOptions<ProgramScopeDbConte
             .WithOne()
             .HasForeignKey(record => record.ProgramId)
             .OnDelete(DeleteBehavior.Cascade);
+        program.HasMany(record => record.Targets)
+            .WithOne()
+            .HasForeignKey(record => record.ProgramId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        var target = modelBuilder.Entity<TargetRecord>();
+        target.ToTable("targets");
+        target.HasKey(record => record.TargetId);
+        target.HasIndex(record => new { record.ProgramId, record.Slug }).IsUnique();
+        target.Property(record => record.Name).HasMaxLength(256);
+        target.Property(record => record.Slug).HasMaxLength(256);
+        target.Property(record => record.Description).HasMaxLength(2048);
+        target.Property(record => record.Status).HasConversion<string>().HasMaxLength(64);
+        target.Property(record => record.RootDomainsJson).HasColumnType("jsonb");
+        target.Property(record => record.AllowedProtocolsJson).HasColumnType("jsonb");
 
         var scope = modelBuilder.Entity<ProgramScopeRecord>();
         scope.ToTable("program_scopes");
@@ -1025,12 +1262,86 @@ internal sealed class ProgramRecord
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<ProgramScopeRecord> Scopes { get; set; } = [];
+    public List<TargetRecord> Targets { get; set; } = [];
     public List<ProgramRuleRevisionRecord> RuleRevisions { get; set; } = [];
     public List<ScopeExclusionRecord> ScopeExclusions { get; set; } = [];
     public List<RateLimitPolicyRecord> RateLimitPolicies { get; set; } = [];
 
     public ProgramDto ToDto() =>
         new(ProgramId, Name, Source, ExternalUrl, CreatedAt, UpdatedAt, Scopes.Select(scope => scope.ToDto()).ToArray());
+}
+
+internal sealed class TargetRecord
+{
+    public Guid TargetId { get; set; }
+    public Guid ProgramId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public TargetStatus Status { get; set; } = TargetStatus.Active;
+    public string RootDomainsJson { get; set; } = "[]";
+    public string AllowedProtocolsJson { get; set; } = "[]";
+    public Guid? DefaultRateLimitPolicyId { get; set; }
+    public Guid? ProxyProfileId { get; set; }
+    public Guid? ReconProfileId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public IReadOnlyCollection<string> RootDomains =>
+        JsonSerializer.Deserialize<string[]>(RootDomainsJson) ?? Array.Empty<string>();
+
+    public IReadOnlyCollection<string> AllowedProtocols =>
+        JsonSerializer.Deserialize<string[]>(AllowedProtocolsJson) ?? Array.Empty<string>();
+
+    public static TargetRecord From(CreateTargetRequest request, DateTimeOffset now) => new()
+    {
+        TargetId = Guid.NewGuid(),
+        ProgramId = request.ProgramId,
+        Name = request.Name.Trim(),
+        Slug = TargetRequestHelpers.CreateSlug(request.Name),
+        Description = request.Description,
+        Status = TargetStatus.Active,
+        RootDomainsJson = JsonSerializer.Serialize(TargetRequestHelpers.NormalizeDomains(request.RootDomains)),
+        AllowedProtocolsJson = JsonSerializer.Serialize(TargetRequestHelpers.NormalizeProtocols(request.AllowedProtocols)),
+        DefaultRateLimitPolicyId = request.DefaultRateLimitPolicyId,
+        ProxyProfileId = request.ProxyProfileId,
+        ReconProfileId = request.ReconProfileId,
+        CreatedAt = now,
+        UpdatedAt = now
+    };
+
+    public void Apply(UpdateTargetRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.Name))
+        {
+            Name = request.Name.Trim();
+            Slug = TargetRequestHelpers.CreateSlug(request.Name);
+        }
+
+        if (request.Description is not null) Description = request.Description;
+        if (request.Status.HasValue) Status = request.Status.Value;
+        if (request.RootDomains is not null) RootDomainsJson = JsonSerializer.Serialize(TargetRequestHelpers.NormalizeDomains(request.RootDomains));
+        if (request.AllowedProtocols is not null) AllowedProtocolsJson = JsonSerializer.Serialize(TargetRequestHelpers.NormalizeProtocols(request.AllowedProtocols));
+        if (request.DefaultRateLimitPolicyId.HasValue) DefaultRateLimitPolicyId = request.DefaultRateLimitPolicyId;
+        if (request.ProxyProfileId.HasValue) ProxyProfileId = request.ProxyProfileId;
+        if (request.ReconProfileId.HasValue) ReconProfileId = request.ReconProfileId;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    public TargetDto ToDto() => new(
+        TargetId,
+        ProgramId,
+        Name,
+        Slug,
+        Description,
+        Status,
+        RootDomains,
+        AllowedProtocols,
+        DefaultRateLimitPolicyId,
+        ProxyProfileId,
+        ReconProfileId,
+        CreatedAt,
+        UpdatedAt);
 }
 
 internal sealed class ProgramScopeRecord
@@ -1078,6 +1389,143 @@ internal sealed class RateLimitPolicyRecord
     public int Capacity { get; set; }
     public int RefillRate { get; set; }
     public string Source { get; set; } = string.Empty;
+}
+
+internal static class TargetRequestHelpers
+{
+    public static IReadOnlyCollection<string> NormalizeDomains(IReadOnlyCollection<string>? domains) =>
+        (domains ?? Array.Empty<string>())
+            .Select(NormalizeDomain)
+            .Where(domain => !string.IsNullOrWhiteSpace(domain))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(domain => domain, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    public static IReadOnlyCollection<string> NormalizeProtocols(IReadOnlyCollection<string>? protocols)
+    {
+        var normalized = (protocols ?? new[] { "https", "http" })
+            .Select(protocol => protocol.Trim().TrimEnd(':', '/').ToLowerInvariant())
+            .Where(protocol => protocol is "http" or "https")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return normalized.Length == 0 ? new[] { "https", "http" } : normalized;
+    }
+
+    public static string CreateSlug(string name)
+    {
+        var chars = name.Trim().ToLowerInvariant()
+            .Select(character => char.IsLetterOrDigit(character) ? character : '-')
+            .ToArray();
+
+        var slug = string.Join('-', new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
+        return string.IsNullOrWhiteSpace(slug) ? Guid.NewGuid().ToString("N") : slug;
+    }
+
+    private static string NormalizeDomain(string domain)
+    {
+        var value = domain.Trim().ToLowerInvariant();
+        if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            value = uri.Host;
+        }
+
+        value = value.Trim().TrimStart('*').TrimStart('.').TrimEnd('.');
+        var slash = value.IndexOf('/', StringComparison.Ordinal);
+        return slash >= 0 ? value[..slash] : value;
+    }
+}
+
+internal static class TargetAssetSeeder
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public static async Task<int> SeedAsync(
+        TargetDto target,
+        IProgramScopeStore store,
+        IHttpClientFactory httpClientFactory,
+        IIntegrationEventPublisher events,
+        CancellationToken cancellationToken)
+    {
+        if (target.Status != TargetStatus.Active)
+        {
+            return 0;
+        }
+
+        var existingScopes = await store.GetScopesAsync(cancellationToken);
+        var assetClient = httpClientFactory.CreateClient();
+        assetClient.BaseAddress = new Uri(ServiceUriHelper.GetServiceUri("ARGUS_ASSET_SERVICE", "http://asset-service"));
+
+        var seeded = 0;
+        foreach (var domain in target.RootDomains)
+        {
+            var scope = existingScopes.FirstOrDefault(existing =>
+                existing.ProgramId == target.ProgramId
+                && existing.Action == ScopeRuleAction.Include
+                && string.Equals(existing.Pattern, domain, StringComparison.OrdinalIgnoreCase));
+
+            if (scope is null)
+            {
+                scope = await store.CreateScopeAsync(
+                    new CreateProgramScopeRequest(target.ProgramId, "domain", domain, ScopeRuleAction.Include, $"Root domain for target {target.Name}"),
+                    cancellationToken);
+
+                if (scope is not null)
+                {
+                    await events.PublishAsync(
+                        new ScopeCreated(scope.ProgramId, scope.ScopeId, scope.Pattern, scope.ScopeType),
+                        nameof(ScopeCreated),
+                        "Argus.ProgramScopeService",
+                        cancellationToken: cancellationToken);
+
+                    await events.PublishAsync(
+                        new ProgramScopeChanged(scope.ProgramId, scope.ScopeId, "created"),
+                        nameof(ProgramScopeChanged),
+                        "Argus.ProgramScopeService",
+                        cancellationToken: cancellationToken);
+                }
+            }
+
+            var createAsset = new CreateAssetRequest(
+                target.ProgramId,
+                scope?.ScopeId,
+                AssetType.Domain,
+                domain,
+                "TargetRootDomain",
+                1.0m,
+                $"target:{target.TargetId:N}",
+                new Dictionary<string, string>
+                {
+                    ["target_id"] = target.TargetId.ToString("N"),
+                    ["target_slug"] = target.Slug,
+                    ["target_name"] = target.Name
+                },
+                ["target-root", "seed", "domain"]);
+
+            using var response = await assetClient.PostAsJsonAsync("/assets", createAsset, JsonOptions, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                seeded++;
+            }
+        }
+
+        return seeded;
+    }
+}
+
+internal static class ServiceUriHelper
+{
+    public static string GetServiceUri(string configKey, string fallback)
+    {
+        var envValue = Environment.GetEnvironmentVariable(configKey);
+
+        if (!string.IsNullOrWhiteSpace(envValue) && Uri.TryCreate(envValue, UriKind.Absolute, out var uri))
+        {
+            return uri.ToString();
+        }
+
+        return fallback;
+    }
 }
 
 internal static class ScopeMatching
@@ -1133,6 +1581,25 @@ internal static class ProgramScopeStoreInitialization
         if (dbContext is not null)
         {
             await dbContext.Database.EnsureCreatedAsync();
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS targets (
+                    "TargetId" uuid PRIMARY KEY,
+                    "ProgramId" uuid NOT NULL REFERENCES programs("ProgramId") ON DELETE CASCADE,
+                    "Name" character varying(256) NOT NULL,
+                    "Slug" character varying(256) NOT NULL,
+                    "Description" character varying(2048) NULL,
+                    "Status" character varying(64) NOT NULL,
+                    "RootDomainsJson" jsonb NOT NULL DEFAULT '[]'::jsonb,
+                    "AllowedProtocolsJson" jsonb NOT NULL DEFAULT '[]'::jsonb,
+                    "DefaultRateLimitPolicyId" uuid NULL,
+                    "ProxyProfileId" uuid NULL,
+                    "ReconProfileId" uuid NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_targets_ProgramId_Slug"
+                    ON targets ("ProgramId", "Slug");
+                """);
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
             await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }
