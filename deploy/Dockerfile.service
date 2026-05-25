@@ -38,6 +38,6 @@ COPY --from=build /app/publish .
 # Write version info for frontend
 RUN echo "window.__ARGUS_BUILD__ = { version: '"$GIT_SHA"', date: '"$BUILD_DATE"' };" > /app/wwwroot/version.js
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
 
-ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
+ENTRYPOINT ["dotnet", "${ARGUS_ASSEMBLY_NAME}.dll"]
