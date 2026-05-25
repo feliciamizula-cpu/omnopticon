@@ -1092,3 +1092,29 @@
 .ops-log-error   { border-left-color: var(--red); color: var(--red); }
 
 .btn-danger { background: var(--red) !important; color: #fff !important; border-color: var(--red) !important; }
+
+/* new-program modal */
+.ops-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1998; display: flex; align-items: center; justify-content: center; }
+.ops-modal {
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  box-shadow: 0 16px 48px rgba(0,0,0,.55);
+  width: 520px; max-height: 82vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.ops-modal-header { padding: 10px 14px; border-bottom: 1px solid var(--line-1); display: flex; align-items: center; }
+.ops-modal-title  { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2); }
+.ops-modal-body   { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.ops-modal-footer { padding: 10px 14px; border-top: 1px solid var(--line-1); display: flex; gap: 8px; justify-content: flex-end; }
+.ops-modal-field  { display: flex; flex-direction: column; gap: 4px; }
+.ops-modal-label  { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3); font-family: var(--font-mono); }
+.ops-modal-input, .ops-modal-select {
+  background: var(--bg-1); border: 1px solid var(--line-1);
+  color: var(--fg-0); font-family: var(--font-mono); font-size: 12px;
+  padding: 6px 8px; outline: none; box-sizing: border-box;
+}
+.ops-modal-input  { width: 100%; }
+.ops-modal-input:focus, .ops-modal-select:focus { border-color: var(--cyan); }
+.ops-scope-row    { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.ops-scope-row .ops-modal-input { flex: 1; width: auto; }
+.ops-modal-select { width: 152px; flex-shrink: 0; }
+.ops-modal-error  { font-size: 11px; color: var(--red); font-family: var(--font-mono); padding: 4px 0; }

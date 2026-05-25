@@ -15,6 +15,7 @@
         <div class="ops-panel-header">
             <span class="ops-panel-title">Programs</span>
             <span class="ops-panel-count">@_programs.Count</span>
+            <button class="btn btn-sm" style="margin-left:auto;" @onclick="OpenNewProgramForm">+ New</button>
         </div>
         <div class="table-wrapper" style="flex:1;overflow:auto;">
             <table class="data-table">
@@ -122,6 +123,72 @@
     </div>
 }
 
+@* ── New Program Modal ── *@
+@if (_showNewProgramForm)
+{
+    <div class="ops-modal-backdrop" @onclick="CancelNewProgram">
+        <div class="ops-modal" @onclick:stopPropagation="true">
+            <div class="ops-modal-header">
+                <span class="ops-modal-title">New Program</span>
+            </div>
+            <div class="ops-modal-body">
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">Name *</label>
+                    <input class="ops-modal-input" @bind="_newName" @bind:event="oninput"
+                           placeholder="e.g. ACME Corp Bug Bounty" />
+                </div>
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">Source *</label>
+                    <input class="ops-modal-input" @bind="_newSource" @bind:event="oninput"
+                           placeholder="HackerOne / Bugcrowd / Manual" />
+                </div>
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">External URL</label>
+                    <input class="ops-modal-input" @bind="_newExternalUrl" @bind:event="oninput"
+                           placeholder="https://hackerone.com/program" />
+                </div>
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">In-Scope Domains</label>
+                    @for (var i = 0; i < _newScopes.Count; i++)
+                    {
+                        var idx = i;
+                        <div class="ops-scope-row">
+                            <input class="ops-modal-input"
+                                   value="@_newScopes[idx].Pattern"
+                                   @oninput="e => UpdateNewScopePattern(idx, e.Value?.ToString())"
+                                   placeholder="example.com or *.example.com" />
+                            <select class="ops-modal-select"
+                                    value="@_newScopes[idx].ScopeType"
+                                    @onchange="e => UpdateNewScopeType(idx, e.Value?.ToString())">
+                                <option value="Domain">Domain</option>
+                                <option value="WildcardDomain">Wildcard Domain</option>
+                                <option value="Url">URL</option>
+                                <option value="Cidr">CIDR</option>
+                                <option value="IpRange">IP Range</option>
+                            </select>
+                            <button class="btn btn-sm" @onclick="() => RemoveNewScope(idx)"
+                                    disabled="@(_newScopes.Count <= 1)">×</button>
+                        </div>
+                    }
+                    <button class="btn btn-sm" style="align-self:flex-start;margin-top:2px;"
+                            @onclick="AddNewScope">+ Add Domain</button>
+                </div>
+                @if (!string.IsNullOrEmpty(_newProgramError))
+                {
+                    <div class="ops-modal-error">@_newProgramError</div>
+                }
+            </div>
+            <div class="ops-modal-footer">
+                <button class="btn btn-sm" @onclick="CancelNewProgram" disabled="@_newProgramSaving">Cancel</button>
+                <button class="btn btn-sm" @onclick="CreateProgramAsync"
+                        disabled="@(_newProgramSaving || string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newSource))">
+                    @(_newProgramSaving ? "Creating…" : "Create Program")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ── Asset context menu ── *@
 @if (_assetMenu is { Visible: true })
 {
@@ -148,6 +215,7 @@
         public DateTimeOffset When { get; init; } = When == default ? DateTimeOffset.UtcNow : When;
     }
     sealed record ContextMenuItem(string Label, string Action);
+    sealed record ScopeEntry(string Pattern, string ScopeType);
 
     sealed class ProgramMenuState
     {
@@ -416,6 +484,115 @@
     {
         _log.Insert(0, new LogEntry(msg, error));
         if (_log.Count > 100) _log.RemoveAt(_log.Count - 1);
+    }
+
+    // ── New program form ──────────────────────────────────────────────────────────
+
+    bool   _showNewProgramForm;
+    string _newName        = "";
+    string _newSource      = "";
+    string _newExternalUrl = "";
+    List<ScopeEntry> _newScopes = [];
+    string _newProgramError  = "";
+    bool   _newProgramSaving;
+
+    void OpenNewProgramForm()
+    {
+        _newName = _newSource = _newExternalUrl = _newProgramError = "";
+        _newScopes = [new ScopeEntry("", "Domain")];
+        _newProgramSaving = false;
+        _showNewProgramForm = true;
+    }
+
+    void CancelNewProgram() => _showNewProgramForm = false;
+
+    void AddNewScope() => _newScopes.Add(new ScopeEntry("", "Domain"));
+
+    void RemoveNewScope(int index)
+    {
+        if (_newScopes.Count <= 1 || index < 0 || index >= _newScopes.Count) return;
+        _newScopes.RemoveAt(index);
+    }
+
+    void UpdateNewScopePattern(int index, string? value)
+    {
+        if (index < 0 || index >= _newScopes.Count) return;
+        _newScopes[index] = _newScopes[index] with { Pattern = value ?? "" };
+    }
+
+    void UpdateNewScopeType(int index, string? value)
+    {
+        if (index < 0 || index >= _newScopes.Count) return;
+        _newScopes[index] = _newScopes[index] with { ScopeType = string.IsNullOrWhiteSpace(value) ? "Domain" : value };
+    }
+
+    async Task CreateProgramAsync()
+    {
+        _newProgramError = "";
+        var validScopes = _newScopes.Where(s => !string.IsNullOrWhiteSpace(s.Pattern)).ToList();
+        if (string.IsNullOrWhiteSpace(_newName))   { _newProgramError = "Name is required.";               return; }
+        if (string.IsNullOrWhiteSpace(_newSource)) { _newProgramError = "Source is required.";             return; }
+        if (validScopes.Count == 0)                { _newProgramError = "Add at least one domain scope."; return; }
+
+        _newProgramSaving = true;
+        try
+        {
+            var createBody = new JsonObject
+            {
+                ["name"]        = _newName.Trim(),
+                ["source"]      = _newSource.Trim(),
+                ["externalUrl"] = string.IsNullOrWhiteSpace(_newExternalUrl) ? null : _newExternalUrl.Trim()
+            };
+
+            using var programResp = await Http.PostAsJsonAsync("/ui/programs", createBody);
+            if (!programResp.IsSuccessStatusCode)
+            {
+                _newProgramError = $"Failed to create program ({(int)programResp.StatusCode}).";
+                return;
+            }
+
+            var programBody = await programResp.Content.ReadAsStringAsync();
+            using var programDoc = JsonDocument.Parse(programBody);
+            if (!programDoc.RootElement.TryGetProperty("programId", out var pidEl))
+            {
+                _newProgramError = "Server response missing programId.";
+                return;
+            }
+            var programId = pidEl.GetGuid();
+
+            var scopeErrors = 0;
+            foreach (var scope in validScopes)
+            {
+                var scopeBody = new JsonObject
+                {
+                    ["scopeType"] = scope.ScopeType,
+                    ["pattern"]   = scope.Pattern.Trim(),
+                    ["action"]    = "Include",
+                    ["notes"]     = null
+                };
+                using var scopeResp = await Http.PostAsJsonAsync($"/ui/programs/{programId}/scopes", scopeBody);
+                if (!scopeResp.IsSuccessStatusCode) scopeErrors++;
+            }
+
+            _showNewProgramForm = false;
+            await LoadProgramsAsync();
+
+            var created = _programs.FirstOrDefault(p => p.ProgramId == programId);
+            if (created is not null) await SelectProgram(created);
+
+            var msg = scopeErrors == 0
+                ? $"Program '{_newName}' created with {validScopes.Count} scope(s)."
+                : $"Program '{_newName}' created; {scopeErrors} scope(s) failed to save.";
+            AddLog(msg, error: scopeErrors > 0);
+        }
+        catch (Exception ex)
+        {
+            _newProgramError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _newProgramSaving = false;
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
