@@ -1,500 +1,325 @@
 /* eslint-disable */
-// AGENTS — manage AI coding agents (claude/codex/opencode), recurring tasks.
+// AGENTS — manage AI coding agent configurations.
 
 function AgentsPage({ liveTick }) {
-  const [selectedId, setSelectedId] = useState(AGENTS[0].id);
-  const [showAdd, setShowAdd] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const [filterRole, setFilterRole] = useState("all");
-  const [selectedAgents, setSelectedAgents] = useState([]);
+  const [agentConfigs, setAgentConfigs] = useState(AGENTS.map(a => ({ ...a })));
+  const [selectedId, setSelectedId] = useState(AGENTS[0]?.id);
+  const [multiSel, setMultiSel] = useState(new Set());
+  const [sortKey, setSortKey] = useState("name");
+  const [sortDir, setSortDir] = useState("asc");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingConfig, setEditingConfig] = useState(null);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [promptTarget, setPromptTarget] = useState(null);
 
-  const agent = AGENTS.find(a => a.id === selectedId) || AGENTS[0];
+  const selectedConfig = agentConfigs.find(a => a.id === selectedId);
 
-  const filtered = filterRole === "all" ? AGENTS : AGENTS.filter(a => a.role === filterRole);
-
-  const toggleAgentSelection = (id, e) => {
-    e.stopPropagation();
-    setSelectedAgents(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  const toggleAllSelection = () => {
-    if (selectedAgents.length === filtered.length) {
-      setSelectedAgents([]);
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
     } else {
-      setSelectedAgents(filtered.map(a => a.id));
+      setSortKey(key);
+      setSortDir("asc");
     }
   };
 
-  const bulkEnable = () => {
-    selectedAgents.forEach(id => {
-      const a = AGENTS.find(a => a.id === id);
-      if (a) a.enabled = true;
+  const filteredConfigs = useMemo(() => {
+    let r = agentConfigs;
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      r = r.filter(a =>
+        a.name.toLowerCase().includes(term) ||
+        a.role.toLowerCase().includes(term) ||
+        a.cli.toLowerCase().includes(term) ||
+        a.model.toLowerCase().includes(term)
+      );
+    }
+    return [...r].sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      const av = a[sortKey], bv = b[sortKey];
+      if (typeof av === "number") return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
     });
-    setSelectedAgents([]);
-    liveTick && liveTick();
+  }, [agentConfigs, searchTerm, sortKey, sortDir]);
+
+  const handleContextAction = (action, config) => {
+    switch (action) {
+      case "toggle":
+        setAgentConfigs(prev => prev.map(a => a.id === config.id ? { ...a, enabled: !a.enabled } : a));
+        break;
+      case "edit":
+        setEditingConfig(config);
+        setShowEditModal(true);
+        break;
+      case "delete":
+        setAgentConfigs(prev => prev.filter(a => a.id !== config.id));
+        if (selectedId === config.id) setSelectedId(prev[0]?.id);
+        break;
+      case "copy":
+        const newConfig = {
+          ...config,
+          id: config.id + "-copy-" + Date.now(),
+          name: config.name + " (copy)",
+          enabled: false,
+        };
+        setAgentConfigs(prev => [...prev, newConfig]);
+        break;
+    }
   };
 
-  const bulkDisable = () => {
-    selectedAgents.forEach(id => {
-      const a = AGENTS.find(a => a.id === id);
-      if (a) a.enabled = false;
-    });
-    setSelectedAgents([]);
-    liveTick && liveTick();
-  };
+  window.__argusContextAction = handleContextAction;
 
-// Compute fleet stats
-const stats = useMemo(() => ({
-  working: AGENTS.filter(a => a.workStatus === "working").length,
-  idle: AGENTS.filter(a => a.workStatus === "idle").length,
-  stalled: AGENTS.filter(a => a.workStatus === "stalled").length,
-  disabled: AGENTS.filter(a => !a.enabled).length,
-  tokens: AGENTS.reduce((s, a) => s + a.tokensToday, 0),
-  cost: AGENTS.reduce((s, a) => s + a.costToday, 0),
-  quota: AGENTS.reduce((s, a) => s + (a.quota?.cost || 0), 0),
-}), []);
+  const columns = [
+    { key: "_sel", label: "", width: 22, noSort: true },
+    { key: "enabled", label: "Enabled", width: 60, noSort: true, filterable: true },
+    { key: "name", label: "Agent Name", width: 140 },
+    { key: "role", label: "Role", width: 90, filterable: true },
+    { key: "cli", label: "CLI Tool", width: 90, filterable: true, render: (a) => {
+      const cli = AGENT_CLIS.find(c => c.id === a.cli);
+      return <span style={{ color: `var(--${cli?.color || "fg-2"})`, fontWeight: 600 }}>{cli?.label || a.cli}</span>;
+    }},
+    { key: "provider", label: "Provider", width: 100, render: (a) => {
+      const cli = AGENT_CLIS.find(c => c.id === a.cli);
+      return <span style={{ color: `var(--${cli?.color || "fg-2"})` }}>{cli?.label?.toUpperCase() || a.cli}</span>;
+    }},
+    { key: "model", label: "Model", width: 150 },
+    { key: "priority", label: "Priority", width: 70, render: (a) => (
+      <span className="mono" style={{ color: a.priority > 5 ? "var(--amber)" : "var(--fg-2)", fontSize: 11 }}>
+        {a.priority || 1}
+      </span>
+    )},
+    { key: "activeInstances", label: "Active", width: 60, render: (a) => (
+      <span className="mono tabular" style={{ color: a.workStatus === "working" ? "var(--cyan)" : "var(--fg-3)" }}>
+        {a.workStatus === "working" ? "1" : "0"}
+      </span>
+    )},
+    { key: "prompt", label: "Prompt", width: 200, noSort: true, render: (a) => (
+      a.promptPreview ? (
+        <span
+          onClick={(e) => { e.stopPropagation(); setPromptTarget(a); setShowPromptModal(true); }}
+          style={{
+            color: "var(--cyan)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block",
+          }}
+          title="Click to view/edit prompt"
+        >
+          {a.promptPreview.slice(0, 40)}…
+        </span>
+      ) : (
+        <span style={{ color: "var(--fg-3)", fontSize: 10, cursor: "pointer" }}
+          onClick={(e) => { e.stopPropagation(); setPromptTarget(a); setShowPromptModal(true); }}>
+          + add prompt
+        </span>
+      )
+    )},
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div className="page-tabs">
-        {[
-          ["all", "All Agents", AGENTS.length],
-          ["development", "Development", AGENTS.filter(a => a.role === "development").length],
-          ["devops", "DevOps", AGENTS.filter(a => a.role === "devops").length],
-          ["reviewer", "Reviewer", AGENTS.filter(a => a.role === "reviewer").length],
-        ].map(([id, label, n]) => (
-          <div key={id} className={"page-tab " + (filterRole === id ? "active" : "")} onClick={() => setFilterRole(id)}>
-            <span>{label}</span>
-            <span className="tab-count">{n}</span>
-          </div>
-        ))}
+        <div className="page-tab active"><span>Agent Configurations</span></div>
         <div className="page-tab-spacer" />
         <div className="page-tab-actions">
-          <button className="btn ghost tiny" onClick={() => setShowAdd(true)}>+ Spawn Agent</button>
-          <button className="btn ghost tiny">Restart All</button>
-          <button className="btn danger tiny">Pause Fleet</button>
+          <button className="btn ghost tiny" onClick={() => { setEditingConfig(null); setShowAddModal(true); }}>+ New Configuration</button>
         </div>
       </div>
 
-      {selectedAgents.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: "var(--bg-2)", borderBottom: "1px solid var(--line-1)", flexShrink: 0 }}>
-          <span className="mono" style={{ fontSize: 11, color: "var(--fg-2)" }}>{selectedAgents.length} selected</span>
-          <button className="btn ghost tiny" onClick={bulkEnable}>Enable</button>
-          <button className="btn ghost tiny" onClick={bulkDisable}>Disable</button>
-          <button className="btn ghost tiny" onClick={() => setSelectedAgents([])}>Clear</button>
-        </div>
-      )}
-
-      {/* Top stats strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", background: "var(--line-1)", gap: 1, flexShrink: 0 }}>
-        <FleetStat l="Total agents" v={AGENTS.length} sub={`${stats.disabled} disabled`} />
-        <FleetStat l="Working" v={stats.working} tone="cyan" sub="active claims" />
-        <FleetStat l="Idle" v={stats.idle} sub="awaiting tasks" />
-        <FleetStat l="Stalled" v={stats.stalled} tone={stats.stalled ? "red" : ""} sub={stats.stalled ? "needs attention" : "ok"} />
-        <FleetStat l="CLIs in use" v={new Set(AGENTS.map(a => a.cli)).size} sub={[...new Set(AGENTS.map(a => a.cli))].join(", ")} />
-<FleetStat l="Tokens · 24h" v={fmtNum(stats.tokens)} tone="amber" sub="across fleet" />
-<FleetStat 
-  l="Spend · 24h"
-  v={"$" + stats.cost.toFixed(2)}
-  tone={stats.quota ? stats.cost / stats.quota > 0.9 ? "red" : stats.cost / stats.quota > 0.7 ? "amber" : "" : "amber"}
-  sub={stats.quota ? `$${stats.cost.toFixed(2)} of $${stats.quota.toFixed(2)}` : "usage estimate"}
-/>
-<div style={{ gridColumn: "span 1", background: "var(--bg-1)", padding: "8px 12px" }}> 
-  {stats.quota && (
-    <div style={{ height: 4, background: "var(--bg-2)", marginTop: 2 }}> 
-      <div 
-        style={{ 
-          height: "100%", 
-          width: `${Math.min(100, (stats.cost / stats.quota) * 100)}%`,
-          background: stats.cost / stats.quota > 0.9 ? "var(--red)" : stats.cost / stats.quota > 0.7 ? "var(--amber)" : "var(--accent)",
-        }}
-      />
-    </div>
-  )}
-</div>
-<FleetStat l="Tasks · in_progress" v={AGENT_TASKS.filter(t => t.status === "in_progress").length} tone="magenta" sub={`${AGENT_TASKS.filter(t => t.status === "pending").length} pending`} />
-      </div>
-
-      {/* Main: card grid + detail panel */}
+      {/* Main: grid + detail panel */}
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
-        <div style={{ overflow: "auto", padding: 12, background: "var(--bg-0)", flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <div className="mono-label">FLEET · {filtered.length} agents</div>
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <span className={"cell-checkbox" + (selectedAgents.length === filtered.length && filtered.length > 0 ? " on" : "")} onClick={toggleAllSelection} style={{ cursor: "pointer" }} />
-              <span className="mono" style={{ fontSize: 10, color: "var(--fg-3)" }}>select all</span>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          {/* Search bar */}
+          <div style={{ display: "flex", gap: 8, padding: "6px 12px", background: "var(--bg-2)", borderBottom: "1px solid var(--line-1)" }}>
+            <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+              <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--fg-3)", fontSize: 11 }}>⌕</span>
+              <input
+                type="text"
+                placeholder="Search agents..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  width: "100%", padding: "5px 8px 5px 28px", background: "var(--bg-0)",
+                  border: "1px solid var(--line-2)", color: "var(--fg-0)",
+                  fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="mono" style={{ fontSize: 10, color: "var(--fg-3)" }}>{filteredConfigs.length} configs</span>
+              {multiSel.size > 0 && (
+                <>
+                  <span style={{ width: 1, height: 16, background: "var(--line-2)" }} />
+                  <span className="mono" style={{ fontSize: 11, color: "var(--accent)" }}>{multiSel.size} selected</span>
+                  <button className="btn ghost tiny" onClick={() => {
+                    multiSel.forEach(id => {
+                      const a = agentConfigs.find(x => x.id === id);
+                      if (a) a.enabled = !a.enabled;
+                    });
+                    setAgentConfigs([...agentConfigs]);
+                    setMultiSel(new Set());
+                  }}>Toggle</button>
+                  <button className="btn danger tiny" onClick={() => {
+                    setAgentConfigs(prev => prev.filter(a => !multiSel.has(a.id)));
+                    setMultiSel(new Set());
+                  }}>Delete</button>
+                </>
+              )}
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 1, background: "var(--line-1)" }}>
-            {filtered.map(a => (
-              <AgentCard key={a.id} agent={a} selected={selectedId === a.id} onClick={() => setSelectedId(a.id)} liveTick={liveTick} isSelected={selectedAgents.includes(a.id)} onSelect={(e) => toggleAgentSelection(a.id, e)} />
-            ))}
-          </div>
+
+          {/* Grid */}
+          <ArgusDataGrid
+            columns={columns}
+            rows={filteredConfigs}
+            rowKey="id"
+            selectedId={selectedId}
+            onSelect={(a) => setSelectedId(a.id)}
+            multiSel={multiSel}
+            onMultiSel={setMultiSel}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={handleSort}
+            searchable={false}
+            filterable={false}
+            onContextMenu={(e, row) => handleContextAction && handleContextAction(null, row)}
+          />
         </div>
 
-        <ResizablePanel id="agents-detail" side="right" defaultWidth={460} minWidth={280} maxWidth={700} label="Agent Detail">
-          <AgentDetail agent={agent} onEdit={() => setShowEdit(true)} />
-        </ResizablePanel>
-      </div>
-
-      {showAdd && <AgentModal title="Spawn New Agent" onClose={() => setShowAdd(false)} />}
-      {showEdit && <AgentModal title={"Edit · " + agent.name} agent={agent} onClose={() => setShowEdit(false)} />}
-    </div>
-  );
-}
-
-function FleetStat({ l, v, sub, tone }) {
-  return (
-    <div style={{ background: "var(--bg-1)", padding: "8px 12px" }}>
-      <div className="mono" style={{ fontSize: 9, color: "var(--fg-3)", letterSpacing: "0.16em", textTransform: "uppercase" }}>{l}</div>
-      <div className="mono tabular" style={{ fontSize: 18, color: tone === "red" ? "var(--red)" : tone === "cyan" ? "var(--cyan)" : tone === "amber" ? "var(--amber)" : tone === "magenta" ? "var(--magenta)" : "var(--fg-0)", marginTop: 2, lineHeight: 1 }}>{v}</div>
-      <div className="mono" style={{ fontSize: 9.5, color: "var(--fg-3)", marginTop: 3 }}>{sub}</div>
-    </div>
-  );
-}
-
-function AgentCard({ agent, selected, onClick, liveTick, isSelected, onSelect }) {
-  const cli = AGENT_CLIS.find(c => c.id === agent.cli);
-  const role = AGENT_ROLES.find(r => r.id === agent.role);
-  const statusColor =
-    !agent.enabled ? "dim" :
-    agent.workStatus === "working" ? "cyan" :
-    agent.workStatus === "idle" ? "fg-2" :
-    agent.workStatus === "stalled" ? "red" : "amber";
-
-  const heartbeatStale = (Date.now() - agent.lastHeartbeat) > 30_000;
-
-  // mini activity sparkline
-  const hist = useMemo(() => Array.from({ length: 24 }, (_, i) => {
-    const r = ((agent.id.charCodeAt(0) + i * 7) % 11) + 1;
-    return r;
-  }), [agent.id]);
-
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: selected ? "var(--bg-3)" : "var(--bg-1)",
-        padding: "10px 12px",
-        cursor: "pointer",
-        borderLeft: `2px solid ${selected ? "var(--accent)" : `var(--${role.color})`}`,
-        opacity: agent.enabled ? 1 : 0.55,
-        position: "relative",
-      }}
-    >
-      {/* Top row: checkbox + name + role + cli + status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span className={"cell-checkbox" + (isSelected ? " on" : "")} onClick={onSelect} style={{ cursor: "pointer" }} />
-        <span className={"dot " + (statusColor === "cyan" ? "cyan pulse" : statusColor === "red" ? "red pulse" : statusColor === "amber" ? "amber" : statusColor === "fg-2" ? "" : "")} />
-        <span className="cond uppercase" style={{ fontSize: 13, color: "var(--fg-0)", fontWeight: 700, letterSpacing: "0.04em" }}>{agent.name}</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: `var(--${role.color})` }}>{role.glyph} {role.label}</span>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center" }}>
-          <Pill tone={statusColor === "fg-2" ? "dim" : statusColor}>{agent.enabled ? agent.workStatus.toUpperCase() : "DISABLED"}</Pill>
-        </span>
-      </div>
-
-      {/* CLI + model */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-        <span style={{
-          padding: "1px 5px",
-          background: "var(--bg-3)",
-          color: `var(--${cli.color})`,
-          borderLeft: `2px solid var(--${cli.color})`,
-          fontWeight: 600,
-        }}>{cli.label}</span>
-        <span style={{ color: "var(--fg-3)" }}>›</span>
-        <span style={{ color: "var(--fg-1)" }}>{agent.model}</span>
-        <span style={{ marginLeft: "auto", color: "var(--fg-3)", fontSize: 10 }}>
-          {agent.pid ? `pid ${agent.pid}` : "no-pid"}
-        </span>
-      </div>
-
-      {/* Current task */}
-      <div style={{ marginTop: 8, background: "var(--bg-2)", padding: "6px 8px", borderLeft: `2px solid ${agent.currentTask ? `var(--${role.color})` : "var(--line-2)"}` }}>
-        {agent.currentTask ? (
-          <>
-            <div className="mono" style={{ fontSize: 9.5, color: "var(--fg-3)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-              CURRENT · <span style={{ color: "var(--accent)" }}>T-{agent.currentTask}</span>
-              <span style={{ marginLeft: 8, color: "var(--fg-3)" }}>attempt {agent.attempts}</span>
-            </div>
-            <div className="mono" style={{ marginTop: 3, fontSize: 11, color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {agent.currentDescription}
-            </div>
-          </>
-        ) : (
-          <div className="mono" style={{ color: "var(--fg-3)", fontSize: 11 }}>// idle — no task claimed</div>
+        {/* Detail Panel */}
+        {selectedConfig && (
+          <ResizablePanel id="agent-config-detail" side="right" defaultWidth={480} minWidth={300} maxWidth={720} label="Configuration Detail">
+            <ConfigDetailPanel
+              config={selectedConfig}
+              onEdit={() => { setEditingConfig(selectedConfig); setShowEditModal(true); }}
+              onPromptEdit={() => { setPromptTarget(selectedConfig); setShowPromptModal(true); }}
+            />
+          </ResizablePanel>
         )}
       </div>
 
-      {/* Error */}
-      {agent.lastError && (
-        <div style={{ marginTop: 6, color: "var(--red)", fontFamily: "var(--font-mono)", fontSize: 10.5, padding: "3px 6px", background: "var(--red-bg)", borderLeft: "2px solid var(--red)" }}>
-          ⚠ {agent.lastError}
-        </div>
+      {showAddModal && (
+        <ConfigModal
+          title="New Agent Configuration"
+          onClose={() => setShowAddModal(false)}
+          onSave={(config) => {
+            setAgentConfigs(prev => [...prev, { ...config, id: "agent-" + Date.now() }]);
+            setShowAddModal(false);
+          }}
+        />
       )}
+      {showEditModal && editingConfig && (
+        <ConfigModal
+          title={"Edit · " + editingConfig.name}
+          config={editingConfig}
+          onClose={() => setShowEditModal(false)}
+          onSave={(config) => {
+            setAgentConfigs(prev => prev.map(a => a.id === config.id ? config : a));
+            setShowEditModal(false);
+          }}
+        />
+      )}
+      {showPromptModal && promptTarget && (
+        <PromptEditorModal
+          config={promptTarget}
+          onClose={() => setShowPromptModal(false)}
+          onSave={(prompt) => {
+            setAgentConfigs(prev => prev.map(a => a.id === promptTarget.id ? { ...a, promptPreview: prompt, prompt } : a));
+            setShowPromptModal(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
-      {/* Telemetry strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 8, fontFamily: "var(--font-mono)" }}>
-        <Mini l="runs/24h" v={agent.runs24h} />
-        <Mini l="success" v={agent.successRate ? agent.successRate.toFixed(0) + "%" : "—"} tone={agent.successRate > 90 ? "green" : agent.successRate > 75 ? "amber" : agent.successRate ? "red" : ""} />
-        <Mini l="tok/24h" v={fmtNum(agent.tokensToday)} />
-        <Mini l="$/24h" v={"$" + agent.costToday.toFixed(2)} tone="amber" />
+// ============================================================ DETAIL PANEL
+
+function ConfigDetailPanel({ config, onEdit, onPromptEdit }) {
+  const cli = AGENT_CLIS.find(c => c.id === config.cli);
+  const role = AGENT_ROLES.find(r => r.id === config.role);
+  const command = cli?.command + " --model " + config.model;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "auto" }}>
+      <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--line-1)", background: "var(--bg-2)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ color: `var(--${role?.color || "fg-2"})` }}>{role?.glyph}</span>
+          <Pill tone={config.enabled ? "green" : "dim"}>{config.enabled ? "ENABLED" : "DISABLED"}</Pill>
+        </div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, color: "var(--fg-0)", fontWeight: 600 }}>{config.name}</div>
       </div>
 
-      {/* Activity sparkline + heartbeat */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <Spark data={hist} tone={role.color} width={180} height={16} />
-        <span className="mono" style={{ fontSize: 9.5, color: heartbeatStale ? "var(--red)" : "var(--fg-3)", marginLeft: "auto" }}>
-          ♥ {fmtTime(agent.lastHeartbeat)}
-        </span>
-      </div>
-
-      {/* Recurring tasks summary */}
-      <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 4 }}>
-        {agent.recurring.slice(0, 3).map(r => (
-          <span key={r.id} className="mono" style={{
-            fontSize: 9.5,
-            color: r.enabled ? "var(--fg-2)" : "var(--fg-3)",
-            background: "var(--bg-2)",
-            border: "1px solid var(--line-1)",
-            padding: "1px 5px",
-            opacity: r.enabled ? 1 : 0.5,
+      <div style={{ flex: 1, overflow: "auto", padding: "0 0 20px" }}>
+        <div className="section-label" style={{ marginTop: 12 }}>EXECUTION COMMAND</div>
+        <div style={{ padding: "0 12px 12px" }}>
+          <div style={{
+            background: "var(--bg-0)", border: "1px solid var(--line-1)", padding: "8px 10px",
+            fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--amber)",
+            wordBreak: "break-all",
           }}>
-            <span style={{ color: r.enabled ? "var(--accent)" : "var(--fg-3)" }}>↻</span> {r.label} · <span style={{ color: "var(--fg-3)" }}>{r.cron}</span>
-          </span>
-        ))}
-        {agent.recurring.length > 3 && (
-          <span className="mono" style={{ fontSize: 9.5, color: "var(--fg-3)" }}>+{agent.recurring.length - 3}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Mini({ l, v, tone }) {
-  const c = tone === "green" ? "var(--green)" : tone === "amber" ? "var(--amber)" : tone === "red" ? "var(--red)" : "var(--fg-0)";
-  return (
-    <div style={{ background: "var(--bg-2)", padding: "3px 6px" }}>
-      <div className="mono" style={{ fontSize: 8.5, color: "var(--fg-3)", letterSpacing: "0.14em", textTransform: "uppercase" }}>{l}</div>
-      <div className="mono tabular" style={{ fontSize: 11.5, color: c, marginTop: 1 }}>{v}</div>
-    </div>
-  );
-}
-
-// ============================================================ DETAIL
-
-function AgentDetail({ agent, onEdit }) {
-  const [tab, setTab] = useState("config");
-  const cli = AGENT_CLIS.find(c => c.id === agent.cli);
-  const role = AGENT_ROLES.find(r => r.id === agent.role);
-
-  return (
-    <div className="inspector" style={{ borderLeft: "1px solid var(--line-1)" }}>
-      <div className="inspector-head">
-        <div className="type-row">
-          <span style={{ color: `var(--${role.color})` }} className="mono">{role.glyph}</span>
-          <Pill tone={role.color}>{role.label}</Pill>
-          <Pill tone={agent.enabled ? (agent.workStatus === "working" ? "cyan" : agent.workStatus === "stalled" ? "red" : "dim") : "dim"}>
-            {agent.enabled ? agent.workStatus.toUpperCase() : "DISABLED"}
-          </Pill>
-          <span className="asset-id">{agent.id}</span>
-        </div>
-        <div className="value-big" style={{ fontFamily: "var(--font-sans)", fontWeight: 600, fontSize: 16 }}>{agent.name}</div>
-        <div className="submeta" style={{ flexWrap: "wrap", gap: 12 }}>
-          <span><span style={{ color: `var(--${cli.color})` }}>{cli.label}</span> · <b>{agent.model}</b></span>
-          {agent.startedAt && <span>up <b>{fmtTime(agent.startedAt)}</b></span>}
-          {agent.pid && <span>pid <b>{agent.pid}</b></span>}
-        </div>
-      </div>
-
-      <div className="inspector-tabs">
-        {["config", "recurring", "history", "logs"].map(t => (
-          <button key={t} className={"insp-tab" + (tab === t ? " active" : "")} onClick={() => setTab(t)}>{t}</button>
-        ))}
-      </div>
-
-      <div className="inspector-body">
-        {tab === "config" && <ConfigTab agent={agent} onEdit={onEdit} />}
-        {tab === "recurring" && <RecurringTab agent={agent} />}
-        {tab === "history" && <HistoryTab agent={agent} />}
-        {tab === "logs" && <LogsTab agent={agent} />}
-      </div>
-    </div>
-  );
-}
-
-function ConfigTab({ agent, onEdit }) {
-  return (
-    <>
-      <div className="section-label">RUNTIME</div>
-      <table className="kv-table">
-        <tbody>
-          <tr><td>CLI</td><td><span style={{ color: `var(--${AGENT_CLIS.find(c => c.id === agent.cli).color})`, fontWeight: 600 }}>{agent.cli}</span></td></tr>
-          <tr><td>Model</td><td>{agent.model}</td></tr>
-          <tr><td>Command</td><td><span className="mono" style={{ color: "var(--amber)" }}>{AGENT_CLIS.find(c => c.id === agent.cli).command} {"<prompt>"}</span></td></tr>
-          <tr><td>Working dir</td><td className="mono">{agent.cwd}</td></tr>
-          <tr><td>Process</td><td>{agent.pid ? <span className="mono" style={{ color: "var(--green)" }}>pid {agent.pid}</span> : <span className="mono" style={{ color: "var(--fg-3)" }}>no process</span>}</td></tr>
-          <tr><td>Started</td><td>{agent.startedAt ? fmtTime(agent.startedAt) + " ago" : "—"}</td></tr>
-          <tr><td>Heartbeat</td><td>{fmtTime(agent.lastHeartbeat)} ago</td></tr>
-        </tbody>
-      </table>
-
-      <div className="section-label">SYSTEM PROMPT · preview</div>
-      <div style={{ padding: "0 12px 8px" }}>
-        <div style={{ background: "var(--bg-0)", border: "1px solid var(--line-1)", padding: "8px 10px", fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--fg-1)", lineHeight: 1.5 }}>
-          {agent.promptPreview}
-          <span style={{ color: "var(--fg-3)" }}> …</span>
-        </div>
-      </div>
-
-      <div className="section-label">CURRENT WORK</div>
-      <div style={{ padding: "4px 12px 12px" }}>
-        {agent.currentTask ? (
-          <>
-            <div className="mono" style={{ fontSize: 11, color: "var(--fg-3)" }}>Task <span style={{ color: "var(--accent)" }}>T-{agent.currentTask}</span> · attempt {agent.attempts}</div>
-            <div className="mono" style={{ marginTop: 4, fontSize: 11.5, color: "var(--fg-1)", lineHeight: 1.5 }}>{agent.currentDescription}</div>
-          </>
-        ) : (
-          <div className="mono" style={{ color: "var(--fg-3)", fontSize: 11 }}>// agent is idle</div>
-        )}
-        {agent.lastError && (
-          <div style={{ marginTop: 8, color: "var(--red)", background: "var(--red-bg)", padding: "6px 8px", borderLeft: "2px solid var(--red)", fontSize: 11 }} className="mono">
-            ⚠ {agent.lastError}
-          </div>
-        )}
-      </div>
-
-      <div className="section-label">CONTROLS</div>
-      <div style={{ padding: "4px 12px 14px", display: "flex", flexWrap: "wrap", gap: 4 }}>
-        <button className="btn primary tiny">{agent.enabled ? "Disable" : "Enable"}</button>
-        <button className="btn ghost tiny" onClick={onEdit}>Edit Config</button>
-        <button className="btn ghost tiny">Edit Prompt</button>
-        <button className="btn ghost tiny">Restart</button>
-        <button className="btn ghost tiny">Send Signal</button>
-        <button className="btn ghost tiny">Reassign Task</button>
-        <button className="btn danger tiny">Kill</button>
-        <button className="btn danger tiny">Remove</button>
-      </div>
-    </>
-  );
-}
-
-function RecurringTab({ agent }) {
-  return (
-    <>
-      <div className="section-label">RECURRING TASKS · {agent.recurring.length}</div>
-      {agent.recurring.map(r => (
-        <div key={r.id} style={{
-          margin: "0 12px 8px",
-          padding: "8px 10px",
-          background: "var(--bg-0)",
-          border: "1px solid var(--line-1)",
-          borderLeft: `2px solid ${r.enabled ? "var(--accent)" : "var(--line-2)"}`,
-          opacity: r.enabled ? 1 : 0.5,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className={"cell-checkbox" + (r.enabled ? " on" : "")} />
-            <span className="mono" style={{ color: "var(--fg-0)", fontSize: 11.5, fontWeight: 500 }}>{r.label}</span>
-            <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-              <button className="btn ghost tiny">Edit</button>
-              <button className="btn ghost tiny">Run Now</button>
-              <button className="btn danger tiny">×</button>
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 10 }}>
-            <span><span style={{ color: "var(--fg-3)" }}>schedule</span> <span style={{ color: "var(--amber)" }}>{r.cron}</span></span>
-            <span><span style={{ color: "var(--fg-3)" }}>last</span> <span style={{ color: "var(--fg-1)" }}>{r.lastRun ? fmtTime(r.lastRun) + " ago" : "never"}</span></span>
-            <span><span style={{ color: "var(--fg-3)" }}>next</span> <span style={{ color: "var(--cyan)" }}>{r.enabled ? "in ~" + (Math.floor(Math.random() * 20) + 1) + "m" : "—"}</span></span>
+            {command} {"<prompt>"}
           </div>
         </div>
-      ))}
 
-      <div style={{ padding: "0 12px 14px" }}>
-        <button className="btn ghost" style={{ width: "100%", height: 28, justifyContent: "center" }}>+ Add Recurring Task</button>
-      </div>
+        <div className="section-label">CONFIGURATION</div>
+        <table className="kv-table">
+          <tbody>
+            <tr><td>CLI</td><td><span style={{ color: `var(--${cli?.color})`, fontWeight: 600 }}>{cli?.label}</span></td></tr>
+            <tr><td>Provider</td><td>{cli?.label?.toUpperCase()}</td></tr>
+            <tr><td>Model</td><td>{config.model}</td></tr>
+            <tr><td>Role</td><td><span style={{ color: `var(--${role?.color})` }}>{role?.glyph} {role?.label}</span></td></tr>
+            <tr><td>Priority</td><td>{config.priority || 1}</td></tr>
+            <tr><td>Working Dir</td><td className="mono">{config.cwd || "/srv/argus"}</td></tr>
+          </tbody>
+        </table>
 
-      <div className="section-label">PROMPT TEMPLATES · agent-local</div>
-      <div style={{ padding: "4px 12px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
-        {["pick-next-task.md", "review-uncommitted.md", "investigate-bug.md", "run-build.sh"].map(t => (
-          <div key={t} className="mono" style={{ fontSize: 10.5, color: "var(--fg-2)", display: "flex", gap: 6, padding: "2px 6px", background: "var(--bg-2)" }}>
-            <span style={{ color: "var(--fg-3)" }}>▷</span>
-            <span style={{ flex: 1 }}>{t}</span>
-            <span style={{ color: "var(--fg-3)" }}>edit</span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function HistoryTab({ agent }) {
-  return (
-    <>
-      <div className="section-label">RECENT RUNS · {agent.history.length}</div>
-      <ArgusDataGrid
-        columns={[
-          { key: "startedAt", label: "Started", className: "c-seen", width: 80, render: (h) => <span style={{ color: "var(--fg-2)" }}>{fmtTime(h.startedAt)} ago</span> },
-          { key: "taskId", label: "Task", className: "c-type", width: 60, render: (h) => <span style={{ color: "var(--accent)" }}>T-{h.taskId}</span> },
-          { key: "duration", label: "Duration", className: "c-int", width: 80, render: (h) => <span className="tabular" style={{ color: "var(--fg-1)" }}>{fmtDur(h.duration)}</span> },
-          { key: "tokensIn", label: "Tok In", className: "c-worker", width: 70, render: (h) => <span className="tabular" style={{ color: "var(--fg-2)" }}>{fmtNum(h.tokensIn)}</span> },
-          { key: "tokensOut", label: "Tok Out", className: "c-worker", width: 70, render: (h) => <span className="tabular" style={{ color: "var(--fg-1)" }}>{fmtNum(h.tokensOut)}</span> },
-          { key: "cost", label: "Cost", className: "c-risk", width: 70, render: (h) => <span className="tabular" style={{ color: "var(--amber)" }}>${h.cost.toFixed(3)}</span> },
-          { key: "status", label: "Status", className: "c-status", width: 80, render: (h) => <Pill tone={h.status === "completed" ? "green" : h.status === "failed" ? "red" : "amber"}>{h.status}</Pill> },
-        ]}
-        rows={agent.history}
-        rowKey="taskId"
-      />
-    </>
-  );
-}
-
-function LogsTab({ agent }) {
-  const lines = [
-    [Date.now() - 3000,  "INFO",  "claiming task 052 from queue (priority=high)"],
-    [Date.now() - 2200,  "DEBUG", "fetched scope rules · 8 rules cached"],
-    [Date.now() - 1900,  "INFO",  "spawning claude --print --model claude-sonnet-4-5"],
-    [Date.now() - 1800,  "DEBUG", "claude pid=14283 attached"],
-    [Date.now() - 800,   "INFO",  "model response · 7.4kb · 412 input + 1812 output tokens"],
-    [Date.now() - 600,   "DEBUG", "editing src/Services/Argus.ProgramScopeService/Endpoints.cs"],
-    [Date.now() - 300,   "INFO",  "running dotnet build · target net8.0"],
-    [Date.now() - 200,   "WARN",  "build emitted 1 warning · CS8602 possible null reference"],
-    [Date.now() - 100,   "INFO",  "task 052 → checkpoint v3 written · cursor at endpoint:export"],
-    [Date.now() - 30,    "DEBUG", "heartbeat sent"],
-  ].reverse();
-  return (
-    <>
-      <div className="section-label">LIVE LOG · stdout/stderr · last 60s</div>
-      <div style={{ padding: "0 8px 12px", fontFamily: "var(--font-mono)", fontSize: 10.5 }}>
-        {lines.map((l, i) => {
-          const [t, lvl, msg] = l;
-          const c = lvl === "WARN" ? "var(--amber)" : lvl === "ERROR" ? "var(--red)" : lvl === "INFO" ? "var(--cyan)" : "var(--fg-3)";
-          return (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "60px 56px 1fr", gap: 6, padding: "1px 6px" }}>
-              <span style={{ color: "var(--fg-3)", fontSize: 9.5 }}>{fmtClock(t)}</span>
-              <span style={{ color: c, fontSize: 9.5 }}>{lvl}</span>
-              <span style={{ color: "var(--fg-1)" }}>{msg}</span>
+        <div className="section-label">PROMPT</div>
+        <div style={{ padding: "0 12px 12px" }}>
+          {config.promptPreview ? (
+            <>
+              <div style={{
+                background: "var(--bg-0)", border: "1px solid var(--line-1)", padding: "8px 10px",
+                fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--fg-1)", maxHeight: 120, overflow: "hidden",
+                position: "relative",
+              }}>
+                {config.promptPreview}
+                <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 30, background: "linear-gradient(transparent, var(--bg-0))" }} />
+              </div>
+              <button className="btn ghost tiny" style={{ marginTop: 6 }} onClick={onPromptEdit}>Edit Prompt</button>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "16px", background: "var(--bg-0)", border: "1px dashed var(--line-2)" }}>
+              <div className="mono" style={{ fontSize: 11, color: "var(--fg-3)", marginBottom: 8 }}>No custom prompt</div>
+              <button className="btn ghost tiny" onClick={onPromptEdit}>+ Add Prompt</button>
             </div>
-          );
-        })}
+          )}
+        </div>
+
+        <div className="section-label">ACTIONS</div>
+        <div style={{ padding: "4px 12px 14px", display: "flex", flexWrap: "wrap", gap: 4 }}>
+          <button className="btn primary tiny" onClick={onEdit}>Edit Configuration</button>
+          <button className="btn ghost tiny">Duplicate</button>
+          <button className="btn danger tiny">Delete</button>
+        </div>
       </div>
-      <div style={{ padding: "0 12px 14px", display: "flex", gap: 4 }}>
-        <button className="btn ghost tiny">Tail Full Log</button>
-        <button className="btn ghost tiny">Export</button>
-      </div>
-    </>
+    </div>
   );
 }
 
-// ============================================================ MODAL
+// ============================================================ CONFIG MODAL
 
-function AgentModal({ title, agent, onClose }) {
-  const [cli, setCli] = useState(agent?.cli || "claude");
-  const [model, setModel] = useState(agent?.model || AGENT_MODELS.claude[0]);
-  const [role, setRole] = useState(agent?.role || "development");
-  const [name, setName] = useState(agent?.name || `Agent ${AGENTS.length + 1}`);
-  const [prompt, setPrompt] = useState(agent?.promptPreview || "");
+function ConfigModal({ title, config, onClose, onSave }) {
+  const [name, setName] = useState(config?.name || "");
+  const [cli, setCli] = useState(config?.cli || "claude");
+  const [model, setModel] = useState(config?.model || "");
+  const [role, setRole] = useState(config?.role || "development");
+  const [priority, setPriority] = useState(config?.priority || 1);
+  const [prompt, setPrompt] = useState(config?.promptPreview || "");
+
+  useEffect(() => {
+    if (!model && AGENT_MODELS[cli]) setModel(AGENT_MODELS[cli][0]);
+  }, [cli]);
 
   return (
     <div style={{
@@ -502,7 +327,7 @@ function AgentModal({ title, agent, onClose }) {
       backdropFilter: "blur(2px)", display: "grid", placeItems: "center", zIndex: 100,
     }} onClick={onClose}>
       <div style={{
-        background: "var(--bg-1)", border: "1px solid var(--line-3)", width: 560,
+        background: "var(--bg-1)", border: "1px solid var(--line-3)", width: 600,
         boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{
@@ -515,19 +340,16 @@ function AgentModal({ title, agent, onClose }) {
           <button className="icon-btn" style={{ marginLeft: "auto" }} onClick={onClose}>×</button>
         </div>
         <div style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
-          <FormField label="Name">
-            <input
-              value={name} onChange={(e) => setName(e.target.value)}
-              style={{ background: "var(--bg-0)", border: "1px solid var(--line-2)", padding: "5px 8px", color: "var(--fg-0)", fontFamily: "inherit", fontSize: 11.5, outline: "none", width: "100%" }}
-            />
+          <FormField label="Name" full>
+            <input value={name} onChange={(e) => setName(e.target.value)} style={inStyle} />
           </FormField>
           <FormField label="Role">
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={selStyle}>
-              {AGENT_ROLES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            <select value={role} onChange={(e) => setRole(e.target.value)} style={inStyle}>
+              {AGENT_ROLES.map(r => <option key={r.id} value={r.id}>{r.glyph} {r.label}</option>)}
             </select>
           </FormField>
 
-          <FormField label="CLI">
+          <FormField label="CLI Tool">
             <div style={{ display: "flex", border: "1px solid var(--line-2)" }}>
               {AGENT_CLIS.map(c => (
                 <button key={c.id} onClick={() => { setCli(c.id); setModel(AGENT_MODELS[c.id][0]); }}
@@ -542,33 +364,30 @@ function AgentModal({ title, agent, onClose }) {
             </div>
           </FormField>
           <FormField label="Model">
-            <select value={model} onChange={(e) => setModel(e.target.value)} style={selStyle}>
-              {AGENT_MODELS[cli].map(m => <option key={m} value={m}>{m}</option>)}
+            <select value={model} onChange={(e) => setModel(e.target.value)} style={inStyle}>
+              {AGENT_MODELS[cli]?.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </FormField>
 
-          <FormField label="Spawn command" full>
+          <FormField label="Priority">
+            <input type="number" min="1" max="10" value={priority} onChange={(e) => setPriority(+e.target.value)} style={inStyle} />
+          </FormField>
+
+          <FormField label="Generated Command" full>
             <div style={{ background: "var(--bg-0)", border: "1px solid var(--line-2)", padding: "6px 8px", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-              {AGENT_CLIS.find(c => c.id === cli).command} --model {model} ...
+              {AGENT_CLIS.find(c => c.id === cli)?.command || cli} --model {model} {"<prompt>"}
             </div>
           </FormField>
 
-          <FormField label="System prompt" full>
+          <FormField label="Custom Prompt (optional)" full>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              rows={5}
-              placeholder="You are a senior engineer working on the ArgusEngine codebase…"
-              style={{
-                background: "var(--bg-0)", border: "1px solid var(--line-2)",
-                padding: "6px 8px", color: "var(--fg-1)", fontFamily: "var(--font-mono)",
-                fontSize: 11, outline: "none", width: "100%", resize: "vertical",
-              }}
+              rows={4}
+              placeholder="Optional: Add a custom system prompt that will be prepended to agent commands..."
+              style={{ ...inStyle, resize: "vertical" }}
             />
           </FormField>
-
-          <FormField label="Concurrency limit"><input defaultValue="1" style={inStyle} /></FormField>
-          <FormField label="Per-run timeout (sec)"><input defaultValue="900" style={inStyle} /></FormField>
         </div>
 
         <div style={{
@@ -576,18 +395,84 @@ function AgentModal({ title, agent, onClose }) {
           display: "flex", gap: 6, justifyContent: "flex-end",
         }}>
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={onClose}>{agent ? "Save" : "Spawn"}</button>
+          <button className="btn primary" onClick={() => {
+            onSave({
+              ...config,
+              name, cli, model, role, priority,
+              promptPreview: prompt,
+              cwd: config?.cwd || "/srv/argus",
+              enabled: config?.enabled ?? true,
+            });
+          }}>Save</button>
         </div>
       </div>
     </div>
   );
 }
 
-const selStyle = {
-  background: "var(--bg-0)", border: "1px solid var(--line-2)", padding: "5px 8px",
-  color: "var(--fg-0)", fontFamily: "var(--font-mono)", fontSize: 11.5, outline: "none", width: "100%",
-};
-const inStyle = selStyle;
+// ============================================================ PROMPT EDITOR MODAL
+
+function PromptEditorModal({ config, onClose, onSave }) {
+  const [prompt, setPrompt] = useState(config?.promptPreview || "");
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+      backdropFilter: "blur(2px)", display: "grid", placeItems: "center", zIndex: 100,
+    }} onClick={onClose}>
+      <div style={{
+        background: "var(--bg-1)", border: "1px solid var(--line-3)", width: 700,
+        maxHeight: "80vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{
+          height: 32, padding: "0 14px", borderBottom: "1px solid var(--line-2)",
+          background: "var(--bg-2)", display: "flex", alignItems: "center", gap: 8,
+          fontFamily: "var(--font-cond)", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", fontSize: 11,
+          flexShrink: 0,
+        }}>
+          <span className="pre-tick" style={{ width: 6, height: 6, background: "var(--cyan)" }} />
+          Prompt · {config?.name}
+          <button className="icon-btn" style={{ marginLeft: "auto" }} onClick={onClose}>×</button>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+          <div style={{ marginBottom: 8 }}>
+            <span className="mono" style={{ fontSize: 10, color: "var(--fg-3)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+              Custom Prompt
+            </span>
+            <span style={{ marginLeft: 8, fontSize: 10, color: "var(--fg-3)" }}>
+              (prepended to default system prompt)
+            </span>
+          </div>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={16}
+            placeholder="You are a senior C# engineer working on the ArgusEngine codebase. Implement assigned tasks following existing patterns, write tests, and update documentation as needed..."
+            style={{
+              width: "100%", padding: "10px 12px", background: "var(--bg-0)",
+              border: "1px solid var(--line-2)", color: "var(--fg-0)",
+              fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
+              resize: "vertical", minHeight: 200,
+            }}
+          />
+          <div style={{ marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>
+            This prompt will be included with the command: <span style={{ color: "var(--amber)" }}>
+              {AGENT_CLIS.find(c => c.id === config?.cli)?.command || config?.cli} --model {config?.model} [this prompt]
+            </span>
+          </div>
+        </div>
+        <div style={{
+          padding: 12, borderTop: "1px solid var(--line-2)", background: "var(--bg-2)",
+          display: "flex", gap: 6, justifyContent: "flex-end",
+        }}>
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={() => onSave(prompt)}>Save Prompt</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function FormField({ label, children, full }) {
   return (
@@ -597,5 +482,10 @@ function FormField({ label, children, full }) {
     </div>
   );
 }
+
+const inStyle = {
+  background: "var(--bg-0)", border: "1px solid var(--line-2)", padding: "5px 8px",
+  color: "var(--fg-0)", fontFamily: "var(--font-mono)", fontSize: 11.5, outline: "none", width: "100%",
+};
 
 Object.assign(window, { AgentsPage });
