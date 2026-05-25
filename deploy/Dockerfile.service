@@ -69,7 +69,7 @@ RUN echo "=== CLI check ===" && node --version && npm --version && \
     (/usr/local/bin/claude --version 2>&1 || echo "claude not working")
 
 # Write version info for frontend
-RUN echo 'window.__ARGUS_BUILD__ = { version: "${GIT_SHA}", date: "${BUILD_DATE}" };' > /app/wwwroot/version.js
+RUN echo "window.__ARGUS_BUILD__ = { version: '"$GIT_SHA"', date: '"$BUILD_DATE"' };" > /app/wwwroot/version.js
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
 
