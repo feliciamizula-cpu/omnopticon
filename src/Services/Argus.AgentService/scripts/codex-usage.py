@@ -7,6 +7,7 @@ expects a small provider-window JSON shape, so this maps Codex's percent-used
 windows onto a 0-100 percent scale.
 """
 import json
+import os
 import select
 import subprocess
 import time
@@ -14,6 +15,12 @@ from datetime import datetime, timezone
 
 
 TIMEOUT_SECONDS = 12
+ENV_ALIASES = {
+    "fiveHour": ("FIVE_HOUR", "5H"),
+    "twentyFourHour": ("TWENTY_FOUR_HOUR", "24H"),
+    "weekly": ("WEEKLY", "7D"),
+    "monthly": ("MONTHLY", "30D"),
+}
 
 
 def iso_from_unix(value):
@@ -78,6 +85,75 @@ def window_from_codex(name, payload, source):
     return window
 
 
+def env_value(window, name):
+    for alias in ENV_ALIASES[window]:
+        value = os.environ.get(f"CODEX_{alias}_{name}")
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def decimal_env(window, name):
+    value = env_value(window, name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def env_window(window, label):
+    limit = decimal_env(window, "LIMIT")
+    used = decimal_env(window, "USED")
+    remaining = decimal_env(window, "REMAINING")
+    resets_at = env_value(window, "RESETS_AT") or env_value(window, "RESET_AT")
+    if limit is None or limit <= 0:
+        return None
+
+    if used is None and remaining is None:
+        remaining = limit
+
+    result = {
+        "limit": round(limit, 4),
+        "source": "configuration",
+        "label": label,
+    }
+    if used is not None:
+        result["used"] = round(max(0.0, used), 4)
+    if remaining is not None:
+        result["remaining"] = round(max(0.0, remaining), 4)
+    if resets_at:
+        result["resetsAt"] = resets_at
+    return result
+
+
+def fallback_from_env():
+    output = {}
+    for key, label in [
+        ("fiveHour", "5 hour"),
+        ("twentyFourHour", "24 hour"),
+        ("weekly", "weekly"),
+        ("monthly", "monthly"),
+    ]:
+        window = env_window(key, label)
+        if window is not None:
+            output[key] = window
+
+    if output:
+        output["details"] = [{
+            "key": "usageSource",
+            "label": "Codex usage source",
+            "value": "Configured CODEX_* usage values; app-server quota probe was unavailable.",
+            "source": "configuration",
+        }]
+    return output
+
+
+def emit_fallback():
+    print(json.dumps(fallback_from_env()))
+
+
 def main():
     process = None
     try:
@@ -106,13 +182,13 @@ def main():
         )
         init = read_json_line(process, 1, deadline)
         if init is None or "error" in init:
-            print("{}")
+            emit_fallback()
             return
 
         send(process, 2, "account/rateLimits/read")
         response = read_json_line(process, 2, deadline)
         if response is None or "error" in response:
-            print("{}")
+            emit_fallback()
             return
 
         result = response.get("result") or {}
@@ -163,7 +239,7 @@ def main():
 
         print(json.dumps(output))
     except Exception:
-        print("{}")
+        emit_fallback()
     finally:
         if process is not None and process.poll() is None:
             process.terminate()

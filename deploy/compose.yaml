@@ -19,6 +19,7 @@ x-common-env: &common-env
   ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
   ConnectionStrings__redis: redis:6379
   ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
+  XDG_DATA_HOME: /root/.local/share
 
 x-service-defaults: &service-defaults
   restart: unless-stopped
@@ -183,6 +184,8 @@ services:
         ASSEMBLY_NAME: Argus.AgentService
     environment:
       <<: *common-env
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENCODE_AUTH_TOKEN: ${OPENCODE_AUTH_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
@@ -190,14 +193,36 @@ services:
       GEMINI_OAUTH_CLIENT_ID: ${GEMINI_OAUTH_CLIENT_ID}
       GEMINI_OAUTH_CLIENT_SECRET: ${GEMINI_OAUTH_CLIENT_SECRET}
       CODEX_FIVE_HOUR_LIMIT: ${CODEX_FIVE_HOUR_LIMIT:-0}
+      CODEX_FIVE_HOUR_USED: ${CODEX_FIVE_HOUR_USED:-}
+      CODEX_FIVE_HOUR_REMAINING: ${CODEX_FIVE_HOUR_REMAINING:-}
+      CODEX_FIVE_HOUR_RESETS_AT: ${CODEX_FIVE_HOUR_RESETS_AT:-}
       CODEX_TWENTY_FOUR_HOUR_LIMIT: ${CODEX_TWENTY_FOUR_HOUR_LIMIT:-0}
+      CODEX_TWENTY_FOUR_HOUR_USED: ${CODEX_TWENTY_FOUR_HOUR_USED:-}
+      CODEX_TWENTY_FOUR_HOUR_REMAINING: ${CODEX_TWENTY_FOUR_HOUR_REMAINING:-}
+      CODEX_TWENTY_FOUR_HOUR_RESETS_AT: ${CODEX_TWENTY_FOUR_HOUR_RESETS_AT:-}
       CODEX_WEEKLY_LIMIT: ${CODEX_WEEKLY_LIMIT:-0}
+      CODEX_WEEKLY_USED: ${CODEX_WEEKLY_USED:-}
+      CODEX_WEEKLY_REMAINING: ${CODEX_WEEKLY_REMAINING:-}
+      CODEX_WEEKLY_RESETS_AT: ${CODEX_WEEKLY_RESETS_AT:-}
       CODEX_MONTHLY_LIMIT: ${CODEX_MONTHLY_LIMIT:-0}
+      CODEX_MONTHLY_USED: ${CODEX_MONTHLY_USED:-}
+      CODEX_MONTHLY_REMAINING: ${CODEX_MONTHLY_REMAINING:-}
+      CODEX_MONTHLY_RESETS_AT: ${CODEX_MONTHLY_RESETS_AT:-}
+      OPENCODE_GO_FIVE_HOUR_USED: ${OPENCODE_GO_FIVE_HOUR_USED:-}
+      OPENCODE_GO_FIVE_HOUR_REMAINING: ${OPENCODE_GO_FIVE_HOUR_REMAINING:-}
+      OPENCODE_GO_FIVE_HOUR_RESETS_AT: ${OPENCODE_GO_FIVE_HOUR_RESETS_AT:-}
+      OPENCODE_GO_WEEKLY_USED: ${OPENCODE_GO_WEEKLY_USED:-}
+      OPENCODE_GO_WEEKLY_REMAINING: ${OPENCODE_GO_WEEKLY_REMAINING:-}
+      OPENCODE_GO_WEEKLY_RESETS_AT: ${OPENCODE_GO_WEEKLY_RESETS_AT:-}
+      OPENCODE_GO_MONTHLY_USED: ${OPENCODE_GO_MONTHLY_USED:-}
+      OPENCODE_GO_MONTHLY_REMAINING: ${OPENCODE_GO_MONTHLY_REMAINING:-}
+      OPENCODE_GO_MONTHLY_RESETS_AT: ${OPENCODE_GO_MONTHLY_RESETS_AT:-}
     volumes:
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude:/root/.claude:ro
-      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex
       - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.gemini:/root/.gemini:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.local/share/opencode:/root/.local/share/opencode:ro
       - /tmp:/tmp
 
   review-report:

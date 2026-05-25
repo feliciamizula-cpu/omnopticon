@@ -1,4 +1,4 @@
-namespace Argus.AgentService.ProviderUsage;
+﻿namespace Argus.AgentService.ProviderUsage;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -298,6 +298,12 @@ internal sealed class AgentProviderUsageService(
             return (true, claudeStatus, null);
         }
 
+        if (definition.Id.Equals("opencode", StringComparison.OrdinalIgnoreCase)
+            && TryGetOpenCodeCredentialStatus(out var openCodeStatus))
+        {
+            return (true, openCodeStatus, null);
+        }
+
         if (string.IsNullOrWhiteSpace(definition.AuthCheckArguments))
         {
             if (definition.Id.Equals("gemini", StringComparison.OrdinalIgnoreCase))
@@ -416,6 +422,27 @@ internal sealed class AgentProviderUsageService(
         return false;
     }
 
+    private static bool TryGetOpenCodeCredentialStatus(out string status)
+    {
+        foreach (var root in OpenCodeDataRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var authFile = Path.Combine(root, "auth.json");
+            if (FileExistsWithContent(authFile))
+            {
+                status = $"OpenCode credentials found in {root}";
+                return true;
+            }
+        }
+
+        status = string.Empty;
+        return false;
+    }
+
     private static IEnumerable<string> ClaudeConfigRoots()
     {
         var explicitRoot = Environment.GetEnvironmentVariable("CLAUDE_HOME");
@@ -428,6 +455,27 @@ internal sealed class AgentProviderUsageService(
         if (!string.IsNullOrWhiteSpace(home))
         {
             yield return Path.Combine(home, ".claude");
+        }
+    }
+
+    private static IEnumerable<string> OpenCodeDataRoots()
+    {
+        var explicitRoot = Environment.GetEnvironmentVariable("OPENCODE_DATA_HOME");
+        if (!string.IsNullOrWhiteSpace(explicitRoot))
+        {
+            yield return explicitRoot;
+        }
+
+        var xdgDataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (!string.IsNullOrWhiteSpace(xdgDataHome))
+        {
+            yield return Path.Combine(xdgDataHome, "opencode");
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, ".local", "share", "opencode");
         }
     }
 
@@ -674,9 +722,11 @@ internal sealed class AgentProviderUsageService(
             VersionArguments = "--version",
             LoginArguments = "auth login",
             AuthCheckArguments = "auth status",
-            AuthEnvironmentVariables = ["OPENCODE_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENAI_API_KEY"],
-            DisplayModelHint = "Mightymax / provider models",
-            LoginInstructions = "Run the Opencode auth flow for the account that owns your development quota.",
+            AuthEnvironmentVariables = ["OPENCODE_API_KEY", "OPENCODE_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENAI_API_KEY"],
+            UsageExecutable = "python3",
+            UsageArguments = ScriptPath("opencode-usage.py"),
+            DisplayModelHint = "OpenCode Go / provider models",
+            LoginInstructions = "Run the OpenCode auth flow for the account that owns your Go quota.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
             TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },

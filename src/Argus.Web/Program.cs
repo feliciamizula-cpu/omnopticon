@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -666,9 +666,21 @@ async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClie
     return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
 }
 
-async Task<IResult> ProxyGetProviderUsage(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
+async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
 {
     var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderUsage, ct);
+    if (ProviderUsageDefaults.IsEmptyOverview(result))
+    {
+        var gateway = new ArgusUiGateway(httpClientFactory);
+        var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+        var live = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage", ct);
+        if (!ProviderUsageDefaults.IsEmptyOverview(live))
+        {
+            await DevelopmentCache.SetJsonAsync(cache, DevelopmentCache.ProviderUsage, live!, ct);
+            result = live;
+        }
+    }
+
     warmer.QueueWarm();
     return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
 }
@@ -828,6 +840,18 @@ static bool IsPrivateOrLoopback(IPAddress address)
 internal static class ProviderUsageDefaults
 {
     public static JsonNode EmptyOverview() => JsonNode.Parse("""{"generatedAt":"1970-01-01T00:00:00Z","providers":[],"recommendedRoute":null}""")!;
+
+    public static bool IsEmptyOverview(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return true;
+        }
+
+        var providers = node["providers"];
+        return providers is JsonArray { Count: 0 }
+            && string.Equals(node["generatedAt"]?.GetValue<string>(), "1970-01-01T00:00:00Z", StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
@@ -855,7 +879,7 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 
             if (path.Contains("provider-usage", StringComparison.OrdinalIgnoreCase))
             {
-                return ProviderUsageDefaults.EmptyOverview();
+                return null;
             }
 
             if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)

@@ -1,4 +1,4 @@
-namespace Argus.Web;
+﻿namespace Argus.Web;
 
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
@@ -48,9 +48,9 @@ public sealed class ProviderUsageCacheWarmer(
                 usage = await gateway.GetJsonAsync(endpoints.Agent, usagePath, cancellationToken);
             }
 
-            if (usage is not null)
+            if (!ProviderUsageDefaults.IsEmptyOverview(usage))
             {
-                await DevelopmentCache.SetJsonAsync(cache, DevelopmentCache.ProviderUsage, usage, cancellationToken);
+                await DevelopmentCache.SetJsonAsync(cache, DevelopmentCache.ProviderUsage, usage!, cancellationToken);
             }
 
             var routing = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage/routing-preview", cancellationToken);
@@ -59,7 +59,7 @@ public sealed class ProviderUsageCacheWarmer(
                 await DevelopmentCache.SetJsonAsync(cache, DevelopmentCache.ProviderRouting, routing, cancellationToken);
             }
 
-            if (usage is not null || routing is not null)
+            if (!ProviderUsageDefaults.IsEmptyOverview(usage) || routing is not null)
             {
                 await notifier.NotifyAsync("provider-usage", forceRefresh ? "refreshed" : "warmed", cancellationToken);
             }
