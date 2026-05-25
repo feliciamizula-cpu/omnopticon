@@ -145,8 +145,6 @@ services:
       args:
         PROJECT_PATH: src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj
         ASSEMBLY_NAME: Argus.RealtimeService
-    ports:
-      - "${ARGUS_REALTIME_PORT:-8082}:8080"
 
   proxy-registry-service:
     <<: *service-defaults
@@ -174,7 +172,7 @@ services:
         PROJECT_PATH: src/Argus.Web/Argus.Web.csproj
         ASSEMBLY_NAME: Argus.Web
     ports:
-      - "${ARGUS_WEB_PORT:-8082}:8080"
+      - "${ARGUS_WEB_PORT:-8080}:8080"
 
   agent-service:
     <<: *service-defaults
@@ -189,6 +187,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY}
+      GEMINI_OAUTH_CLIENT_ID: ${GEMINI_OAUTH_CLIENT_ID}
+      GEMINI_OAUTH_CLIENT_SECRET: ${GEMINI_OAUTH_CLIENT_SECRET}
       CODEX_FIVE_HOUR_LIMIT: ${CODEX_FIVE_HOUR_LIMIT:-0}
       CODEX_TWENTY_FOUR_HOUR_LIMIT: ${CODEX_TWENTY_FOUR_HOUR_LIMIT:-0}
       CODEX_WEEKLY_LIMIT: ${CODEX_WEEKLY_LIMIT:-0}
