@@ -41,4 +41,4 @@ RUN echo "window.__ARGUS_BUILD__ = { version: \"$GIT_SHA\", date: \"$BUILD_DATE\
 # Don't add HEALTHCHECK - let Cloud Run use its default
 # CLI tools will be installed on-demand by the agent runtime, not at container startup
 
-ENTRYPOINT ["sh", "-c", "dotnet Argus.AppHost.dll"]
+ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
