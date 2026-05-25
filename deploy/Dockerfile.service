@@ -36,7 +36,7 @@ EXPOSE 8080
 COPY --from=build /app/publish .
 
 # Write version info for frontend
-RUN echo "window.__ARGUS_BUILD__ = { version: '"$GIT_SHA"', date: '"$BUILD_DATE"' };" > /app/wwwroot/version.js
+RUN echo "window.__ARGUS_BUILD__ = { version: \"$GIT_SHA\", date: \"$BUILD_DATE\" };" > /app/wwwroot/version.js
 
 # Don't add HEALTHCHECK - let Cloud Run use its default
 # CLI tools will be installed on-demand by the agent runtime, not at container startup
