@@ -1,69 +1,152 @@
 #!/usr/bin/env python3
 """
-Reports Codex subscription usage from ~/.codex/state_5.sqlite.
-Timestamps in that DB are Unix seconds. Outputs used-token counts over the
-last 5h, 24h, 7d, and 30d windows. If explicit CODEX_*_LIMIT env vars are
-configured, the matching windows include limits and remaining counts.
+Reports Codex subscription usage through the experimental Codex app-server.
+
+The app-server exposes account/rateLimits/read over JSON-RPC. The dashboard
+expects a small provider-window JSON shape, so this maps Codex's percent-used
+windows onto a 0-100 percent scale.
 """
 import json
-import os
-import sqlite3
+import select
+import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
-db_path = os.path.expanduser("~/.codex/state_5.sqlite")
 
-if not os.path.exists(db_path):
-    print("{}")
-    sys.exit(0)
+TIMEOUT_SECONDS = 12
 
-try:
-    now = int(time.time())
-    five_h   = now - 5  * 3600
-    twenty_four_h = now - 24 * 3600
-    seven_d  = now - 7  * 86400
-    thirty_d = now - 30 * 86400
 
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    cur = con.cursor()
+def iso_from_unix(value):
+    if not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return datetime.fromtimestamp(value, timezone.utc).isoformat()
 
-    def sum_tokens(since: int) -> int:
-        row = cur.execute(
-            "SELECT COALESCE(SUM(tokens_used), 0) FROM threads WHERE created_at >= ?",
-            (since,),
-        ).fetchone()
-        return int(row[0]) if row else 0
 
-    used_5h   = sum_tokens(five_h)
-    used_24h  = sum_tokens(twenty_four_h)
-    used_7d   = sum_tokens(seven_d)
-    used_30d  = sum_tokens(thirty_d)
-    con.close()
+def read_json_line(process, request_id, deadline):
+    while time.monotonic() < deadline:
+        timeout = max(0.0, deadline - time.monotonic())
+        readable, _, _ = select.select([process.stdout], [], [], timeout)
+        if not readable:
+            break
 
-    def window(used: int, env_name: str) -> dict | None:
-        raw_limit = os.environ.get(env_name, "").strip()
-        limit = int(raw_limit) if raw_limit.isdigit() and int(raw_limit) > 0 else 0
-        if used <= 0 and limit <= 0:
-            return None
+        line = process.stdout.readline()
+        if not line:
+            break
 
-        payload = {"used": used, "source": "subscription"}
-        if limit > 0:
-            payload["limit"] = limit
-            payload["remaining"] = max(0, limit - used)
-            payload["source"] = "configured-plan"
-        return payload
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
-    result: dict = {}
-    for key, value in {
-        "fiveHour": window(used_5h, "CODEX_FIVE_HOUR_LIMIT"),
-        "twentyFourHour": window(used_24h, "CODEX_TWENTY_FOUR_HOUR_LIMIT"),
-        "weekly": window(used_7d, "CODEX_WEEKLY_LIMIT"),
-        "monthly": window(used_30d, "CODEX_MONTHLY_LIMIT"),
-    }.items():
-        if value is not None:
-            result[key] = value
+        if message.get("id") == request_id:
+            return message
 
-    print(json.dumps(result) if result else "{}")
+    return None
 
-except Exception:
-    print("{}")
+
+def send(process, request_id, method, params=None):
+    payload = {"jsonrpc": "2.0", "id": request_id, "method": method}
+    if params is not None:
+        payload["params"] = params
+    process.stdin.write(json.dumps(payload) + "\n")
+    process.stdin.flush()
+
+
+def window_from_codex(name, payload):
+    if not isinstance(payload, dict):
+        return None
+
+    used_percent = payload.get("usedPercent")
+    if not isinstance(used_percent, (int, float)):
+        return None
+
+    used = max(0.0, min(100.0, float(used_percent)))
+    reset = iso_from_unix(payload.get("resetsAt"))
+
+    window = {
+        "limit": 100,
+        "used": round(used, 1),
+        "remaining": round(max(0.0, 100.0 - used), 1),
+        "source": "codex-app-server",
+    }
+    if reset is not None:
+        window["resetsAt"] = reset
+    if payload.get("windowDurationMins") is not None:
+        window["windowDurationMins"] = payload.get("windowDurationMins")
+    if name:
+        window["label"] = name
+    return window
+
+
+def main():
+    process = None
+    try:
+        process = subprocess.Popen(
+            ["codex", "app-server", "--listen", "stdio://"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        send(
+            process,
+            1,
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "argus-provider-usage",
+                    "title": "Argus Provider Usage",
+                    "version": "0.1.0",
+                },
+                "capabilities": None,
+            },
+        )
+        init = read_json_line(process, 1, deadline)
+        if init is None or "error" in init:
+            print("{}")
+            return
+
+        send(process, 2, "account/rateLimits/read")
+        response = read_json_line(process, 2, deadline)
+        if response is None or "error" in response:
+            print("{}")
+            return
+
+        result = response.get("result") or {}
+        buckets = result.get("rateLimitsByLimitId") or {}
+        codex = buckets.get("codex") or result.get("rateLimits") or {}
+
+        output = {}
+        primary = window_from_codex("5 hour", codex.get("primary"))
+        secondary = window_from_codex("weekly", codex.get("secondary"))
+        if primary is not None:
+            output["fiveHour"] = primary
+        if secondary is not None:
+            output["weekly"] = secondary
+
+        credits = codex.get("credits")
+        if isinstance(credits, dict):
+            output["credits"] = credits
+        if codex.get("planType"):
+            output["planType"] = codex.get("planType")
+        if codex.get("rateLimitReachedType"):
+            output["rateLimitReachedType"] = codex.get("rateLimitReachedType")
+
+        print(json.dumps(output))
+    except Exception:
+        print("{}")
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+if __name__ == "__main__":
+    main()

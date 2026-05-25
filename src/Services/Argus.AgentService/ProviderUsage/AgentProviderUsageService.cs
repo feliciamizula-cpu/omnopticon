@@ -731,7 +731,7 @@ internal sealed class AgentProviderUsageService(
             Executable = "codex",
             VersionArguments = "--version",
             LoginArguments = "login",
-            AuthCheckArguments = "auth status",
+            AuthCheckArguments = "login status",
             AuthEnvironmentVariables = ["OPENAI_API_KEY", "CODEX_HOME"],
             UsageExecutable = "python3",
             UsageArguments = ScriptPath("codex-usage.py"),
