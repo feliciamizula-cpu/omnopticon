@@ -16,6 +16,7 @@ const NAV = [
   { id: "events",    label: "Events",          icon: "events", section: "OBSERVE", live: true },
   { id: "agents",    label: "Agents",          icon: "agents-ai", section: "DEVELOPMENT", live: true, badge: "8" },
   { id: "agtasks",   label: "Agent Tasks",     icon: "tasks", section: "DEVELOPMENT", badge: "26" },
+  { id: "devops",    label: "DevOps",          icon: "command", section: "DEVELOPMENT", live: true },
   { id: "schedules", label: "Schedules",       icon: "contexts", section: "DEVELOPMENT" },
   { id: "settings",  label: "Settings",        icon: "settings", section: "SYSTEM" },
 ];
@@ -40,6 +41,7 @@ const PAGE_ALIASES = {
   "/events": "events",
   "/agents": "agents",
   "/agent-tasks": "agtasks",
+  "/devops": "devops",
   "/schedules": "schedules",
   "/settings": "settings",
 };
@@ -250,7 +252,8 @@ function App() {
         {page === "events" && <EventsPage liveEvents={liveEvents} />}
         {page === "agents" && <AgentsPage liveTick={liveTick} />}
         {page === "agtasks" && <AgentTasksPage />}
-        {!["command", "assets", "workers", "tasks", "ops", "events", "agents", "agtasks"].includes(page) && (
+        {page === "devops" && <DevopsPage />}
+        {!["command", "assets", "workers", "tasks", "ops", "events", "agents", "agtasks", "devops"].includes(page) && (
           <PlaceholderPage page={NAV.find(n => n.id === page)} />
         )}
       </div>
