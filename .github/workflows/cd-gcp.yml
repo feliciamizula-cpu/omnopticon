@@ -78,7 +78,6 @@ jobs:
           region: ${{ env.REGION }}
           env_vars: |
             ASPNETCORE_ENVIRONMENT=Staging
-          credentials: ${{ secrets.GCP_SA_KEY }}
 
       - name: Show service URL
         run: |
