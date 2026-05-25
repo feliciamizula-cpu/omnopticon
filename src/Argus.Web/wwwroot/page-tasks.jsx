@@ -33,44 +33,30 @@ function TasksPage() {
       </div>
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
-        <div style={{ overflow: "auto", background: "var(--bg-0)", flex: 1, minWidth: 0, borderRight: "1px solid var(--line-1)" }}>
-          <table className="asset-grid">
-            <thead>
-              <tr>
-                {["", "Task ID", "Worker Type", "Worker Instance", "Asset", "State", "Progress", "Att.", "Duration", "Started"].map(h => (
-                  <th key={h} style={{ textAlign: "left" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.slice(0, 220).map(t => (
-                <tr key={t.id}
-                  className={selected?.id === t.id ? "selected" : ""}
-                  onClick={() => setSelected(t)}
-                >
-                  <td className="c-icon"><TaskStateGlyph state={t.state} /></td>
-                  <td className="c-type" style={{ color: "var(--accent)" }}>{t.id}</td>
-                  <td className="c-type"><span style={{ color: "var(--fg-1)" }}>{t.type}</span></td>
-                  <td className="c-worker" style={{ width: 160 }}>{t.worker}</td>
-                  <td className="c-value">
-                    <TypeGlyph type={t.assetType} />{" "}
-                    <span className="mono" style={{ fontSize: 10.5, color: "var(--fg-2)" }}>{t.assetType}</span>{" "}
-                    <span style={{ color: "var(--fg-0)" }}>{t.assetValue}</span>
-                  </td>
-                  <td className="c-status"><TaskStatePill state={t.state} /></td>
-                  <td className="c-conf" style={{ width: 110 }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      <Bar value={t.progress} tone={t.state === "Failed" ? "red" : t.state === "Checkpointed" ? "amber" : "cyan"} width={62} />
-                      <span className="tabular" style={{ fontSize: 10, color: "var(--fg-2)", width: 28 }}>{t.progress}%</span>
-                    </span>
-                  </td>
-                  <td className="c-risk tabular">{t.attempt}/{t.maxAttempts}</td>
-                  <td className="c-int tabular">{fmtDur(t.duration)}</td>
-                  <td className="c-seen tabular">{fmtTime(t.startedAt)} ago</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <ArgusDataGrid
+            columns={[
+              { key: "_icon", label: "", className: "c-icon", width: 18 },
+              { key: "id", label: "Task ID", className: "c-type", width: 80, render: (t) => <span style={{ color: "var(--accent)" }}>{t.id}</span> },
+              { key: "type", label: "Worker Type", className: "c-type", width: 120, render: (t) => <span style={{ color: "var(--fg-1)" }}>{t.type}</span> },
+              { key: "worker", label: "Worker Instance", className: "c-worker", width: 160 },
+              { key: "asset", label: "Asset", className: "c-value", width: 200, render: (t) => <><TypeGlyph type={t.assetType} /> <span className="mono" style={{ fontSize: 10.5, color: "var(--fg-2)" }}>{t.assetType}</span> <span style={{ color: "var(--fg-0)" }}>{t.assetValue}</span></> },
+              { key: "state", label: "State", className: "c-status", width: 100, render: (t) => <TaskStatePill state={t.state} /> },
+              { key: "progress", label: "Progress", className: "c-conf", width: 110, render: (t) => (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <Bar value={t.progress} tone={t.state === "Failed" ? "red" : t.state === "Checkpointed" ? "amber" : "cyan"} width={62} />
+                  <span className="tabular" style={{ fontSize: 10, color: "var(--fg-2)", width: 28 }}>{t.progress}%</span>
+                </span>
+              )},
+              { key: "attempt", label: "Att.", className: "c-risk", width: 60, render: (t) => <span className="tabular">{t.attempt}/{t.maxAttempts}</span> },
+              { key: "duration", label: "Duration", className: "c-int", width: 80, render: (t) => <span className="tabular">{fmtDur(t.duration)}</span> },
+              { key: "startedAt", label: "Started", className: "c-seen", width: 90, render: (t) => <span className="tabular">{fmtTime(t.startedAt)} ago</span> },
+            ]}
+            rows={filtered.slice(0, 220)}
+            rowKey="id"
+            selectedId={selected?.id}
+            onSelect={setSelected}
+          />
         </div>
 
         <ResizablePanel id="tasks-inspector" side="right" defaultWidth={380} minWidth={220} maxWidth={600} label="Task Detail">

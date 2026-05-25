@@ -433,30 +433,19 @@ function HistoryTab({ agent }) {
   return (
     <>
       <div className="section-label">RECENT RUNS · {agent.history.length}</div>
-      <table className="kv-table" style={{ width: "100%" }}>
-        <thead>
-          <tr style={{ background: "var(--bg-2)", borderBottom: "1px solid var(--line-1)" }}>
-            {["Started", "Task", "Duration", "Tok In", "Tok Out", "Cost", "Status"].map(h => (
-              <th key={h} style={{ textAlign: "left", padding: "4px 8px", fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--fg-3)", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 500 }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {agent.history.map((h, i) => (
-            <tr key={i} style={{ borderBottom: "1px solid var(--line-0)" }}>
-              <td style={{ padding: "3px 8px", fontSize: 10.5, color: "var(--fg-2)" }}>{fmtTime(h.startedAt)} ago</td>
-              <td style={{ padding: "3px 8px", fontSize: 10.5, color: "var(--accent)" }}>T-{h.taskId}</td>
-              <td style={{ padding: "3px 8px", fontSize: 10.5, color: "var(--fg-1)" }} className="tabular">{fmtDur(h.duration)}</td>
-              <td style={{ padding: "3px 8px", fontSize: 10.5, color: "var(--fg-2)" }} className="tabular">{fmtNum(h.tokensIn)}</td>
-              <td style={{ padding: "3px 8px", fontSize: 10.5, color: "var(--fg-1)" }} className="tabular">{fmtNum(h.tokensOut)}</td>
-              <td style={{ padding: "3px 8px", fontSize: 10.5, color: "var(--amber)" }} className="tabular">${h.cost.toFixed(3)}</td>
-              <td style={{ padding: "3px 8px" }}>
-                <Pill tone={h.status === "completed" ? "green" : h.status === "failed" ? "red" : "amber"}>{h.status}</Pill>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ArgusDataGrid
+        columns={[
+          { key: "startedAt", label: "Started", className: "c-seen", width: 80, render: (h) => <span style={{ color: "var(--fg-2)" }}>{fmtTime(h.startedAt)} ago</span> },
+          { key: "taskId", label: "Task", className: "c-type", width: 60, render: (h) => <span style={{ color: "var(--accent)" }}>T-{h.taskId}</span> },
+          { key: "duration", label: "Duration", className: "c-int", width: 80, render: (h) => <span className="tabular" style={{ color: "var(--fg-1)" }}>{fmtDur(h.duration)}</span> },
+          { key: "tokensIn", label: "Tok In", className: "c-worker", width: 70, render: (h) => <span className="tabular" style={{ color: "var(--fg-2)" }}>{fmtNum(h.tokensIn)}</span> },
+          { key: "tokensOut", label: "Tok Out", className: "c-worker", width: 70, render: (h) => <span className="tabular" style={{ color: "var(--fg-1)" }}>{fmtNum(h.tokensOut)}</span> },
+          { key: "cost", label: "Cost", className: "c-risk", width: 70, render: (h) => <span className="tabular" style={{ color: "var(--amber)" }}>${h.cost.toFixed(3)}</span> },
+          { key: "status", label: "Status", className: "c-status", width: 80, render: (h) => <Pill tone={h.status === "completed" ? "green" : h.status === "failed" ? "red" : "amber"}>{h.status}</Pill> },
+        ]}
+        rows={agent.history}
+        rowKey="taskId"
+      />
     </>
   );
 }

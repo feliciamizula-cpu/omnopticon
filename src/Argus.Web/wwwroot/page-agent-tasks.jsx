@@ -108,53 +108,29 @@ function AgentTasksPage() {
         </ResizablePanel>
 
         {/* Center: task table */}
-        <div style={{ overflow: "auto", background: "var(--bg-0)", flex: 1, minWidth: 0 }}>
-          <table className="asset-grid">
-            <thead>
-              <tr>
-                <th className="c-check"></th>
-                <th style={{ width: 80 }}>Task</th>
-                <th style={{ width: 84 }}>Priority</th>
-                <th style={{ width: 96 }}>Status</th>
-                <th style={{ width: 70 }}>Kind</th>
-                <th>Description</th>
-                <th style={{ width: 130 }}>Assigned</th>
-                <th style={{ width: 40 }}>Att.</th>
-                <th style={{ width: 70 }}>Created</th>
-                <th style={{ width: 22 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(t => (
-                <tr key={t.id} className={selected?.id === t.id ? "selected" : ""} onClick={() => setSelected(t)}>
-                  <td className="c-check"><span className="cell-checkbox" onClick={(e) => e.stopPropagation()} /></td>
-                  <td style={{ color: "var(--accent)", fontWeight: 600 }}>T-{t.id}</td>
-                  <td><PrioPill p={t.priority} /></td>
-                  <td><TaskStatusPill s={t.status} /></td>
-                  <td><span style={{ color: "var(--fg-2)", fontSize: 10.5 }}>{t.kind}</span></td>
-                  <td className="c-value" style={{ color: "var(--fg-0)" }}>
-                    {t.description}
-                    {t.blockedReason && <span style={{ color: "var(--amber)", marginLeft: 6, fontSize: 10 }}>· {t.blockedReason}</span>}
-                  </td>
-                  <td>
-                    {t.assignedTo ? (
-                      <AgentChip id={t.assignedTo} />
-                    ) : (
-                      <span style={{ color: "var(--fg-3)", fontSize: 10.5 }} className="mono">—</span>
-                    )}
-                  </td>
-                  <td className="tabular" style={{ color: t.attempts > 3 ? "var(--red)" : "var(--fg-2)" }}>{t.attempts}</td>
-                  <td className="tabular" style={{ color: "var(--fg-3)" }}>{fmtTime(t.createdAt)}</td>
-                  <td><span style={{ color: "var(--fg-3)", cursor: "pointer" }}>⋮</span></td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: 30, textAlign: "center", color: "var(--fg-3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                  // queue is empty
-                </td></tr>
-              )}
-            </tbody>
-          </table>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <ArgusDataGrid
+            columns={[
+              { key: "_check", label: "", className: "c-check", width: 22 },
+              { key: "id", label: "Task", className: "c-type", width: 80, render: (t) => <span style={{ color: "var(--accent)", fontWeight: 600 }}>T-{t.id}</span> },
+              { key: "priority", label: "Priority", className: "c-conf", width: 84, render: (t) => <PrioPill p={t.priority} /> },
+              { key: "status", label: "Status", className: "c-status", width: 96, render: (t) => <TaskStatusPill s={t.status} /> },
+              { key: "kind", label: "Kind", className: "c-scope", width: 70, render: (t) => <span style={{ color: "var(--fg-2)", fontSize: 10.5 }}>{t.kind}</span> },
+              { key: "description", label: "Description", className: "c-value", width: 300, render: (t) => (
+                <span style={{ color: "var(--fg-0)" }}>
+                  {t.description}
+                  {t.blockedReason && <span style={{ color: "var(--amber)", marginLeft: 6, fontSize: 10 }}>· {t.blockedReason}</span>}
+                </span>
+              )},
+              { key: "assignedTo", label: "Assigned", className: "c-worker", width: 130, render: (t) => t.assignedTo ? <AgentChip id={t.assignedTo} /> : <span style={{ color: "var(--fg-3)", fontSize: 10.5 }} className="mono">—</span> },
+              { key: "attempts", label: "Att.", className: "c-int", width: 40, render: (t) => <span className="tabular" style={{ color: t.attempts > 3 ? "var(--red)" : "var(--fg-2)" }}>{t.attempts}</span> },
+              { key: "createdAt", label: "Created", className: "c-seen", width: 70, render: (t) => <span className="tabular" style={{ color: "var(--fg-3)" }}>{fmtTime(t.createdAt)}</span> },
+            ]}
+            rows={rows}
+            rowKey="id"
+            selectedId={selected?.id}
+            onSelect={setSelected}
+          />
         </div>
 
         {/* Right: detail / edit */}

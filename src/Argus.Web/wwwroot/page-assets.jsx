@@ -329,138 +329,88 @@ function FacetRow({ active, onClick, label, n, bar }) {
 
 // ============================================================ GRID
 
-function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowClick, sortKey, sortArrow, toggleSort, flashRow }) {
-  const cols = [
-    { k: "_check", l: "", cn: "c-check" },
-    { k: "_icon", l: "", cn: "c-icon" },
-    { k: "type", l: "Type", cn: "c-type" },
-    { k: "value", l: "Value", cn: "c-value" },
-    { k: "status", l: "Status", cn: "c-status" },
-    { k: "scope", l: "Scope", cn: "c-scope" },
-    { k: "confidence", l: "Conf", cn: "c-conf" },
-    { k: "risk", l: "Risk", cn: "c-risk" },
-    { k: "interest", l: "Interest", cn: "c-int" },
-    { k: "tags", l: "Tags", cn: "c-tags" },
-    { k: "parentValue", l: "Parent", cn: "c-parent" },
-    { k: "worker", l: "Worker", cn: "c-worker" },
-    { k: "lastSeen", l: "Last Seen", cn: "c-seen" },
+function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowClick, sortKey, sortDir, sortArrow, toggleSort, flashRow }) {
+  const columns = [
+    { key: "_check", label: "", className: "c-check", width: 22 },
+    { key: "_icon", label: "", className: "c-icon", width: 18 },
+    { key: "type", label: "Type", className: "c-type", width: 88 },
+    { key: "value", label: "Value", className: "c-value", width: 280 },
+    { key: "status", label: "Status", className: "c-status", width: 92 },
+    { key: "scope", label: "Scope", className: "c-scope", width: 78 },
+    { key: "confidence", label: "Conf", className: "c-conf", width: 84 },
+    { key: "risk", label: "Risk", className: "c-risk", width: 64 },
+    { key: "interest", label: "Interest", className: "c-int", width: 68 },
+    { key: "tags", label: "Tags", className: "c-tags", width: 180 },
+    { key: "parentValue", label: "Parent", className: "c-parent", width: 200 },
+    { key: "worker", label: "Worker", className: "c-worker", width: 130 },
+    { key: "lastSeen", label: "Last Seen", className: "c-seen", width: 90 },
   ];
 
-  const [colWidths, setColWidths] = useState({
-    "_check": 22, "_icon": 18, "type": 88, "value": 280, "status": 92, "scope": 78,
-    "confidence": 84, "risk": 64, "interest": 68, "tags": 180, "parentValue": 200, "worker": 130, "lastSeen": 90,
-  });
-
-  const [resizing, setResizing] = useState(null);
-
-  const handleMouseDown = useCallback((e, k) => {
-    e.preventDefault();
-    setResizing({ key: k, startX: e.clientX, startWidth: colWidths[k] });
-  }, [colWidths]);
-
-  useEffect(() => {
-    if (!resizing) return;
-    const handleMouseMove = (e) => {
-      const delta = e.clientX - resizing.startX;
-      setColWidths(prev => ({ ...prev, [resizing.key]: Math.max(20, resizing.startWidth + delta) }));
-    };
-    const handleMouseUp = () => setResizing(null);
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [resizing]);
+  const renderers = {
+    "_check": (a) => (
+      <span
+        className={"cell-checkbox" + (multiSel.has(a.id) ? " on" : "")}
+        onClick={(e) => {
+          e.stopPropagation();
+          setMultiSel((s) => {
+            const ns = new Set(s);
+            if (ns.has(a.id)) ns.delete(a.id); else ns.add(a.id);
+            return ns;
+          });
+        }}
+      />
+    ),
+    "_icon": (a) => <TypeGlyph type={a.type} />,
+    "type": (a) => <span className="mono" style={{ color: "var(--fg-2)", fontSize: 10.5 }}>{a.type}</span>,
+    "value": (a) => <ValueCell asset={a} />,
+    "status": (a) => <StatusPill status={a.status} />,
+    "scope": (a) => a.scope === "InScope"
+      ? <span style={{ color: "var(--green)" }}>IN</span>
+      : a.scope === "OutOfScope" ? <span style={{ color: "var(--fg-3)" }}>OUT</span>
+      : <span style={{ color: "var(--fg-2)" }}>{a.scope}</span>,
+    "confidence": (a) => (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <Bar value={a.confidence} tone={a.confidence > 85 ? "green" : a.confidence > 60 ? "amber" : "red"} width={36} />
+        <span className="tabular" style={{ fontSize: 10, color: "var(--fg-2)" }}>{a.confidence}</span>
+      </span>
+    ),
+    "risk": (a) => (
+      <span className="risk-num">
+        <span className="n tabular" style={{ color: a.risk > 70 ? "var(--red)" : a.risk > 40 ? "var(--amber)" : "var(--fg-2)" }}>{a.risk}</span>
+        <LED value={a.risk} max={8} tone={a.risk > 70 ? "red" : a.risk > 40 ? "amber" : "green"} />
+      </span>
+    ),
+    "interest": (a) => (
+      <span className="risk-num">
+        <span className="n tabular" style={{ color: a.interest > 70 ? "var(--magenta)" : "var(--fg-1)" }}>{a.interest}</span>
+        <LED value={a.interest} max={8} tone={a.interest > 70 ? "magenta" : "cyan"} />
+      </span>
+    ),
+    "tags": (a) => (
+      <>
+        {a.tags.slice(0, 4).map((t) => <TagChip key={t} tag={t} />)}
+        {a.tags.length > 4 && <span className="mono" style={{ color: "var(--fg-3)", fontSize: 10 }}>+{a.tags.length - 4}</span>}
+      </>
+    ),
+    "parentValue": (a) => a.parentValue && <span className="mono" style={{ fontSize: 10.5 }}>↑ {a.parentValue}</span>,
+    "worker": (a) => <span className="mono" style={{ fontSize: 10.5 }}>{a.worker}</span>,
+    "lastSeen": (a) => <span className="tabular">{fmtTime(a.lastSeen)} ago</span>,
+  };
 
   return (
-    <div className="asset-grid-wrap">
-      <table className="asset-grid">
-        <thead>
-          <tr>
-            {cols.map((c) => (
-              <th
-                key={c.k}
-                className={`${c.cn} ${sortKey === c.k ? "sorted" : ""} ${c.l ? "resizable" : ""}`}
-                style={{ width: colWidths[c.k], minWidth: colWidths[c.k], position: "relative" }}
-                onClick={() => c.k !== "_check" && c.k !== "_icon" && toggleSort(c.k)}
-              >
-                {c.l}{c.l && <span className="sort-arrow">{sortArrow(c.k)}</span>}
-                {c.l && (
-                  <div
-                    onMouseDown={(e) => handleMouseDown(e, c.k)}
-                    style={{
-                      position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize",
-                      zIndex: 3,
-                    }}
-                  />
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 200).map((a) => (
-            <tr
-              key={a.id}
-              className={`${selected?.id === a.id ? "selected" : ""} ${flashRow === a.id ? "flash" : ""}`}
-              onClick={(e) => onRowClick(a, e)}
-            >
-              <td className="c-check" style={{ width: colWidths["_check"], minWidth: colWidths["_check"] }}>
-                <span
-                  className={"cell-checkbox" + (multiSel.has(a.id) ? " on" : "")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMultiSel((s) => {
-                      const ns = new Set(s);
-                      if (ns.has(a.id)) ns.delete(a.id); else ns.add(a.id);
-                      return ns;
-                    });
-                  }}
-                />
-              </td>
-              <td className="c-icon" style={{ width: colWidths["_icon"], minWidth: colWidths["_icon"] }}><TypeGlyph type={a.type} /></td>
-              <td className="c-type" style={{ width: colWidths["type"], minWidth: colWidths["type"] }}><span className="mono" style={{ color: "var(--fg-2)", fontSize: 10.5 }}>{a.type}</span></td>
-              <td className="c-value" style={{ width: colWidths["value"], minWidth: colWidths["value"] }}><ValueCell asset={a} /></td>
-              <td className="c-status" style={{ width: colWidths["status"], minWidth: colWidths["status"] }}><StatusPill status={a.status} /></td>
-              <td className="c-scope" style={{ width: colWidths["scope"], minWidth: colWidths["scope"] }}>
-                {a.scope === "InScope"
-                  ? <span style={{ color: "var(--green)" }}>IN</span>
-                  : a.scope === "OutOfScope" ? <span style={{ color: "var(--fg-3)" }}>OUT</span>
-                  : <span style={{ color: "var(--fg-2)" }}>{a.scope}</span>}
-              </td>
-              <td className="c-conf" style={{ width: colWidths["confidence"], minWidth: colWidths["confidence"] }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  <Bar value={a.confidence} tone={a.confidence > 85 ? "green" : a.confidence > 60 ? "amber" : "red"} width={36} />
-                  <span className="tabular" style={{ fontSize: 10, color: "var(--fg-2)" }}>{a.confidence}</span>
-                </span>
-              </td>
-              <td className="c-risk" style={{ width: colWidths["risk"], minWidth: colWidths["risk"] }}>
-                <span className="risk-num">
-                  <span className="n tabular" style={{ color: a.risk > 70 ? "var(--red)" : a.risk > 40 ? "var(--amber)" : "var(--fg-2)" }}>{a.risk}</span>
-                  <LED value={a.risk} max={8} tone={a.risk > 70 ? "red" : a.risk > 40 ? "amber" : "green"} />
-                </span>
-              </td>
-              <td className="c-int" style={{ width: colWidths["interest"], minWidth: colWidths["interest"] }}>
-                <span className="risk-num">
-                  <span className="n tabular" style={{ color: a.interest > 70 ? "var(--magenta)" : "var(--fg-1)" }}>{a.interest}</span>
-                  <LED value={a.interest} max={8} tone={a.interest > 70 ? "magenta" : "cyan"} />
-                </span>
-              </td>
-              <td className="c-tags" style={{ width: colWidths["tags"], minWidth: colWidths["tags"] }}>
-                {a.tags.slice(0, 4).map((t) => <TagChip key={t} tag={t} />)}
-                {a.tags.length > 4 && <span className="mono" style={{ color: "var(--fg-3)", fontSize: 10 }}>+{a.tags.length - 4}</span>}
-              </td>
-              <td className="c-parent" style={{ width: colWidths["parentValue"], minWidth: colWidths["parentValue"] }}>
-                {a.parentValue && <span className="mono" style={{ fontSize: 10.5 }}>↑ {a.parentValue}</span>}
-              </td>
-              <td className="c-worker" style={{ width: colWidths["worker"], minWidth: colWidths["worker"] }}><span className="mono" style={{ fontSize: 10.5 }}>{a.worker}</span></td>
-              <td className="c-seen" style={{ width: colWidths["lastSeen"], minWidth: colWidths["lastSeen"] }}><span className="tabular">{fmtTime(a.lastSeen)} ago</span></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
+    <>
+      <ArgusDataGrid
+        columns={columns}
+        rows={rows.slice(0, 200)}
+        rowKey="id"
+        selectedId={selected?.id}
+        onSelect={onRowClick}
+        multiSel={multiSel}
+        onMultiSel={setMultiSel}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSort={toggleSort}
+      />
       {multiSel.size > 0 && (
         <div className="bulkbar">
           <span className="count">{multiSel.size}</span>
@@ -475,7 +425,7 @@ function AssetGrid({ rows, selected, setSelected, multiSel, setMultiSel, onRowCl
           <span className="icon-btn" onClick={() => setMultiSel(new Set())}>×</span>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
