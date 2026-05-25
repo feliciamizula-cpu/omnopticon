@@ -38,6 +38,22 @@ COPY --from=build /app/publish .
 # Write version info for frontend
 RUN echo "window.__ARGUS_BUILD__ = { version: '"$GIT_SHA"', date: '"$BUILD_DATE"' };" > /app/wwwroot/version.js
 
+# Background CLI installer - runs Claude install in background after container starts
+# This doesn't block startup and CLIs will be available once download completes
+RUN echo '#!/bin/bash\n\
+install_in_background() {\n\
+  echo "[bg-cli] Starting background Claude installation..."\n\
+  curl -fsSL https://downloads.anthropic.com/claude/Claude-latest-linux-x86_64 -o /usr/local/bin/claude 2>/dev/null &\n\
+  CurlPid=$!\n\
+  echo "[bg-cli] Download started in background (PID: $CurlPid)"\n\
+  # Wait a bit for download to start, then return immediately\n\
+  sleep 2\n\
+  echo "[bg-cli] Claude will be available once download completes. Other CLIs install on-demand."\n\
+}\n\
+install_in_background\n\
+' > /bg-cli-installer.sh && chmod +x /bg-cli-installer.sh
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
 
-ENTRYPOINT ["dotnet", "${ARGUS_ASSEMBLY_NAME}.dll"]
+# Start background CLI installer, then run dotnet app
+ENTRYPOINT ["/bin/bash", "-c", "/bg-cli-installer.sh && dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
