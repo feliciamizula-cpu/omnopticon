@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+
+ARG DOTNET_VERSION=10.0
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
+WORKDIR /src
+
+COPY Directory.Build.props Directory.Build.targets Directory.Packages.props ./
+COPY nuget.config ./
+
+COPY src/Argus.Web/Argus.Web.csproj                                               src/Argus.Web/
+COPY src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj                       src/Argus.ServiceDefaults/
+COPY src/Contracts/Argus.Contracts/Argus.Contracts.csproj                         src/Contracts/Argus.Contracts/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/Argus.BuildingBlocks.Artifacts.csproj   src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj     src/BuildingBlocks/Argus.BuildingBlocks.EventBus/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj       src/BuildingBlocks/Argus.BuildingBlocks.Workers/
+
+RUN dotnet restore src/Argus.Web/Argus.Web.csproj
+
+COPY src/ src/
+RUN dotnet publish src/Argus.Web/Argus.Web.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore \
+    -p:TreatWarningsAsErrors=false
+
+# Runtime stage
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
+WORKDIR /app
+
+ARG GIT_SHA
+ARG BUILD_DATE
+ENV ASPNETCORE_URLS=http://+:8080
+ENV DOTNET_EnableDiagnostics=0
+ENV DOTNET_GCConserveMemory=9
+
+EXPOSE 8080
+
+COPY --from=build /app/publish .
+
+ENTRYPOINT ["dotnet", "Argus.Web.dll"]
