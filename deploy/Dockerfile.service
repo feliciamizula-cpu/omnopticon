@@ -71,6 +71,8 @@ RUN echo "=== CLI check ===" && node --version && npm --version && \
 # Write version info for frontend
 RUN echo "window.__ARGUS_BUILD__ = { version: '"$GIT_SHA"', date: '"$BUILD_DATE"' };" > /app/wwwroot/version.js
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
 
-ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
+RUN echo "=== Startup Debug ===" && ls -la /app/ && echo "PORT=$PORT" && echo "ASPNETCORE_URLS=$ASPNETCORE_URLS"
+
+ENTRYPOINT ["sh", "-c", "echo 'Starting dotnet app...' && dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
