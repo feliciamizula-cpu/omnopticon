@@ -32,47 +32,12 @@ ENV DOTNET_EnableDiagnostics=0
 
 EXPOSE 8080
 
-# Install Node.js 20.x from NodeSource
-RUN apt-get update && \
-    apt-get install -y curl python3 && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 # Copy published app
 COPY --from=build /app/publish .
-
-# Install CLI tools
-RUN npm install -g @google/gemini-cli 2>/dev/null && \
-    ln -sf /usr/local/lib/node_modules/@google/gemini-cli/bundle/gemini.js /usr/local/bin/gemini || true
-
-RUN npm install -g opencode-ai 2>/dev/null && \
-    ln -sf /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode || true
-
-RUN npm install -g openai @openai/codex 2>/dev/null && \
-    ln -sf /usr/local/lib/node_modules/openai/bin/run.js /usr/local/bin/openai || true
-
-# Download Claude CLI directly from Anthropic
-RUN curl -fsSL https://downloads.anthropic.com/claude/Claude-latest-linux-x86_64 -o /usr/local/bin/claude && \
-    chmod +x /usr/local/bin/claude || echo "Claude download may have failed"
-
-# Create fallback symlinks
-RUN ln -sf /usr/local/bin/gemini /usr/local/bin/claude 2>/dev/null || true
-
-# Verify
-RUN echo "=== CLI check ===" && node --version && npm --version && \
-    (which gemini && echo "gemini OK") || echo "gemini not found" && \
-    (which opencode && echo "opencode OK") || echo "opencode not found" && \
-    (which openai && echo "openai OK") || echo "openai not found" && \
-    (which codex && codex --version 2>&1 && echo "codex OK") || echo "codex not found" && \
-    (/usr/local/bin/claude --version 2>&1 || echo "claude not working")
 
 # Write version info for frontend
 RUN echo "window.__ARGUS_BUILD__ = { version: '"$GIT_SHA"', date: '"$BUILD_DATE"' };" > /app/wwwroot/version.js
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 CMD curl -f http://localhost:8080/ || exit 1
 
-RUN echo "=== Startup Debug ===" && ls -la /app/ && echo "PORT=$PORT" && echo "ASPNETCORE_URLS=$ASPNETCORE_URLS"
-
-ENTRYPOINT ["sh", "-c", "echo 'Starting dotnet app...' && dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
+ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
