@@ -52,7 +52,7 @@ jobs:
 
       - name: Push Docker image
         run: |
-           docker push ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+           docker push us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus-staging/argus-web:latest
 
   deploy-cloudrun:
     needs: build-and-push
@@ -74,7 +74,7 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v0
         with:
           service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+          image: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus-staging/argus-web:latest
           region: ${{ env.REGION }}
           env_vars: |
             ASPNETCORE_ENVIRONMENT=Staging
