@@ -281,9 +281,11 @@ a { color: var(--cyan); text-decoration: none; }
 /* ArgusDataGrid shared control */
 .argus-grid-wrap { flex: 1; overflow: auto; background: var(--bg-0); position: relative; }
 .argus-grid { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: var(--table-fs); color: var(--fg-1); table-layout: fixed; }
-.argus-grid thead th { position: sticky; top: 0; background: var(--bg-1); border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-1); padding: 4px 8px; text-align: left; font-family: var(--font-mono); font-size: 9.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); white-space: nowrap; z-index: 2; cursor: pointer; user-select: none; box-sizing: border-box; }
+.argus-grid thead th { position: sticky; top: 0; background: var(--bg-1); border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-1); padding: 4px 8px; text-align: left; font-family: var(--font-mono); font-size: 9.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-3); white-space: nowrap; z-index: 2; cursor: pointer; user-select: none; box-sizing: border-box; overflow: visible; }
 .argus-grid thead th:hover { color: var(--fg-1); }
 .argus-grid thead th.sorted { color: var(--accent); }
+.argus-grid thead th .resize-handle:hover { background: rgba(255,255,255,0.1); }
+.argus-grid thead th .resize-handle:active { background: rgba(255,255,255,0.2); }
 .argus-grid tbody tr { height: var(--row-h); border-bottom: 1px solid var(--line-0); }
 .argus-grid tbody tr:hover { background: var(--bg-2); }
 .argus-grid tbody tr.selected { background: var(--bg-3); box-shadow: inset 2px 0 0 var(--accent); }
@@ -301,6 +303,7 @@ a { color: var(--cyan); text-decoration: none; }
 .argus-grid .c-parent{ color: var(--fg-2); }
 .argus-grid .c-worker{ color: var(--fg-2); }
 .argus-grid .c-seen  { color: var(--fg-2); text-align: right; }
+.argus-grid-container { position: relative; }
 .asset-grid .c-value { color: var(--fg-0); }
 .asset-grid .c-status { }
 .asset-grid .c-scope { }

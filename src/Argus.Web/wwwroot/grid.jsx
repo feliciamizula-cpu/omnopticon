@@ -1,7 +1,7 @@
 /* eslint-disable */
 // ArgusDataGrid — shared resizable, sortable data grid control.
 
-const { useState, useEffect, useCallback, useMemo } = React;
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
 function ArgusDataGrid({
   columns = [],
@@ -25,31 +25,35 @@ function ArgusDataGrid({
     columns.forEach(c => { widths[c.key] = c.width || 80; });
     return widths;
   });
-  const [resizing, setResizing] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filters, setFilters] = useState({});
   const [contextMenu, setContextMenu] = useState(null);
+
+  const resizeRef = useRef({ key: null, startX: 0, startWidth: 0 });
+  const isResizing = useRef(false);
 
   const handleMouseDown = useCallback((e, key) => {
     e.preventDefault();
     e.stopPropagation();
-    setResizing({ key, startX: e.clientX, startWidth: colWidths[key] });
+    resizeRef.current = { key, startX: e.clientX, startWidth: colWidths[key] };
+    isResizing.current = true;
   }, [colWidths]);
 
   useEffect(() => {
-    if (!resizing) return;
     const handleMouseMove = (e) => {
-      const delta = e.clientX - resizing.startX;
-      setColWidths(prev => ({ ...prev, [resizing.key]: Math.max(30, resizing.startWidth + delta) }));
+      if (!isResizing.current || !resizeRef.current.key) return;
+      const delta = e.clientX - resizeRef.current.startX;
+      setColWidths(prev => ({ ...prev, [resizeRef.current.key]: Math.max(30, resizeRef.current.startWidth + delta) }));
     };
-    const handleMouseUp = () => setResizing(null);
+    const handleMouseUp = () => {
+      isResizing.current = false;
+      resizeRef.current = { key: null, startX: 0, startWidth: 0 };
+    };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [resizing]);
+  }, []);
 
   useEffect(() => {
     const handleClick = () => setContextMenu(null);
@@ -61,20 +65,11 @@ function ArgusDataGrid({
 
   const filteredRows = useMemo(() => {
     let r = rows;
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      r = r.filter(row => 
-        columns.some(c => {
-          const v = row[c.key];
-          return v && String(v).toLowerCase().includes(term);
-        })
-      );
-    }
-    for (const [key, val] of Object.entries(filters)) {
+    for (const [key, val] of Object.entries({})) {
       if (val) r = r.filter(row => String(row[key]) === val);
     }
     return r;
-  }, [rows, searchTerm, filters, columns]);
+  }, [rows]);
 
   const handleRowContextMenu = (e, row) => {
     e.preventDefault();
@@ -86,44 +81,6 @@ function ArgusDataGrid({
 
   return (
     <div className={`argus-grid-container ${className}`} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      {(searchable || filterable) && (
-        <div style={{ display: "flex", gap: 8, padding: "6px 8px", background: "var(--bg-2)", borderBottom: "1px solid var(--line-1)", flexShrink: 0 }}>
-          {searchable && (
-            <div style={{ position: "relative", flex: 1, maxWidth: 280 }}>
-              <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--fg-3)", fontSize: 11 }}>⌕</span>
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: "100%", padding: "4px 8px 4px 28px", background: "var(--bg-0)",
-                  border: "1px solid var(--line-2)", color: "var(--fg-0)",
-                  fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
-                }}
-              />
-            </div>
-          )}
-          {filterable && columns.filter(c => c.filterable).map(c => (
-            <select
-              key={c.key}
-              value={filters[c.key] || ""}
-              onChange={(e) => setFilters(prev => ({ ...prev, [c.key]: e.target.value }))}
-              style={{
-                padding: "4px 8px", background: "var(--bg-0)",
-                border: "1px solid var(--line-2)", color: "var(--fg-0)",
-                fontFamily: "var(--font-mono)", fontSize: 11, outline: "none",
-              }}
-            >
-              <option value="">{c.label || c.key}</option>
-              {[...new Set(rows.map(r => r[c.key]))].filter(Boolean).sort().map(v => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          ))}
-        </div>
-      )}
-
       <div className="argus-grid-wrap" style={{ flex: 1, overflow: "auto" }}>
         <table className="argus-grid">
           <thead>
@@ -136,18 +93,22 @@ function ArgusDataGrid({
                   key={c.key}
                   className={c.className || ""}
                   style={{ width: colWidths[c.key], minWidth: colWidths[c.key], position: "relative" }}
-                  onClick={() => onSort && c.key && !c.noSort && onSort(c.key)}
+                  onClick={(e) => {
+                    if (e.target.closest('.resize-handle')) return;
+                    onSort && c.key && !c.noSort && onSort(c.key);
+                  }}
                 >
-                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, paddingRight: 8 }}>
                     {c.label}
                     {c.label && onSort && !c.noSort && <span style={{ fontSize: 9, opacity: 0.7 }}>{sortArrow(c.key)}</span>}
                   </span>
                   {c.label && (
                     <div
+                      className="resize-handle"
                       onMouseDown={(e) => handleMouseDown(e, c.key)}
                       style={{
-                        position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize",
-                        zIndex: 3,
+                        position: "absolute", right: 0, top: 0, bottom: 0, width: 8, cursor: "col-resize",
+                        zIndex: 3, background: "transparent",
                       }}
                     />
                   )}
