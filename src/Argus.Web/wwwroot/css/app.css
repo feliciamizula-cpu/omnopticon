@@ -1008,3 +1008,66 @@
   font-weight: 700;
   color: var(--text-primary);
 }
+/* ── Operations page ─────────────────────────────────────────────────────── */
+
+.ops-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  grid-template-rows: 210px 1fr;
+  grid-template-areas:
+    "programs activity"
+    "assets   activity";
+  gap: 8px;
+  height: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.ops-programs-panel  { grid-area: programs;  display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line-1); overflow: hidden; }
+.ops-assets-panel    { grid-area: assets;    display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line-1); overflow: hidden; }
+.ops-activity-panel  { grid-area: activity;  display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line-1); overflow: hidden; }
+
+.ops-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-1);
+  flex-shrink: 0;
+}
+.ops-panel-title  { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-2); }
+.ops-panel-count  { font-size: 10px; color: var(--fg-3); font-family: var(--font-mono); }
+.ops-live-badge   { font-size: 9px; font-family: var(--font-mono); background: var(--green); color: #000; padding: 1px 5px; border-radius: 2px; }
+
+/* new-asset flash */
+@keyframes ops-flash-in {
+  from { background-color: rgba(74,222,128,.18); }
+  to   { background-color: transparent; }
+}
+.data-table tbody tr.row-new { animation: ops-flash-in 2.5s ease forwards; }
+
+/* context menu */
+.ops-ctx-backdrop { position: fixed; inset: 0; z-index: 1999; }
+.ops-ctx-menu {
+  position: fixed; z-index: 2000;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  min-width: 180px; padding: 4px 0;
+}
+.ops-ctx-header { padding: 6px 14px 4px; font-size: 10px; color: var(--fg-3); font-family: var(--font-mono); }
+.ops-ctx-sep    { height: 1px; background: var(--line-1); margin: 2px 0; }
+.ops-ctx-item   { padding: 6px 14px; font-size: 12px; cursor: pointer; color: var(--fg-0); }
+.ops-ctx-item:hover { background: var(--bg-3); }
+
+/* activity log */
+.ops-log { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.ops-log-entry {
+  font-size: 11px; font-family: var(--font-mono);
+  padding: 4px 6px; border-radius: 2px;
+  display: flex; flex-direction: column; gap: 2px;
+  border-left: 2px solid var(--line-2);
+}
+.ops-log-success { border-left-color: var(--green); }
+.ops-log-error   { border-left-color: var(--red); color: var(--red); }
+
+.btn-danger { background: var(--red) !important; color: #fff !important; border-color: var(--red) !important; }

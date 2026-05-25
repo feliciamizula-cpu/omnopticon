@@ -85,6 +85,31 @@ app.MapGet("/ui/assets/{assetId:guid}/relationships", async (
     return Results.Json(relationships ?? new JsonArray());
 });
 
+app.MapGet("/ui/programs", async (
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.ProgramScope, "/programs", cancellationToken);
+    return Results.Json(result ?? new JsonArray());
+});
+
+app.MapGet("/ui/ops/assets", async (
+    Guid? programId,
+    int? take,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var pageSize = Math.Clamp(take ?? 500, 1, 1000);
+    var path = $"/assets?pageSize={pageSize}";
+    if (programId.HasValue) path += $"&programId={programId}";
+    var result = await gateway.GetJsonAsync(endpoints.Asset, path, cancellationToken);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["totalCount"] = 0 });
+});
+
 app.MapPost("/ui/programs", async (
     JsonObject payload,
     IHttpClientFactory httpClientFactory,
