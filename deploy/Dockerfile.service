@@ -13,7 +13,7 @@ WORKDIR /src
 ARG PROJECT_PATH
 ARG ASSEMBLY_NAME
 
-COPY Directory.Build.props Directory.Build.targets Directory.Packages.props ./
+COPY global.json Directory.Build.props Directory.Build.targets Directory.Packages.props ./
 COPY nuget.config ./
 
 COPY src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj                       src/Argus.ServiceDefaults/
@@ -30,6 +30,8 @@ RUN dotnet publish ${PROJECT_PATH} \
     -c Release \
     -o /app/publish \
     -p:TreatWarningsAsErrors=false
+
+RUN test -s /app/publish/wwwroot/_framework/blazor.web.js
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}

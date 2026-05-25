@@ -97,6 +97,13 @@ jobs:
           for attempt in $(seq 1 30); do
             body="$(curl -fsSL "${service_url}/agents" || true)"
             if echo "${body}" | grep -q "v${short_sha}"; then
+              blazor_src="$(echo "${body}" | sed -n 's/.*<script src="\([^"]*blazor\.web[^"]*\.js\)".*/\1/p' | tail -1)"
+              if [ -z "${blazor_src}" ]; then
+                echo "Staging is serving v${short_sha}, but no Blazor framework script was found." >&2
+                exit 1
+              fi
+
+              curl -fsSL "${service_url}/${blazor_src}" >/dev/null
               echo "Verified staging is serving v${short_sha}"
               exit 0
             fi
