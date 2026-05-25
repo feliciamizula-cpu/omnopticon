@@ -1,22 +1,30 @@
 using System.Text;
+using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
+
+var allowInvalidTls = bool.TryParse(builder.Configuration["ARGUS_HTTP_PROBE_ALLOW_INVALID_TLS"], out var parsedAllowInvalidTls)
+    && parsedAllowInvalidTls;
+
 builder.Services.AddHttpClient("probe")
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         AllowAutoRedirect = false,
         AutomaticDecompression = System.Net.DecompressionMethods.All,
-        CheckCertificateRevocationList = false,
-        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        CheckCertificateRevocationList = !allowInvalidTls,
+        ServerCertificateCustomValidationCallback = allowInvalidTls
+            ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            : null
     });
 builder.AddArgusWorker<HttpProbeWorker>();
 
@@ -25,18 +33,20 @@ await builder.Build().RunAsync();
 internal sealed partial class HttpProbeWorker : IReconWorker
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<HttpProbeWorker> _logger;
     private static readonly Regex TitleRegex = TitleRegexGenerated();
     private const int MaxRedirects = 10;
     private const int MaxBodySizeBytes = 10 * 1024 * 1024;
 
-    public HttpProbeWorker(IHttpClientFactory httpClientFactory)
+    public HttpProbeWorker(IHttpClientFactory httpClientFactory, ILogger<HttpProbeWorker> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _logger = logger;
     }
 
     public WorkerCapabilityDescriptor Capability { get; } = new(
         "HttpProbeWorker",
-        ["Subdomain", "Ip"],
+        ["Subdomain", "Ip", "Url", "ApiEndpoint", "JavaScriptFile", "JsonDocument"],
         ["Url", "HttpResponse", "HtmlPage", "JsonDocument", "Observation"],
         RequiresHttp: true,
         SupportsCheckpoint: true,
@@ -47,14 +57,16 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         WorkerExecutionContext context,
         CancellationToken cancellationToken)
     {
+        var explicitUrl = WorkerHelpers.GetString(task.InputPayloadJson, "url");
+        var explicitUri = Uri.TryCreate(explicitUrl, UriKind.Absolute, out var parsedUri) ? parsedUri : null;
         var host = WorkerHelpers.GetString(task.InputPayloadJson, "host")
             ?? WorkerHelpers.GetString(task.InputPayloadJson, "domain")
-            ?? throw new InvalidOperationException("No host in task payload");
+            ?? WorkerHelpers.ExtractHost(explicitUrl)
+            ?? throw new InvalidOperationException("No host or URL in task payload");
 
         var timeoutSeconds = WorkerHelpers.GetInt(task.InputPayloadJson, "timeout_seconds") ?? 30;
         var followRedirects = WorkerHelpers.GetBool(task.InputPayloadJson, "follow_redirects") ?? true;
 
-        await context.ReportProgressAsync(5, $"DEBUG: followRedirects={followRedirects}", null);
 
         await context.ReportProgressAsync(5, $"Waiting for rate-limit token for {host}", null);
 
@@ -75,15 +87,16 @@ internal sealed partial class HttpProbeWorker : IReconWorker
         var producedAssets = new List<WorkerProducedAsset>();
         var producedArtifacts = new List<WorkerProducedArtifact>();
 
-        var schemes = new[] { "https", "http" };
+        var schemes = explicitUri is null ? new[] { "https", "http" } : new[] { explicitUri.Scheme };
         bool httpsSucceeded = false;
+        bool inputConfirmed = false;
         string? httpsError = null;
         var redirectChain = new List<string>();
         string outputSummary = "";
 
         foreach (var scheme in schemes)
         {
-            var probeUrl = $"{scheme}://{host}/";
+            var probeUrl = explicitUri?.ToString() ?? $"{scheme}://{host}/";
             await context.ReportProgressAsync(10, $"Attempting {scheme} probe for {host}", null);
             var currentUri = new Uri(probeUrl);
             var redirectCount = 0;
@@ -159,6 +172,12 @@ internal sealed partial class HttpProbeWorker : IReconWorker
                         ["observation", "headers"],
                         new[] { new ArtifactReference("HttpHeaders", headersArtifact.Name, headersArtifact.ComputeHash()) }));
 
+                    if (!inputConfirmed && task.InputAssetId.HasValue)
+                    {
+                        await ConfirmInputAssetAsync(task.InputAssetId.Value, task.TaskId, $"HTTP {statusCode} from {currentUri}", cancellationToken);
+                        inputConfirmed = true;
+                    }
+
                     if (followRedirects && statusCode >= 300 && statusCode < 400 && response.Headers.Location != null)
                     {
                         redirectCount++;
@@ -198,6 +217,28 @@ internal sealed partial class HttpProbeWorker : IReconWorker
                             ["truncated"] = truncated.ToString().ToLowerInvariant()
                         });
                     producedArtifacts.Add(bodyArtifact);
+
+                    if (IsTextualContent(actualContentType))
+                    {
+                        var bodyPreview = DecodeBody(bodyToStore, effectiveCharset);
+                        if (!string.IsNullOrWhiteSpace(bodyPreview))
+                        {
+                            producedAssets.Add(new WorkerProducedAsset(
+                                "Observation",
+                                $"HTTP body preview from {currentUri}",
+                                "HttpBodyPreview",
+                                0.8m,
+                                new Dictionary<string, string>
+                                {
+                                    ["url"] = currentUri.ToString(),
+                                    ["status_code"] = statusCode.ToString(),
+                                    ["content_type"] = actualContentType,
+                                    ["body_preview"] = bodyPreview.Length > 16384 ? bodyPreview[..16384] : bodyPreview
+                                },
+                                ["observation", "body-preview", "regex-source"],
+                                new[] { new ArtifactReference("HttpBody", bodyArtifact.Name, bodyArtifact.ComputeHash()) }));
+                        }
+                    }
 
                     if (scheme == "https")
                         httpsSucceeded = true;
@@ -282,13 +323,17 @@ internal sealed partial class HttpProbeWorker : IReconWorker
                 }
             }
 
-            if (schemeSucceeded && scheme == "https")
+            if (schemeSucceeded && (scheme == "https" || explicitUri is not null))
             {
                 break;
             }
         }
 
-        if (httpsSucceeded)
+        if (explicitUri is not null)
+        {
+            outputSummary = JsonSerializer.Serialize(new { host, url = explicitUri.ToString(), redirects = redirectChain.Count });
+        }
+        else if (httpsSucceeded)
         {
             outputSummary = JsonSerializer.Serialize(new { host, scheme = "https", redirects = redirectChain.Count });
         }
@@ -305,6 +350,38 @@ internal sealed partial class HttpProbeWorker : IReconWorker
 
         return new WorkerProcessResult(false, outputSummary, producedAssets) { ProducedArtifacts = producedArtifacts };
     }
+
+    private async Task ConfirmInputAssetAsync(Guid assetId, Guid taskId, string notes, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient();
+        var baseAddress = Environment.GetEnvironmentVariable("ARGUS_ASSET_SERVICE");
+        client.BaseAddress = Uri.TryCreate(baseAddress, UriKind.Absolute, out var serviceUri)
+            ? serviceUri
+            : new Uri("http://asset-service");
+
+        try
+        {
+            using var response = await client.PostAsJsonAsync(
+                $"/assets/{assetId}/confirm",
+                new ConfirmAssetRequest(taskId, notes),
+                cancellationToken);
+
+            _ = response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            // Asset confirmation is best-effort; the probe result should still be published.
+            _logger.LogDebug(ex, "Failed to confirm input asset {AssetId} from task {TaskId}", assetId, taskId);
+        }
+    }
+
+    private static bool IsTextualContent(string contentType) =>
+        contentType.Contains("text/", StringComparison.OrdinalIgnoreCase)
+        || contentType.Contains("html", StringComparison.OrdinalIgnoreCase)
+        || contentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+        || contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+        || contentType.Contains("xml", StringComparison.OrdinalIgnoreCase)
+        || contentType.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase);
 
     private static TimeSpan GetRetryAfter(System.Net.Http.Headers.RetryConditionHeaderValue? retryAfterHeader)
     {
@@ -407,3 +484,4 @@ internal sealed partial class HttpProbeWorker : IReconWorker
     [GeneratedRegex(@"<title[^>]*>([^<]+)</title>", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex TitleRegexGenerated();
 }
+internal sealed record ConfirmAssetRequest(Guid? ConfirmedByTaskId, string? Notes);

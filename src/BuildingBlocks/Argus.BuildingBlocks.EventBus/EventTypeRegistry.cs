@@ -34,6 +34,7 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
         Register<ScopeCreated>();
         Register<RateLimitTokenGranted>();
         Register<RateLimitDelayed>();
+        Register<RateLimitBackpressureSignaled>();
         Register<WorkerHeartbeat>();
         Register<ProgramScopeChanged>();
         Register<AssetPropertyChanged>();
@@ -42,6 +43,11 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
         Register<ProxyRemoved>();
         Register<ProxyStatusChanged>();
         Register<ProxyRateLimitExceeded>();
+        Register<ArtifactCreated>();
+        Register<EvidenceAdded>();
+        Register<FindingCreated>();
+        Register<FindingUpdated>();
+        Register<FindingTriaged>();
     }
 
     private void Register<T>(int version = 1) where T : notnull

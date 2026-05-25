@@ -42,6 +42,7 @@
     <ProjectReference Include="..\Workers\Argus.Workers.HtmlDomSpider\Argus.Workers.HtmlDomSpider.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.HttpProbe\Argus.Workers.HttpProbe.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.JsExtractor\Argus.Workers.JsExtractor.csproj" />
+    <ProjectReference Include="..\Workers\Argus.Workers.RegexScanner\Argus.Workers.RegexScanner.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.Subfinder\Argus.Workers.Subfinder.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.Validation\Argus.Workers.Validation.csproj" />
     <ProjectReference Include="..\Workers\Argus.Workers.WordlistDiscovery\Argus.Workers.WordlistDiscovery.csproj" />

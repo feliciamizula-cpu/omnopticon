@@ -8,7 +8,7 @@ public static class AssetNormalizer
     {
         var trimmed = value.Trim();
 
-        return type is AssetType.Domain or AssetType.Subdomain or AssetType.Url or AssetType.ApiEndpoint
+        return type is AssetType.Domain or AssetType.Subdomain or AssetType.Url or AssetType.ApiEndpoint or AssetType.Form
             ? trimmed.ToLowerInvariant()
             : trimmed;
     }
@@ -27,6 +27,10 @@ public static class AssetNormalizer
         AssetType.JsonDocument => AssetCategory.Document,
         AssetType.ApiEndpoint => AssetCategory.Api,
         AssetType.Technology => AssetCategory.Technology,
+        AssetType.Form => AssetCategory.Form,
+        AssetType.Observation => AssetCategory.Observation,
+        AssetType.Secret => AssetCategory.Secret,
+        AssetType.Vulnerability => AssetCategory.Vulnerability,
         AssetType.FindingCandidate or AssetType.Finding => AssetCategory.Finding,
         AssetType.Port => AssetCategory.Port,
         AssetType.DnsRecord => AssetCategory.Network,
@@ -47,6 +51,10 @@ public static class AssetNormalizer
         AssetType.JsonDocument => "json",
         AssetType.ApiEndpoint => "api_endpoint",
         AssetType.Technology => "technology",
+        AssetType.Form => "form",
+        AssetType.Observation => "observation",
+        AssetType.Secret => "secret",
+        AssetType.Vulnerability => "vulnerability",
         AssetType.FindingCandidate => "finding_candidate",
         AssetType.Finding => "finding",
         AssetType.Port => "port",
@@ -56,6 +64,11 @@ public static class AssetNormalizer
 
     public static AssetSubcategory InferSubcategory(AssetType type, string value)
     {
+        if (type == AssetType.Form)
+        {
+            return AssetSubcategory.HtmlForm;
+        }
+
         if (value.Contains('/'))
         {
             return type switch

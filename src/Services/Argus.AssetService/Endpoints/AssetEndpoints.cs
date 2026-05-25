@@ -32,6 +32,8 @@ public static class AssetEndpoints
         app.MapPatch("/assets/{assetId:guid}", UpdateAsset);
         app.MapPatch("/assets/{assetId:guid}/status", UpdateAssetStatus);
         app.MapPost("/assets/{assetId:guid}/verify", VerifyAsset);
+        app.MapPost("/assets/{assetId:guid}/confirm", ConfirmAsset);
+        app.MapPatch("/assets/{assetId:guid}/last-scanned", MarkLastScanned);
         app.MapPost("/assets/{assetId:guid}/reject", RejectAsset);
         app.MapPost("/assets/{assetId:guid}/mark-high-value", MarkHighValue);
         app.MapPost("/assets/{assetId:guid}/tags", AddTags);
@@ -315,13 +317,63 @@ public static class AssetEndpoints
         {
             var verified = await store.VerifyAsync(assetId, request.VerificationStatus, request.Notes, cancellationToken);
 
+            if (request.VerificationStatus == VerificationStatus.Verified)
+            {
+                await events.PublishAsync(
+                    new AssetConfirmed(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value, null),
+                    nameof(AssetConfirmed),
+                    "Argus.AssetService",
+                    cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await events.PublishAsync(
+                    new AssetUpdated(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value),
+                    nameof(AssetUpdated),
+                    "Argus.AssetService",
+                    cancellationToken: cancellationToken);
+            }
+
+            return Results.Ok(verified);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
+        {
+            return Results.NotFound(ex.Message);
+        }
+    }
+
+    private static async Task<IResult> ConfirmAsset(
+        Guid assetId,
+        ConfirmAssetRequest request,
+        IAssetStore store,
+        IIntegrationEventPublisher events,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var confirmed = await store.VerifyAsync(assetId, VerificationStatus.Verified, request.Notes, cancellationToken);
             await events.PublishAsync(
-                new AssetConfirmed(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value, null),
+                new AssetConfirmed(confirmed.AssetId, confirmed.ProgramId, confirmed.Type.ToString(), confirmed.Value, request.ConfirmedByTaskId),
                 nameof(AssetConfirmed),
                 "Argus.AssetService",
                 cancellationToken: cancellationToken);
 
-            return Results.Ok(verified);
+            return Results.Ok(confirmed);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
+        {
+            return Results.NotFound(ex.Message);
+        }
+    }
+
+    private static async Task<IResult> MarkLastScanned(
+        Guid assetId,
+        IAssetStore store,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Results.Ok(await store.MarkLastScannedAsync(assetId, cancellationToken));
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
         {
@@ -636,4 +688,5 @@ public static class AssetEndpoints
             return uri.ToString();
         return fallback;
     }
+    private sealed record ConfirmAssetRequest(Guid? ConfirmedByTaskId, string? Notes);
 }

@@ -142,6 +142,20 @@ public sealed class ArgusWorkerBackgroundService(
 
             await RunTaskAsync(task, stoppingToken);
         }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Worker {WorkerType} ({WorkerId}) failed before a task could be completed", worker.Capability.WorkerType, _options.WorkerId);
+            try
+            {
+                await Task.Delay(_options.PollInterval, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+            }
+        }
         finally
         {
             if (taskWasStarted)
@@ -237,7 +251,18 @@ public sealed class ArgusWorkerBackgroundService(
             _taskCheckpoints.TryRemove(task.TaskId, out _);
             heartbeatCts.Cancel();
             await heartbeatTask;
-            await HeartbeatAsync(Volatile.Read(ref _runningTaskCount), cancellationToken);
+
+            try
+            {
+                await HeartbeatAsync(Volatile.Read(ref _runningTaskCount), cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Final heartbeat failed for worker {WorkerType} ({WorkerId})", worker.Capability.WorkerType, _options.WorkerId);
+            }
         }
     }
 
@@ -253,6 +278,10 @@ public sealed class ArgusWorkerBackgroundService(
             catch (OperationCanceledException)
             {
                 break;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Heartbeat failed for worker {WorkerType} ({WorkerId})", worker.Capability.WorkerType, _options.WorkerId);
             }
         }
     }
@@ -726,9 +755,19 @@ internal static class ScopeValidationTarget
 {
     public static string? Extract(WorkerProducedAsset asset)
     {
+        if (string.Equals(asset.AssetType, "Observation", StringComparison.OrdinalIgnoreCase)
+            && asset.Metadata?.TryGetValue("url", out var observationUrl) == true)
+        {
+            return Uri.TryCreate(observationUrl.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)
+                ? uri.Host
+                : observationUrl;
+        }
+
         if (string.Equals(asset.AssetType, "Url", StringComparison.OrdinalIgnoreCase)
             || string.Equals(asset.AssetType, "ApiEndpoint", StringComparison.OrdinalIgnoreCase)
             || string.Equals(asset.AssetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "HtmlPage", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "JsonDocument", StringComparison.OrdinalIgnoreCase)
             || string.Equals(asset.AssetType, "HttpResponse", StringComparison.OrdinalIgnoreCase))
         {
             return Uri.TryCreate(asset.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)

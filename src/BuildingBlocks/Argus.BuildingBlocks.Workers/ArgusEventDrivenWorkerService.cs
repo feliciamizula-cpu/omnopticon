@@ -74,8 +74,6 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
-
-        await _concurrencyLimiter.WaitAsync(stoppingToken);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -88,10 +86,16 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         drainCts.CancelAfter(_options.DrainTimeout);
 
+        var acquiredDrainSlots = 0;
+
         try
         {
-            await _concurrencyLimiter.WaitAsync(drainCts.Token);
-            _concurrencyLimiter.Release();
+            for (var i = 0; i < _worker.Capability.MaxConcurrency; i++)
+            {
+                await _concurrencyLimiter.WaitAsync(drainCts.Token);
+                acquiredDrainSlots++;
+            }
+
             _logger.LogInformation("Event-driven worker {WorkerType} ({WorkerId}) drain complete, all in-flight tasks finished",
                 _worker.Capability.WorkerType, _options.WorkerId);
         }
@@ -103,6 +107,13 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             if (_options.SaveCheckpointOnShutdown)
             {
                 await FailRemainingTasksWithCheckpointAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (acquiredDrainSlots > 0)
+            {
+                _concurrencyLimiter.Release(acquiredDrainSlots);
             }
         }
 
@@ -284,6 +295,10 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             {
                 break;
             }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Heartbeat failed for event-driven worker {WorkerType} ({WorkerId})", _worker.Capability.WorkerType, _options.WorkerId);
+            }
         }
     }
 
@@ -439,9 +454,20 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
 
     private static string? ExtractScopeTarget(WorkerProducedAsset asset)
     {
+        if (string.Equals(asset.AssetType, "Observation", StringComparison.OrdinalIgnoreCase)
+            && asset.Metadata?.TryGetValue("url", out var observationUrl) == true)
+        {
+            return Uri.TryCreate(observationUrl.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)
+                ? uri.Host
+                : observationUrl;
+        }
+
         if (string.Equals(asset.AssetType, "Url", StringComparison.OrdinalIgnoreCase)
             || string.Equals(asset.AssetType, "ApiEndpoint", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(asset.AssetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(asset.AssetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "HtmlPage", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "JsonDocument", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "HttpResponse", StringComparison.OrdinalIgnoreCase))
         {
             return Uri.TryCreate(asset.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)
                 ? uri.Host : asset.Value;

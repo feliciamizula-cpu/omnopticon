@@ -63,12 +63,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
             await _channel.ExchangeDeclareAsync(RetryExchange, ExchangeType.Direct, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
-            var eventTypes = new[] {
-                "AssetDiscovered", "AssetConfirmed", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
-                "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
-                "ProgramCreated", "ScopeCreated", "ProgramScopeChanged", "RateLimitTokenGranted", "RateLimitDelayed",
-                "WorkerHeartbeat", "FindingCandidateCreated"
-            };
+            var eventTypes = EventTypeToTypes.Keys.ToArray();
 
             foreach (var eventType in eventTypes)
             {
@@ -104,11 +99,16 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 var retryCount = GetRetryCount(ea.BasicProperties);
                 var isRedelivered = ea.Redelivered;
 
-                if (isRedelivered || retryCount > _maxRetries)
+                if (retryCount > _maxRetries)
                 {
-                    _logger.LogWarning("Message {DeliveryTag} is poison (redelivered={IsRedelivered}, retryCount={RetryCount}), moving to DLQ", ea.DeliveryTag, isRedelivered, retryCount);
+                    _logger.LogWarning("Message {DeliveryTag} exceeded retry limit (retryCount={RetryCount}), moving to DLQ", ea.DeliveryTag, retryCount);
                     await MoveToDlqAsync(ea, null, retryCount, stoppingToken);
                     return;
+                }
+
+                if (isRedelivered)
+                {
+                    _logger.LogInformation("Processing redelivered message {DeliveryTag} with retryCount={RetryCount}", ea.DeliveryTag, retryCount);
                 }
 
                 try
@@ -259,22 +259,22 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             return;
         }
 
-        var payloadJson = envelope.Payload.GetRawText();
-        var deserializedPayload = JsonSerializer.Deserialize(payloadJson, payloadType, JsonOptions);
-        if (deserializedPayload is null)
+        var typedEnvelopeType = typeof(IntegrationEventEnvelope<>).MakeGenericType(payloadType);
+        var typedEnvelopeJson = JsonSerializer.Serialize(envelope, JsonOptions);
+        var typedEnvelope = JsonSerializer.Deserialize(typedEnvelopeJson, typedEnvelopeType, JsonOptions);
+        if (typedEnvelope is null)
         {
-            _logger.LogWarning("Failed to deserialize payload for event {EventType}", envelope.EventType);
+            _logger.LogWarning("Failed to deserialize typed envelope for event {EventType}", envelope.EventType);
             return;
         }
 
-        var invokeMethod = s_dispatchDict[new (handlerType, envelope.EventType)];
-        if (invokeMethod is null)
+        if (!s_dispatchDict.TryGetValue(new(handlerType, envelope.EventType), out var invokeMethod))
         {
             _logger.LogWarning("No dispatch method for {EventType}", envelope.EventType);
             return;
         }
 
-        var task = (Task?)invokeMethod.Invoke(handler, new[] { envelope, deserializedPayload, cancellationToken });
+        var task = (Task?)invokeMethod.Invoke(handler, [typedEnvelope, cancellationToken]);
         if (task is not null)
         {
             await task;
@@ -297,24 +297,39 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
 
     private static readonly Dictionary<string, (Type handlerType, Type payloadType)> EventTypeToTypes = new()
     {
-        ["ProgramCreated"] = (typeof(IIntegrationEventConsumer<ProgramCreated>), typeof(ProgramCreated)),
-        ["ScopeCreated"] = (typeof(IIntegrationEventConsumer<ScopeCreated>), typeof(ScopeCreated)),
-        ["ProgramScopeChanged"] = (typeof(IIntegrationEventConsumer<ProgramScopeChanged>), typeof(ProgramScopeChanged)),
-        ["AssetDiscovered"] = (typeof(IIntegrationEventConsumer<AssetDiscovered>), typeof(AssetDiscovered)),
-        ["FindingCandidateCreated"] = (typeof(IIntegrationEventConsumer<FindingCandidateCreated>), typeof(FindingCandidateCreated)),
-        ["AssetConfirmed"] = (typeof(IIntegrationEventConsumer<AssetConfirmed>), typeof(AssetConfirmed)),
-        ["AssetUpdated"] = (typeof(IIntegrationEventConsumer<AssetUpdated>), typeof(AssetUpdated)),
-        ["AssetPropertyChanged"] = (typeof(IIntegrationEventConsumer<AssetPropertyChanged>), typeof(AssetPropertyChanged)),
-        ["AssetRelationshipDiscovered"] = (typeof(IIntegrationEventConsumer<AssetRelationshipDiscovered>), typeof(AssetRelationshipDiscovered)),
-        ["TaskRequested"] = (typeof(IIntegrationEventConsumer<TaskRequested>), typeof(TaskRequested)),
-        ["TaskLeased"] = (typeof(IIntegrationEventConsumer<TaskLeased>), typeof(TaskLeased)),
-        ["TaskStarted"] = (typeof(IIntegrationEventConsumer<TaskStarted>), typeof(TaskStarted)),
-        ["TaskProgressed"] = (typeof(IIntegrationEventConsumer<TaskProgressed>), typeof(TaskProgressed)),
-        ["TaskCompleted"] = (typeof(IIntegrationEventConsumer<TaskCompleted>), typeof(TaskCompleted)),
-        ["TaskFailed"] = (typeof(IIntegrationEventConsumer<TaskFailed>), typeof(TaskFailed)),
-        ["WorkerHeartbeat"] = (typeof(IIntegrationEventConsumer<WorkerHeartbeat>), typeof(WorkerHeartbeat)),
-        ["RateLimitTokenGranted"] = (typeof(IIntegrationEventConsumer<RateLimitTokenGranted>), typeof(RateLimitTokenGranted)),
-        ["RateLimitDelayed"] = (typeof(IIntegrationEventConsumer<RateLimitDelayed>), typeof(RateLimitDelayed)),
+        [nameof(ProgramCreated)] = (typeof(IIntegrationEventConsumer<ProgramCreated>), typeof(ProgramCreated)),
+        [nameof(ScopeCreated)] = (typeof(IIntegrationEventConsumer<ScopeCreated>), typeof(ScopeCreated)),
+        [nameof(ProgramScopeChanged)] = (typeof(IIntegrationEventConsumer<ProgramScopeChanged>), typeof(ProgramScopeChanged)),
+
+        [nameof(AssetDiscovered)] = (typeof(IIntegrationEventConsumer<AssetDiscovered>), typeof(AssetDiscovered)),
+        [nameof(AssetConfirmed)] = (typeof(IIntegrationEventConsumer<AssetConfirmed>), typeof(AssetConfirmed)),
+        [nameof(AssetUpdated)] = (typeof(IIntegrationEventConsumer<AssetUpdated>), typeof(AssetUpdated)),
+        [nameof(AssetPropertyChanged)] = (typeof(IIntegrationEventConsumer<AssetPropertyChanged>), typeof(AssetPropertyChanged)),
+        [nameof(AssetRelationshipDiscovered)] = (typeof(IIntegrationEventConsumer<AssetRelationshipDiscovered>), typeof(AssetRelationshipDiscovered)),
+        [nameof(FindingCandidateCreated)] = (typeof(IIntegrationEventConsumer<FindingCandidateCreated>), typeof(FindingCandidateCreated)),
+
+        [nameof(TaskRequested)] = (typeof(IIntegrationEventConsumer<TaskRequested>), typeof(TaskRequested)),
+        [nameof(TaskLeased)] = (typeof(IIntegrationEventConsumer<TaskLeased>), typeof(TaskLeased)),
+        [nameof(TaskStarted)] = (typeof(IIntegrationEventConsumer<TaskStarted>), typeof(TaskStarted)),
+        [nameof(TaskProgressed)] = (typeof(IIntegrationEventConsumer<TaskProgressed>), typeof(TaskProgressed)),
+        [nameof(TaskCompleted)] = (typeof(IIntegrationEventConsumer<TaskCompleted>), typeof(TaskCompleted)),
+        [nameof(TaskFailed)] = (typeof(IIntegrationEventConsumer<TaskFailed>), typeof(TaskFailed)),
+
+        [nameof(WorkerHeartbeat)] = (typeof(IIntegrationEventConsumer<WorkerHeartbeat>), typeof(WorkerHeartbeat)),
+        [nameof(RateLimitTokenGranted)] = (typeof(IIntegrationEventConsumer<RateLimitTokenGranted>), typeof(RateLimitTokenGranted)),
+        [nameof(RateLimitDelayed)] = (typeof(IIntegrationEventConsumer<RateLimitDelayed>), typeof(RateLimitDelayed)),
+        [nameof(RateLimitBackpressureSignaled)] = (typeof(IIntegrationEventConsumer<RateLimitBackpressureSignaled>), typeof(RateLimitBackpressureSignaled)),
+
+        [nameof(ProxyAdded)] = (typeof(IIntegrationEventConsumer<ProxyAdded>), typeof(ProxyAdded)),
+        [nameof(ProxyRemoved)] = (typeof(IIntegrationEventConsumer<ProxyRemoved>), typeof(ProxyRemoved)),
+        [nameof(ProxyStatusChanged)] = (typeof(IIntegrationEventConsumer<ProxyStatusChanged>), typeof(ProxyStatusChanged)),
+        [nameof(ProxyRateLimitExceeded)] = (typeof(IIntegrationEventConsumer<ProxyRateLimitExceeded>), typeof(ProxyRateLimitExceeded)),
+
+        [nameof(ArtifactCreated)] = (typeof(IIntegrationEventConsumer<ArtifactCreated>), typeof(ArtifactCreated)),
+        [nameof(EvidenceAdded)] = (typeof(IIntegrationEventConsumer<EvidenceAdded>), typeof(EvidenceAdded)),
+        [nameof(FindingCreated)] = (typeof(IIntegrationEventConsumer<FindingCreated>), typeof(FindingCreated)),
+        [nameof(FindingUpdated)] = (typeof(IIntegrationEventConsumer<FindingUpdated>), typeof(FindingUpdated)),
+        [nameof(FindingTriaged)] = (typeof(IIntegrationEventConsumer<FindingTriaged>), typeof(FindingTriaged)),
     };
 
     private static readonly Dictionary<(Type, string), MethodInfo> s_dispatchDict = BuildDispatchDict();
@@ -323,17 +338,11 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
     {
         var dict = new Dictionary<(Type, string), MethodInfo>();
         var iface = typeof(IIntegrationEventConsumer<>);
-        var eventTypes = new[] {
-            typeof(ProgramCreated), typeof(ScopeCreated), typeof(ProgramScopeChanged), typeof(AssetDiscovered), typeof(FindingCandidateCreated), typeof(AssetConfirmed), typeof(AssetUpdated),
-            typeof(AssetPropertyChanged), typeof(AssetRelationshipDiscovered), typeof(TaskRequested), typeof(TaskLeased), typeof(TaskStarted),
-            typeof(TaskProgressed), typeof(TaskCompleted), typeof(TaskFailed), typeof(WorkerHeartbeat),
-            typeof(RateLimitTokenGranted), typeof(RateLimitDelayed)
-        };
-        foreach (var t in eventTypes)
+        foreach (var (eventTypeName, (_, payloadType)) in EventTypeToTypes)
         {
-            var handlerType = iface.MakeGenericType(t);
+            var handlerType = iface.MakeGenericType(payloadType);
             var method = handlerType.GetMethod(nameof(IIntegrationEventConsumer<object>.HandleAsync))!;
-            dict[(handlerType, t.Name)] = method;
+            dict[(handlerType, eventTypeName)] = method;
         }
         return dict;
     }
@@ -347,12 +356,29 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
 
     private static int GetRetryCount(IReadOnlyBasicProperties? properties)
     {
-        if (properties?.Headers is null) return 0;
-        if (properties.Headers.TryGetValue("x-retry-count", out var countObj))
+        if (properties?.Headers is null)
         {
-            return Convert.ToInt32(countObj);
+            return 0;
         }
-        return 0;
+
+        if (!properties.Headers.TryGetValue("x-retry-count", out var countObj) || countObj is null)
+        {
+            return 0;
+        }
+
+        return countObj switch
+        {
+            int value => value,
+            long value when value <= int.MaxValue && value >= int.MinValue => (int)value,
+            long value when value > int.MaxValue => int.MaxValue,
+            long value when value < int.MinValue => 0,
+            short value => value,
+            byte value => value,
+            byte[] bytes when int.TryParse(Encoding.UTF8.GetString(bytes), out var value) => value,
+            ReadOnlyMemory<byte> bytes when int.TryParse(Encoding.UTF8.GetString(bytes.Span), out var value) => value,
+            string text when int.TryParse(text, out var value) => value,
+            _ => 0
+        };
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
