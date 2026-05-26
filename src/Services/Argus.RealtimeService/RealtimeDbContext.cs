@@ -1,9 +1,15 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Argus.RealtimeService;
 
 public sealed class RealtimeDbContext : DbContext
 {
+    // SQLite cannot ORDER BY DateTimeOffset columns; store as Unix ms (long) instead.
+    private static readonly ValueConverter<DateTimeOffset, long> _dateTimeOffsetConverter = new(
+        v => v.ToUnixTimeMilliseconds(),
+        v => DateTimeOffset.FromUnixTimeMilliseconds(v));
+
     public RealtimeDbContext(DbContextOptions<RealtimeDbContext> options) : base(options)
     {
     }
@@ -20,6 +26,7 @@ public sealed class RealtimeDbContext : DbContext
             e.Property(x => x.EventType).IsRequired().HasMaxLength(256);
             e.Property(x => x.SourceService).HasMaxLength(256);
             e.Property(x => x.PayloadJson).HasColumnType("TEXT");
+            e.Property(x => x.RecordedAt).HasConversion(_dateTimeOffsetConverter);
             e.HasIndex(x => x.RecordedAt);
             e.HasIndex(x => x.EventType);
             e.HasIndex(x => x.CorrelationId);
@@ -29,6 +36,7 @@ public sealed class RealtimeDbContext : DbContext
         {
             e.HasKey(x => x.WorkerId);
             e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
+            e.Property(x => x.LastSeenAt).HasConversion(_dateTimeOffsetConverter);
             e.HasIndex(x => x.LastSeenAt);
         });
 
