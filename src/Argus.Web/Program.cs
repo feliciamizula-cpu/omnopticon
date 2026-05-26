@@ -62,11 +62,11 @@ app.MapPost("/ui/programs", async (
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
 
-    var programResponse = await gateway.PostJsonAsync(endpoints.ProgramScope, "/programs", payload, cancellationToken);
+    var programResponse = await gateway.PostJsonRawAsync(endpoints.ProgramScope, "/programs", payload, cancellationToken);
 
-    if (!programResponse.StatusCode.IsSuccessStatusCode())
+    if (!programResponse.IsSuccessStatusCode)
     {
-        return programResponse;
+        return await gateway.ResultFromResponse(programResponse);
     }
 
     var body = await programResponse.Content.ReadAsStringAsync(cancellationToken);
@@ -85,28 +85,39 @@ app.MapPost("/ui/programs", async (
             ["notes"] = "Auto-created from program source"
         };
 
-        var scopeResponse = await gateway.PostJsonAsync(endpoints.ProgramScope, $"/programs/{programId}/scopes", createScopePayload, cancellationToken);
-
-        if (scopeResponse.StatusCode.IsSuccessStatusCode())
+        try
         {
-            var scopeBody = await scopeResponse.Content.ReadAsStringAsync(cancellationToken);
-            var scope = JsonNode.Parse(scopeBody);
+            var scopeResponse = await gateway.PostJsonRawAsync(endpoints.ProgramScope, $"/programs/{programId}/scopes", createScopePayload, cancellationToken);
 
-            if (scope?["scopeId"]?.GetValue<string>() is string scopeId)
+            if (scopeResponse.IsSuccessStatusCode)
             {
-                var discoverPayload = new JsonObject
-                {
-                    ["programId"] = programId,
-                    ["scopeId"] = scopeId,
-                    ["domain"] = source
-                };
+                var scopeBody = await scopeResponse.Content.ReadAsStringAsync(cancellationToken);
+                var scope = JsonNode.Parse(scopeBody);
 
-                await gateway.PostJsonAsync(endpoints.ScanOrchestrator, "/scan-plans/domain-discovery", discoverPayload, cancellationToken);
+                if (scope?["scopeId"]?.GetValue<string>() is string scopeId)
+                {
+                    var discoverPayload = new JsonObject
+                    {
+                        ["programId"] = programId,
+                        ["scopeId"] = scopeId,
+                        ["domain"] = source
+                    };
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await gateway.PostJsonAsync(endpoints.ScanOrchestrator, "/scan-plans/domain-discovery", discoverPayload, cancellationToken);
+                        }
+                        catch { }
+                    }, cancellationToken);
+                }
             }
         }
+        catch { }
     }
 
-    return programResponse;
+    return await gateway.ResultFromResponse(programResponse);
 });
 
 app.MapPost("/ui/programs/{programId:guid}/scopes", async (
@@ -797,6 +808,20 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
         {
             return Results.Problem($"Unable to reach backend service: {ex.Message}", statusCode: StatusCodes.Status503ServiceUnavailable);
         }
+    }
+
+    public async Task<HttpResponseMessage> PostJsonRawAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(baseAddress);
+        return await client.PostAsJsonAsync(path, payload, cancellationToken);
+    }
+
+    public async Task<IResult> ResultFromResponse(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/json";
+        return Results.Content(content, contentType, statusCode: (int)response.StatusCode);
     }
 }
 
