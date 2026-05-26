@@ -2,7 +2,7 @@
 @implements IAsyncDisposable
 
 <CascadingValue Value="this" IsFixed="true">
-<div class="ag" style="--ag-cols: @_colsTemplate">
+<div class="ag" style="@_rootStyle">
     @ChildContent
 
     @* ── Toolbar ── *@
@@ -130,6 +130,11 @@
     [Parameter, EditorRequired] public List<TItem> Items { get; set; } = [];
     [Parameter, EditorRequired] public List<GridColumn<TItem>> Columns { get; set; } = [];
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Style { get; set; }
+
+    string _rootStyle => string.IsNullOrEmpty(Style)
+        ? $"--ag-cols: {_colsTemplate}"
+        : $"--ag-cols: {_colsTemplate}; {Style}";
 
     /// <summary>Highlighted row. Uses ItemKey for comparison when set, otherwise reference equality.</summary>
     [Parameter] public TItem? SelectedItem { get; set; }
