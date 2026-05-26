@@ -8,6 +8,21 @@ resource "google_project_service" "artifact_registry" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "cloudresourcemanager" {
+  service            = "cloudresourcemanager.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "iam" {
+  service            = "iam.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "compute" {
+  service            = "compute.googleapis.com"
+  disable_on_destroy = false
+}
+
 resource "google_artifact_registry_repository" "argus" {
   location      = var.region
   repository_id = var.artifact_registry_repository
@@ -176,6 +191,8 @@ resource "google_project_iam_member" "github_actions_service_usage_consumer" {
   project = var.project_id
   role    = "roles/serviceusage.serviceUsageConsumer"
   member  = "serviceAccount:${var.github_actions_service_account}"
+
+  depends_on = [google_project_service.cloudresourcemanager, google_project_service.iam]
 }
 
 resource "google_project_iam_member" "github_actions_service_account_admin" {
@@ -184,6 +201,8 @@ resource "google_project_iam_member" "github_actions_service_account_admin" {
   project = var.project_id
   role    = "roles/iam.serviceAccountAdmin"
   member  = "serviceAccount:${var.github_actions_service_account}"
+
+  depends_on = [google_project_service.cloudresourcemanager, google_project_service.iam]
 }
 
 resource "google_project_iam_member" "github_actions_compute_admin" {
@@ -192,6 +211,8 @@ resource "google_project_iam_member" "github_actions_compute_admin" {
   project = var.project_id
   role    = "roles/compute.admin"
   member  = "serviceAccount:${var.github_actions_service_account}"
+
+  depends_on = [google_project_service.cloudresourcemanager, google_project_service.compute]
 }
 
 resource "google_project_iam_member" "github_actions_container_admin" {
@@ -200,4 +221,6 @@ resource "google_project_iam_member" "github_actions_container_admin" {
   project = var.project_id
   role    = "roles/container.admin"
   member  = "serviceAccount:${var.github_actions_service_account}"
+
+  depends_on = [google_project_service.cloudresourcemanager, google_project_service.container]
 }
