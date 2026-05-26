@@ -193,7 +193,45 @@ app.MapPost("/ui/programs/{programId:guid}/scopes", async (
     payload["programId"] = programId;
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.ProgramScope, $"/programs/{programId}/scopes", payload, cancellationToken);
+
+    var scopeResult = await gateway.PostJsonRawAsync(endpoints.ProgramScope, $"/programs/{programId}/scopes", payload, cancellationToken);
+
+    if (scopeResult.IsSuccessStatusCode)
+    {
+        var scopeBody = await scopeResult.Content.ReadAsStringAsync(cancellationToken);
+        var scopeNode = JsonNode.Parse(scopeBody);
+        var scopeType = scopeNode?["scopeType"]?.GetValue<string>() ?? payload["scopeType"]?.GetValue<string>() ?? "";
+        var pattern = scopeNode?["pattern"]?.GetValue<string>() ?? payload["pattern"]?.GetValue<string>() ?? "";
+        var scopeId = scopeNode?["scopeId"]?.GetValue<string>();
+
+        if (!string.IsNullOrWhiteSpace(pattern) &&
+            (string.Equals(scopeType, "domain", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(scopeType, "WildcardDomain", StringComparison.OrdinalIgnoreCase)))
+        {
+            var rootDomain = pattern.TrimStart('*').TrimStart('.').Trim().ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(rootDomain))
+            {
+                var assetPayload = new JsonObject
+                {
+                    ["programId"]          = programId,
+                    ["scopeId"]            = scopeId,
+                    ["type"]               = "Domain",
+                    ["value"]              = rootDomain,
+                    ["subtype"]            = "ScopeRoot",
+                    ["confidence"]         = 1.0,
+                    ["discoveredByTaskId"] = $"scope:{scopeId}",
+                    ["tags"]               = new JsonArray("scope-root", "seed")
+                };
+                _ = Task.Run(async () =>
+                {
+                    try { await gateway.PostJsonAsync(endpoints.Asset, "/assets", assetPayload, CancellationToken.None); }
+                    catch { }
+                });
+            }
+        }
+    }
+
+    return await gateway.ResultFromResponse(scopeResult);
 });
 
 app.MapPost("/ui/scan-plans/domain-discovery", async (
