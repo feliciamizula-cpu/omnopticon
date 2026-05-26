@@ -1,0 +1,25 @@
+<div class="pu-provider-name-col">
+    <div class="pu-provider-title-row">
+        <div>
+            <div class="pu-provider-name">@Name</div>
+            <div class="pu-provider-subtitle">@Subtitle</div>
+        </div>
+        <label class="pu-toggle" title="@ToggleTitle">
+            <input type="checkbox" checked="@Enabled" @onchange="Toggle" />
+            <span></span>
+        </label>
+    </div>
+    <div class="pu-provider-state @(Enabled ? "is-enabled" : "is-disabled")">@(Enabled ? "ENABLED" : "DISABLED")</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string ProviderId { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public string Subtitle { get; set; } = string.Empty;
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public EventCallback<string> OnToggleProvider { get; set; }
+
+    private string ToggleTitle => Enabled ? "Disable provider" : "Enable provider";
+
+    private Task Toggle() => OnToggleProvider.InvokeAsync(ProviderId);
+}
