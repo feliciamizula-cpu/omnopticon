@@ -1,0 +1,353 @@
+x-service-build: &service-build
+  context: ..
+  dockerfile: deploy/Dockerfile.service
+
+x-common-env: &common-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ARGUS_EXPOSE_HEALTH_ENDPOINTS: ${ARGUS_EXPOSE_HEALTH_ENDPOINTS:-true}
+  ARGUS_AGENT_SERVICE: http://agent-service:8080
+  ARGUS_PROGRAM_SCOPE_SERVICE: http://program-scope-service:8080
+  ARGUS_ASSET_SERVICE: http://asset-service:8080
+  ARGUS_ARTIFACT_SERVICE: http://artifact-service:8080
+  ARGUS_FINDING_SERVICE: http://finding-service:8080
+  ARGUS_TASK_SERVICE: http://task-service:8080
+  ARGUS_RATE_LIMIT_SERVICE: http://rate-limit-service:8080
+  ARGUS_SCAN_ORCHESTRATOR_SERVICE: http://scan-orchestrator-service:8080
+  ARGUS_EVENT_ROUTER_SERVICE: http://event-router-service:8080
+  ARGUS_REALTIME_SERVICE: http://realtime-service:8080
+  ARGUS_PROXY_REGISTRY_SERVICE: http://proxy-registry-service:8080
+  ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
+  ConnectionStrings__redis: redis:6379
+  ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  environment:
+    <<: *common-env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
+      POSTGRES_DB: argusdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d argusdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: argus
+      RABBITMQ_DEFAULT_PASS: ${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  program-scope-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj
+        ASSEMBLY_NAME: Argus.ProgramScopeService
+
+  asset-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.AssetService/Argus.AssetService.csproj
+        ASSEMBLY_NAME: Argus.AssetService
+
+  artifact-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj
+        ASSEMBLY_NAME: Argus.ArtifactService
+
+  finding-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.FindingService/Argus.FindingService.csproj
+        ASSEMBLY_NAME: Argus.FindingService
+
+  task-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.TaskService/Argus.TaskService.csproj
+        ASSEMBLY_NAME: Argus.TaskService
+
+  rate-limit-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
+        ASSEMBLY_NAME: Argus.RateLimitService
+
+  scan-orchestrator-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
+        ASSEMBLY_NAME: Argus.ScanOrchestratorService
+
+  event-router-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj
+        ASSEMBLY_NAME: Argus.EventRouterService
+
+  realtime-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj
+        ASSEMBLY_NAME: Argus.RealtimeService
+
+  proxy-registry-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
+        ASSEMBLY_NAME: Argus.ProxyRegistryService
+
+  argus-api-gateway:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Argus.ApiGateway/Argus.ApiGateway.csproj
+        ASSEMBLY_NAME: Argus.ApiGateway
+    ports:
+      - "${ARGUS_GATEWAY_PORT:-8081}:8080"
+
+  argus-web:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Argus.Web/Argus.Web.csproj
+        ASSEMBLY_NAME: Argus.Web
+    ports:
+      - "${ARGUS_WEB_PORT:-8082}:8080"
+
+  agent-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.AgentService/Argus.AgentService.csproj
+        ASSEMBLY_NAME: Argus.AgentService
+    environment:
+      <<: *common-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY}
+      GEMINI_OAUTH_CLIENT_ID: ${GEMINI_OAUTH_CLIENT_ID}
+      GEMINI_OAUTH_CLIENT_SECRET: ${GEMINI_OAUTH_CLIENT_SECRET}
+      CODEX_FIVE_HOUR_LIMIT: ${CODEX_FIVE_HOUR_LIMIT:-0}
+      CODEX_TWENTY_FOUR_HOUR_LIMIT: ${CODEX_TWENTY_FOUR_HOUR_LIMIT:-0}
+      CODEX_WEEKLY_LIMIT: ${CODEX_WEEKLY_LIMIT:-0}
+      CODEX_MONTHLY_LIMIT: ${CODEX_MONTHLY_LIMIT:-0}
+    volumes:
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude:/root/.claude:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.gemini:/root/.gemini:ro
+      - /tmp:/tmp
+
+  review-report:
+    image: python:3-slim
+    container_name: argus-review-report
+    restart: unless-stopped
+    ports:
+      - "${ARGUS_REVIEW_PORT:-8083}:8080"
+    volumes:
+      - ../tools/reviews:/usr/share/reviews:ro
+    working_dir: /usr/share/reviews
+    command: python3 -m http.server 8080
+
+  amass-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj
+        ASSEMBLY_NAME: Argus.Workers.Amass
+
+  subfinder-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
+        ASSEMBLY_NAME: Argus.Workers.Subfinder
+
+  dns-resolver-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj
+        ASSEMBLY_NAME: Argus.Workers.DnsResolver
+
+  http-probe-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj
+        ASSEMBLY_NAME: Argus.Workers.HttpProbe
+
+  html-dom-spider-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj
+        ASSEMBLY_NAME: Argus.Workers.HtmlDomSpider
+
+  js-extractor-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj
+        ASSEMBLY_NAME: Argus.Workers.JsExtractor
+
+  wordlist-discovery-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj
+        ASSEMBLY_NAME: Argus.Workers.WordlistDiscovery
+
+  headless-spider-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj
+        ASSEMBLY_NAME: Argus.Workers.HeadlessSpider
+
+  fingerprint-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj
+        ASSEMBLY_NAME: Argus.Workers.Fingerprint
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${ARGUS_MINIO_ACCESS_KEY:-argus}
+      MINIO_ROOT_PASSWORD: ${ARGUS_MINIO_SECRET_KEY:-argus-minio-secret}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  asset-scoring-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
+        ASSEMBLY_NAME: Argus.Workers.AssetScoring
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
