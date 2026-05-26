@@ -55,7 +55,17 @@ jobs:
       - name: Terraform init
         run: terraform -chdir=deploy/terraform init
 
+      - name: Check if cluster exists
+        id: cluster_check
+        run: |
+          if gcloud container clusters describe "${CLUSTER_NAME}" --region "${REGION}" --project "${PROJECT_ID}" 2>/dev/null; then
+            echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "cluster_exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Provision GKE infrastructure
+        if: steps.cluster_check.outputs.cluster_exists != 'true'
         run: |
           terraform -chdir=deploy/terraform apply -auto-approve \
             -var="project_id=${PROJECT_ID}" \
@@ -83,7 +93,8 @@ jobs:
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
             -var="apply_aspirate_manifests=true" \
-            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output"
+            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output" \
+            -var="github_actions_service_account=${WIF_SERVICE_ACCOUNT}"
 
       - name: Deployment summary
         run: |
