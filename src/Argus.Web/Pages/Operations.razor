@@ -327,11 +327,11 @@
 
     async Task LoadAssetsAsync()
     {
-        if (!_selectedProgramId.HasValue) return;
+        if (_selectedProgram?.ProgramId is not { } programId) return;
         _loadingAssets = true;
         try
         {
-            var url = $"/ui/ops/assets?programId={_selectedProgramId}&take=500";
+            var url = $"/ui/ops/assets?programId={programId}&take=500";
             using var resp = await Http.GetAsync(url);
             if (!resp.IsSuccessStatusCode) return;
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
@@ -391,7 +391,7 @@
             try
             {
                 if (!await _timer.WaitForNextTickAsync(ct)) break;
-                if (_polling && _selectedProgramId.HasValue)
+                if (_polling && _selectedProgram is not null)
                 {
                     await LoadAssetsAsync();
                     await InvokeAsync(StateHasChanged);
@@ -408,20 +408,20 @@
 
     async Task SelectProgram(ProgramItem p)
     {
-        _selectedProgramId = p.ProgramId;
+        _selectedProgram = p;
         _assets.Clear();
         await LoadAssetsAsync();
     }
 
-    void SelectAsset(AssetItem a) => _selectedAssetId = a.AssetId;
+    void SelectAsset(AssetItem a) => _selectedAsset = a;
 
-    void ShowProgramMenu(MouseEventArgs e, ProgramItem p)
+    async Task ShowProgramMenu(ProgramItem p, MouseEventArgs e)
     {
         CloseMenus();
         _programMenu = new ProgramMenuState { Visible = true, X = e.ClientX, Y = e.ClientY, Program = p };
     }
 
-    void ShowAssetMenu(MouseEventArgs e, AssetItem a)
+    async Task ShowAssetMenu(AssetItem a, MouseEventArgs e)
     {
         CloseMenus();
         var items = BuildAssetMenuItems(a);
@@ -477,8 +477,8 @@
     async Task RunAssetAction(string action)
     {
         CloseMenus();
-        if (_assetMenu.Asset is not { } asset || !_selectedProgramId.HasValue) return;
-        await EnqueueAsync([asset.AssetId], action, _selectedProgramId.Value);
+        if (_assetMenu.Asset is not { } asset || _selectedProgram?.ProgramId is not { } programId) return;
+        await EnqueueAsync([asset.AssetId], action, programId);
     }
 
     async Task EnqueueAsync(List<Guid> assetIds, string action, Guid programId)
