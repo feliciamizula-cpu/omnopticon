@@ -1,3 +1,6 @@
+﻿using System.Collections.Concurrent;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Argus.BuildingBlocks.EventBus;
 using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Assets;
@@ -7,9 +10,12 @@ using Argus.ProgramScopeService;
 using Argus.ProgramScopeService.Providers;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
+<<<<<<< HEAD
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text.Json;
+=======
+>>>>>>> 0877696314ffa86963c7ca31e842b6e53ad31f15
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -616,7 +622,7 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         return Task.FromResult(new RateLimitPolicyDto(policy.PolicyId, policy.ProgramId, policy.ScopeId, policy.BucketKey, policy.Capacity, policy.RefillRate, policy.Source));
     }
 
-public Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+    public Task<ScopeSnapshot?> GetSnapshotAsync(Guid programId, CancellationToken cancellationToken)
     {
         if (!_programs.TryGetValue(programId, out var program))
         {
@@ -1580,8 +1586,72 @@ internal static class ProgramScopeStoreInitialization
 
         if (dbContext is not null)
         {
+<<<<<<< HEAD
             await dbContext.Database.EnsureCreatedAsync();
             await dbContext.Database.ExecuteSqlRawAsync("""
+=======
+            // EnsureCreatedAsync is a no-op when the DB already exists (e.g. created by another service).
+            // Create all tables explicitly with IF NOT EXISTS so initialization is idempotent.
+            await dbContext.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS programs (
+                    "ProgramId" uuid PRIMARY KEY,
+                    "Name" character varying(256) NOT NULL,
+                    "Source" character varying(128) NOT NULL,
+                    "ExternalUrl" character varying(2048) NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_programs_Name" ON programs ("Name");
+
+                CREATE TABLE IF NOT EXISTS program_scopes (
+                    "ScopeId" uuid PRIMARY KEY,
+                    "ProgramId" uuid NOT NULL REFERENCES programs("ProgramId") ON DELETE CASCADE,
+                    "ScopeType" character varying(128) NOT NULL,
+                    "Pattern" character varying(2048) NOT NULL,
+                    "Action" character varying(64) NOT NULL,
+                    "Notes" text NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_program_scopes_ProgramId_Pattern_Action"
+                    ON program_scopes ("ProgramId", "Pattern", "Action");
+
+                CREATE TABLE IF NOT EXISTS program_rule_revisions (
+                    "RevisionId" uuid PRIMARY KEY,
+                    "ProgramId" uuid NOT NULL,
+                    "Version" integer NOT NULL,
+                    "ChangeType" character varying(64) NOT NULL,
+                    "OldValue" text NULL,
+                    "NewValue" text NULL,
+                    "ChangedBy" character varying(256) NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_program_rule_revisions_ProgramId"
+                    ON program_rule_revisions ("ProgramId");
+
+                CREATE TABLE IF NOT EXISTS scope_exclusions (
+                    "ExclusionId" uuid PRIMARY KEY,
+                    "ProgramId" uuid NOT NULL,
+                    "Pattern" character varying(2048) NOT NULL,
+                    "Reason" character varying(1024) NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "ExpiresAt" timestamp with time zone NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_scope_exclusions_ProgramId"
+                    ON scope_exclusions ("ProgramId");
+
+                CREATE TABLE IF NOT EXISTS rate_limit_policies (
+                    "PolicyId" uuid PRIMARY KEY,
+                    "ProgramId" uuid NOT NULL,
+                    "ScopeId" uuid NULL,
+                    "BucketKey" character varying(512) NOT NULL,
+                    "Capacity" integer NOT NULL,
+                    "RefillRate" integer NOT NULL,
+                    "Source" character varying(256) NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_rate_limit_policies_ProgramId_ScopeId"
+                    ON rate_limit_policies ("ProgramId", "ScopeId");
+
+>>>>>>> 0877696314ffa86963c7ca31e842b6e53ad31f15
                 CREATE TABLE IF NOT EXISTS targets (
                     "TargetId" uuid PRIMARY KEY,
                     "ProgramId" uuid NOT NULL REFERENCES programs("ProgramId") ON DELETE CASCADE,

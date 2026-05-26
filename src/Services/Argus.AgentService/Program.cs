@@ -1,8 +1,8 @@
-using Argus.AgentService;
+﻿using Argus.AgentService;
 using Argus.AgentService.Agents;
 using Argus.AgentService.Data;
-using Argus.AgentService.Stores;
 using Argus.AgentService.ProviderUsage;
+using Argus.AgentService.Stores;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Agents;
 using Argus.ServiceDefaults;
@@ -57,7 +57,14 @@ internal static class AgentStoreInitialization
         var store = scope.ServiceProvider.GetService<IAgentStore>();
         if (store is not null)
         {
-            await store.InitializeAsync();
+            try
+            {
+                await store.InitializeAsync();
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogError(ex, "Agent store initialization failed. Agent/task endpoints may be unavailable, but provider usage endpoints will remain online.");
+            }
         }
     }
 }
@@ -309,9 +316,20 @@ internal static class AgentEndpoints
         return response is not null ? Results.Ok(response) : Results.NotFound();
     }
 
-    private static async Task<IResult> GetRoutingPreview(IAgentStore store, IAgentProviderUsageService providerUsage, CancellationToken ct)
+    private static async Task<IResult> GetRoutingPreview(IAgentStore store, IAgentProviderUsageService providerUsage, ILoggerFactory loggerFactory, CancellationToken ct)
     {
-        var agents = await store.ListAgentsAsync(ct);
+        IReadOnlyList<AgentDto> agents;
+        try
+        {
+            agents = await store.ListAgentsAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            loggerFactory.CreateLogger("ProviderUsage")
+                .LogWarning(ex, "Unable to load agents for provider routing preview. Returning provider-only fallback.");
+            agents = [];
+        }
+
         var route = await providerUsage.SelectRouteAsync(agents, ct);
         return Results.Ok(route);
     }

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -35,6 +35,14 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 
 var app = builder.Build();
+
+app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                     | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+    KnownIPNetworks = { },
+    KnownProxies = { },
+});
 
 app.MapHub<ArgusHub>("/hubs/argus");
 app.MapDefaultEndpoints();
@@ -83,6 +91,31 @@ app.MapGet("/ui/assets/{assetId:guid}/relationships", async (
     var relationships = await gateway.GetJsonAsync(endpoints.Asset, $"/assets/{assetId}/relationships", cancellationToken);
 
     return Results.Json(relationships ?? new JsonArray());
+});
+
+app.MapGet("/ui/programs", async (
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.ProgramScope, "/programs", cancellationToken);
+    return Results.Json(result ?? new JsonArray());
+});
+
+app.MapGet("/ui/ops/assets", async (
+    Guid? programId,
+    int? take,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var pageSize = Math.Clamp(take ?? 500, 1, 1000);
+    var path = $"/assets?pageSize={pageSize}";
+    if (programId.HasValue) path += $"&programId={programId}";
+    var result = await gateway.GetJsonAsync(endpoints.Asset, path, cancellationToken);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["totalCount"] = 0 });
 });
 
 app.MapPost("/ui/programs", async (
@@ -376,6 +409,7 @@ app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
 app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
 
+app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
@@ -632,9 +666,21 @@ async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClie
     return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
 }
 
-async Task<IResult> ProxyGetProviderUsage(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
+async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
 {
     var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderUsage, ct);
+    if (ProviderUsageDefaults.IsEmptyOverview(result))
+    {
+        var gateway = new ArgusUiGateway(httpClientFactory);
+        var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+        var live = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage", ct);
+        if (!ProviderUsageDefaults.IsEmptyOverview(live))
+        {
+            await DevelopmentCache.SetJsonAsync(cache, DevelopmentCache.ProviderUsage, live!, ct);
+            result = live;
+        }
+    }
+
     warmer.QueueWarm();
     return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
 }
@@ -794,6 +840,18 @@ static bool IsPrivateOrLoopback(IPAddress address)
 internal static class ProviderUsageDefaults
 {
     public static JsonNode EmptyOverview() => JsonNode.Parse("""{"generatedAt":"1970-01-01T00:00:00Z","providers":[],"recommendedRoute":null}""")!;
+
+    public static bool IsEmptyOverview(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return true;
+        }
+
+        var providers = node["providers"];
+        return providers is JsonArray { Count: 0 }
+            && string.Equals(node["generatedAt"]?.GetValue<string>(), "1970-01-01T00:00:00Z", StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
@@ -821,7 +879,7 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 
             if (path.Contains("provider-usage", StringComparison.OrdinalIgnoreCase))
             {
-                return ProviderUsageDefaults.EmptyOverview();
+                return null;
             }
 
             if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)

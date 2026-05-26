@@ -125,6 +125,28 @@
                                 <div class="dev-error" style="margin-top: 8px;">@_selectedProvider.LastError</div>
                             }
 
+                            @if ((_selectedProvider.Details?.Length ?? 0) > 0)
+                            {
+                                <div class="section-label">PROVIDER DETAILS</div>
+                                <table class="kv-table provider-details-table">
+                                    <tbody>
+                                        @foreach (var detail in _selectedProvider.Details ?? [])
+                                        {
+                                            <tr>
+                                                <td>@detail.Label</td>
+                                                <td>
+                                                    <span>@detail.Value</span>
+                                                    @if (detail.ResetsAt.HasValue)
+                                                    {
+                                                        <span class="submeta detail-reset">resets @FormatResetTime(detail.ResetsAt)</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+
                             @if (!_selectedProvider.IsAuthenticated)
                             {
                                 <div class="section-label">LOGIN COMMAND</div>
@@ -357,6 +379,12 @@
         if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
         if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
         return $"{(int)diff.TotalDays}d ago";
+    }
+
+    private static string FormatResetTime(DateTimeOffset? value)
+    {
+        if (value is null) return "unknown";
+        return value.Value.ToLocalTime().ToString("MMM d, h:mm tt");
     }
 
     private int LoggedInCount => _overview?.Providers.Count(p => p.IsAuthenticated) ?? 0;

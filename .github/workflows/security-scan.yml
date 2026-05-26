@@ -1,0 +1,105 @@
+name: Security Scan and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore eShop.slnx
+
+      - name: Build
+        run: dotnet build eShop.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          find tests -name '*.csproj' -print0 \
+            | sort -z \
+            | xargs -0 -I {} dotnet test "{}" --configuration Release
+
+      - name: Validate compose config
+        run: docker compose --env-file deploy/argus.env.example -f deploy/compose.yaml config --quiet
+
+      - name: Check NuGet vulnerabilities
+        run: dotnet list eShop.slnx package --vulnerable --include-transitive
+
+  scan:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest \
+            detect --source /repo --no-git --redact --verbose
+
+      - name: Filesystem vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload filesystem scan SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-filesystem
+
+      - name: Build web image for scan
+        run: |
+          docker build \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            -t argus-web-scan:${{ github.sha }} \
+            -f deploy/Dockerfile.service .
+
+      - name: Container vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: argus-web-scan:${{ github.sha }}
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload container scan SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-container

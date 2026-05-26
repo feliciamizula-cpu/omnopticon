@@ -1,4 +1,4 @@
-namespace Argus.AgentService.ProviderUsage;
+﻿namespace Argus.AgentService.ProviderUsage;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -228,6 +228,7 @@ internal sealed class AgentProviderUsageService(
             usageWindows.TwentyFourHour,
             usageWindows.Weekly,
             usageWindows.Monthly,
+            usageWindows.Details,
             routingScore,
             routingStatus,
             checkedAt,
@@ -295,6 +296,12 @@ internal sealed class AgentProviderUsageService(
             && TryGetClaudeCliCredentialStatus(out var claudeStatus))
         {
             return (true, claudeStatus, null);
+        }
+
+        if (definition.Id.Equals("opencode", StringComparison.OrdinalIgnoreCase)
+            && TryGetOpenCodeCredentialStatus(out var openCodeStatus))
+        {
+            return (true, openCodeStatus, null);
         }
 
         if (string.IsNullOrWhiteSpace(definition.AuthCheckArguments))
@@ -415,6 +422,27 @@ internal sealed class AgentProviderUsageService(
         return false;
     }
 
+    private static bool TryGetOpenCodeCredentialStatus(out string status)
+    {
+        foreach (var root in OpenCodeDataRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var authFile = Path.Combine(root, "auth.json");
+            if (FileExistsWithContent(authFile))
+            {
+                status = $"OpenCode credentials found in {root}";
+                return true;
+            }
+        }
+
+        status = string.Empty;
+        return false;
+    }
+
     private static IEnumerable<string> ClaudeConfigRoots()
     {
         var explicitRoot = Environment.GetEnvironmentVariable("CLAUDE_HOME");
@@ -427,6 +455,27 @@ internal sealed class AgentProviderUsageService(
         if (!string.IsNullOrWhiteSpace(home))
         {
             yield return Path.Combine(home, ".claude");
+        }
+    }
+
+    private static IEnumerable<string> OpenCodeDataRoots()
+    {
+        var explicitRoot = Environment.GetEnvironmentVariable("OPENCODE_DATA_HOME");
+        if (!string.IsNullOrWhiteSpace(explicitRoot))
+        {
+            yield return explicitRoot;
+        }
+
+        var xdgDataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (!string.IsNullOrWhiteSpace(xdgDataHome))
+        {
+            yield return Path.Combine(xdgDataHome, "opencode");
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, ".local", "share", "opencode");
         }
     }
 
@@ -469,7 +518,8 @@ internal sealed class AgentProviderUsageService(
             commandUsage?.FiveHour ?? BuildWindow(definition.FiveHour, DefaultResetLead),
             commandUsage?.TwentyFourHour ?? BuildWindow(definition.TwentyFourHour, TimeSpan.FromHours(24)),
             commandUsage?.Weekly ?? BuildWindow(definition.Weekly, TimeSpan.FromDays(7)),
-            commandUsage?.Monthly ?? BuildWindow(definition.Monthly, TimeSpan.FromDays(30)));
+            commandUsage?.Monthly ?? BuildWindow(definition.Monthly, TimeSpan.FromDays(30)),
+            commandUsage?.Details ?? []);
     }
 
     private static UsageWindows? TryParseUsageJson(string output, AgentProviderOptions definition)
@@ -487,7 +537,8 @@ internal sealed class AgentProviderUsageService(
                 ParseWindowNode(root["fiveHour"] ?? root["five_hour"] ?? root["5h"], definition.FiveHour, DefaultResetLead),
                 ParseWindowNode(root["twentyFourHour"] ?? root["twenty_four_hour"] ?? root["daily"] ?? root["24h"], definition.TwentyFourHour, TimeSpan.FromHours(24)),
                 ParseWindowNode(root["weekly"] ?? root["week"], definition.Weekly, TimeSpan.FromDays(7)),
-                ParseWindowNode(root["monthly"] ?? root["month"], definition.Monthly, TimeSpan.FromDays(30)));
+                ParseWindowNode(root["monthly"] ?? root["month"], definition.Monthly, TimeSpan.FromDays(30)),
+                ParseDetails(root["details"]));
         }
         catch
         {
@@ -671,9 +722,11 @@ internal sealed class AgentProviderUsageService(
             VersionArguments = "--version",
             LoginArguments = "auth login",
             AuthCheckArguments = "auth status",
-            AuthEnvironmentVariables = ["OPENCODE_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENAI_API_KEY"],
-            DisplayModelHint = "Mightymax / provider models",
-            LoginInstructions = "Run the Opencode auth flow for the account that owns your development quota.",
+            AuthEnvironmentVariables = ["OPENCODE_API_KEY", "OPENCODE_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENAI_API_KEY"],
+            UsageExecutable = "python3",
+            UsageArguments = ScriptPath("opencode-usage.py"),
+            DisplayModelHint = "OpenCode Go / provider models",
+            LoginInstructions = "Run the OpenCode auth flow for the account that owns your Go quota.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
             TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
@@ -697,7 +750,7 @@ internal sealed class AgentProviderUsageService(
             DisplayModelHint = "Gemini Flash / Pro",
             LoginInstructions = "Run the Gemini CLI auth flow for the Google account used by the agent team.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
-            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "daily" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
         },
@@ -731,7 +784,7 @@ internal sealed class AgentProviderUsageService(
             Executable = "codex",
             VersionArguments = "--version",
             LoginArguments = "login",
-            AuthCheckArguments = "auth status",
+            AuthCheckArguments = "login status",
             AuthEnvironmentVariables = ["OPENAI_API_KEY", "CODEX_HOME"],
             UsageExecutable = "python3",
             UsageArguments = ScriptPath("codex-usage.py"),
@@ -762,6 +815,7 @@ internal sealed class AgentProviderUsageService(
             window with { WindowId = "twentyFourHour", Label = "24 hour" },
             window with { WindowId = "weekly", Label = "weekly" },
             window with { WindowId = "monthly", Label = "monthly" },
+            [],
             0,
             "Not checked",
             null,
@@ -904,11 +958,43 @@ internal sealed class AgentProviderUsageService(
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
+    private static ProviderUsageDetailDto[] ParseDetails(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        return array
+            .OfType<JsonNode>()
+            .Select(ParseDetail)
+            .Where(detail => detail is not null)
+            .Cast<ProviderUsageDetailDto>()
+            .ToArray();
+    }
+
+    private static ProviderUsageDetailDto? ParseDetail(JsonNode node)
+    {
+        var key = ReadString(node, "key") ?? ReadString(node, "modelId") ?? ReadString(node, "id");
+        var label = ReadString(node, "label") ?? key;
+        var value = ReadString(node, "value");
+        var source = ReadString(node, "source") ?? "usage-command";
+        var resetsAt = ReadDate(node, "resetsAt") ?? ReadDate(node, "resetAt");
+
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(label) || string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return new ProviderUsageDetailDto(key, label, value, source, resetsAt);
+    }
+
     private sealed record UsageWindows(
         ProviderUsageWindowDto FiveHour,
         ProviderUsageWindowDto TwentyFourHour,
         ProviderUsageWindowDto Weekly,
-        ProviderUsageWindowDto Monthly);
+        ProviderUsageWindowDto Monthly,
+        ProviderUsageDetailDto[] Details);
 
     private sealed record ProcessResult(int? ExitCode, string Output, string Error, bool TimedOut);
 }

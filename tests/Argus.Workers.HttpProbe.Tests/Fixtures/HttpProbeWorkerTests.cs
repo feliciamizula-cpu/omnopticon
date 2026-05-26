@@ -1,7 +1,8 @@
-using Argus.BuildingBlocks.Workers;
+﻿using Argus.BuildingBlocks.Workers;
 using Argus.Contracts.Tasks;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Argus.Workers.HttpProbe.Tests.Fixtures;
@@ -14,11 +15,11 @@ internal sealed class HttpProbeWorkerFixture
         // We'll just assume it's a mock we can replicate or change the call sites.
         // For now, let's just make it work for the existing call sites by using reflection.
         var handler = (HttpMessageHandler)typeof(HttpMessageInvoker).GetField("_handler", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(httpClient)!;
-        
+
         var services = new ServiceCollection();
         services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(handler));
         var provider = services.BuildServiceProvider();
-        return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>());
+        return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>(), NullLogger<HttpProbeWorker>.Instance);
     }
 
     public HttpProbeWorker CreateWorker(Func<HttpRequestMessage, HttpResponseMessage> handler)
@@ -27,7 +28,7 @@ internal sealed class HttpProbeWorkerFixture
         // Use a handler that doesn't follow redirects
         services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(new MockHttpMessageHandler(handler)));
         var provider = services.BuildServiceProvider();
-        return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>());
+        return new HttpProbeWorker(provider.GetRequiredService<IHttpClientFactory>(), NullLogger<HttpProbeWorker>.Instance);
     }
 
     public static HttpProbeWorkerFixture Instance => new();

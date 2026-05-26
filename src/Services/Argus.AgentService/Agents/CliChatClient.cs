@@ -2,6 +2,7 @@ namespace Argus.AgentService.Agents;
 
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 
 /// <summary>
@@ -77,10 +78,13 @@ public sealed class CliChatClient(string tool, string model) : IChatClient
         {
             case "claude":
                 psi.FileName = "claude";
+                psi.ArgumentList.Add("--settings");
+                psi.ArgumentList.Add(ClaudeStatusLineSettings());
                 psi.ArgumentList.Add("--model");
                 psi.ArgumentList.Add(model);
                 psi.ArgumentList.Add("-p");
                 psi.ArgumentList.Add(prompt);
+                psi.Environment["ARGUS_CLAUDE_STATUS_PATH"] = "/tmp/argus-claude-status.json";
                 break;
             case "opencode":
                 psi.FileName = "opencode";
@@ -123,5 +127,20 @@ public sealed class CliChatClient(string tool, string model) : IChatClient
             return messages[0].Text ?? string.Empty;
 
         return string.Join("\n\n", messages.Select(m => $"[{m.Role}]: {m.Text}"));
+    }
+
+    private static string ClaudeStatusLineSettings()
+    {
+        var script = Path.Combine(AppContext.BaseDirectory, "scripts", "argus-claude-statusline.py");
+        return JsonSerializer.Serialize(new
+        {
+            statusLine = new
+            {
+                type = "command",
+                command = $"python3 {script}",
+                refreshInterval = 15,
+                padding = 0
+            }
+        });
     }
 }

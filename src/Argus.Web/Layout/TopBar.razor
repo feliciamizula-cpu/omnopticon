@@ -1,4 +1,14 @@
+@inject IConfiguration Configuration
+@using System.Reflection
+
 <header class="topbar">
+  <div class="topbar-section topbar-brand">
+    <div class="topbar-brand-name">ArgusEngine</div>
+    <div class="topbar-build">@BuildLabel</div>
+  </div>
+
+  <div class="topbar-divider"></div>
+
   <div class="topbar-section">
     <div class="topbar-status">
       <span class="topbar-status-dot"></span>
@@ -24,3 +34,36 @@
     </button>
   </div>
 </header>
+
+@code {
+  private string BuildLabel
+  {
+    get
+    {
+      var version = Configuration["ARGUS_VERSION"];
+      var buildDate = Configuration["ARGUS_BUILD_DATE"];
+      if (string.IsNullOrWhiteSpace(version) || version.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+      {
+        version = typeof(TopBar).Assembly
+          .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+          ?.InformationalVersion;
+      }
+
+      if (string.IsNullOrWhiteSpace(version))
+      {
+        return "dev build";
+      }
+
+      var revisionIndex = version.IndexOf('+', StringComparison.Ordinal);
+      if (revisionIndex >= 0 && revisionIndex < version.Length - 1)
+      {
+        version = version[(revisionIndex + 1)..];
+      }
+
+      var shortVersion = version.Length > 7 ? version[..7] : version;
+      return string.IsNullOrWhiteSpace(buildDate) || buildDate.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+        ? $"v{shortVersion}"
+        : $"v{shortVersion} · {buildDate}";
+    }
+  }
+}
