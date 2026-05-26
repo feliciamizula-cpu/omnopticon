@@ -6,6 +6,28 @@ public enum ScopeRuleAction
     Exclude
 }
 
+public enum ScopeAssetType
+{
+    Domain,
+    WildcardDomain,
+    Url,
+    Cidr,
+    IpRange
+}
+
+public enum ScopeValidationReason
+{
+    IncludedByRule,
+    ExcludedByRule,
+    NoMatchingInclude,
+    InvalidAssetType,
+    UnsupportedProtocol,
+    PortNotAllowed,
+    PathExcluded,
+    SchemeNotAllowed,
+    CidrMismatch
+}
+
 public sealed record ProgramDto(
     Guid ProgramId,
     string Name,
@@ -46,7 +68,8 @@ public sealed record ScopeValidationResult(
     string Target,
     bool IsAllowed,
     Guid? MatchedScopeId,
-    string Reason);
+    ScopeValidationReason Reason,
+    string? RulePattern);
 
 public sealed record ProgramRuleRevisionDto(
     Guid RevisionId,
@@ -99,3 +122,114 @@ public sealed record ScopeSnapshot(
     IReadOnlyCollection<ProgramScopeDto> Scopes,
     IReadOnlyCollection<ScopeExclusionDto> Exclusions,
     string Signature);
+
+public sealed record ProgramExportDto(
+    Guid ProgramId,
+    string Name,
+    string Source,
+    string? ExternalUrl,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyCollection<ProgramScopeDto> Scopes,
+    IReadOnlyCollection<ScopeExclusionDto> Exclusions,
+    IReadOnlyCollection<ProgramRuleRevisionDto> RuleRevisions,
+    IReadOnlyCollection<RateLimitPolicyDto> RateLimitPolicies,
+    string ExportedAt,
+    string? Signature);
+
+public sealed record ProgramImportRequest(
+    ProgramExportDto Export,
+    bool ForceOverwrite);
+
+public sealed record TargetDto(
+    Guid TargetId,
+    Guid ProgramId,
+    string Name,
+    string Slug,
+    string? Description,
+    TargetStatus Status,
+    IReadOnlyCollection<string> RootDomains,
+    IReadOnlyCollection<string> AllowedProtocols,
+    Guid? DefaultRateLimitPolicyId,
+    Guid? ProxyProfileId,
+    Guid? ReconProfileId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public enum TargetStatus
+{
+    Active,
+    Paused,
+    Archived
+}
+
+public sealed record CreateTargetRequest(
+    Guid ProgramId,
+    string Name,
+    string? Description,
+    IReadOnlyCollection<string>? RootDomains,
+    IReadOnlyCollection<string>? AllowedProtocols,
+    Guid? DefaultRateLimitPolicyId,
+    Guid? ProxyProfileId,
+    Guid? ReconProfileId);
+
+public sealed record UpdateTargetRequest(
+    string? Name,
+    string? Description,
+    TargetStatus? Status,
+    IReadOnlyCollection<string>? RootDomains,
+    IReadOnlyCollection<string>? AllowedProtocols,
+    Guid? DefaultRateLimitPolicyId,
+    Guid? ProxyProfileId,
+    Guid? ReconProfileId);
+
+public sealed record SafetyLimitDto(
+    Guid SafetyLimitId,
+    Guid TargetId,
+    string LimitType,
+    int MaxValue,
+    int CurrentValue,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ExpiresAt);
+
+public sealed record UpdateSafetyLimitRequest(
+    int? MaxValue,
+    DateTimeOffset? ExpiresAt);
+
+public sealed record ScopePreviewRequest(
+    IReadOnlyCollection<ScopeRuleInput> IncludeRules,
+    IReadOnlyCollection<ScopeRuleInput> ExcludeRules);
+
+public sealed record ScopeRuleInput(
+    string Pattern,
+    ScopeAssetType AssetType,
+    string? Scheme,
+    IReadOnlyCollection<int>? Ports,
+    IReadOnlyCollection<string>? ExcludedPaths);
+
+public sealed record ScopePreviewResult(
+    IReadOnlyCollection<NormalizedScopeRule> NormalizedRules,
+    IReadOnlyCollection<ScopeConflict> Conflicts);
+
+public sealed record NormalizedScopeRule(
+    string Pattern,
+    ScopeAssetType AssetType,
+    string? Scheme,
+    IReadOnlyCollection<int>? Ports,
+    IReadOnlyCollection<string>? ExcludedPaths,
+    bool IsDuplicate,
+    bool IsOverlyBroad);
+
+public sealed record ScopeConflict(
+    string ConflictType,
+    string Rule1Pattern,
+    string Rule2Pattern,
+    string Description);
+
+public sealed record ScopeMatchResult(
+    string Target,
+    ScopeAssetType AssetType,
+    bool IsAllowed,
+    ScopeValidationReason Reason,
+    string? MatchedRulePattern,
+    IReadOnlyCollection<string>? AppliedExclusions);

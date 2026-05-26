@@ -1,7 +1,9 @@
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
+using Argus.RealtimeService;
 using Argus.ServiceDefaults;
+using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 using System.Collections.Concurrent;
 using System.Text;
@@ -13,7 +15,26 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
-builder.Services.AddSingleton<RealtimeStore>();
+
+var dbPath = builder.Configuration.GetConnectionString("realtimedb")
+    ?? builder.Configuration.GetConnectionString("sqlite")
+    ?? "realtime.db";
+
+builder.Services.AddDbContextFactory<RealtimeDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}"));
+
+var webhookDbConnStr = builder.Configuration.GetConnectionString("argusdb");
+if (!string.IsNullOrWhiteSpace(webhookDbConnStr))
+{
+    builder.Services.AddDbContext<WebhookDbContext>(options =>
+        options.UseNpgsql(webhookDbConnStr));
+}
+else
+{
+    builder.Services.AddDbContext<WebhookDbContext>(options =>
+        options.UseSqlite($"Data Source={dbPath}"));
+}
+
 builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
 builder.Services.AddSingleton(sp =>
 {
@@ -29,12 +50,50 @@ builder.Services.AddSingleton(sp =>
     if (connection is null) return null!;
     return connection.CreateChannelAsync().GetAwaiter().GetResult();
 });
+builder.Services.AddSingleton<RealtimeStore>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<RealtimeStore>>();
+    return new RealtimeStore(sp, logger);
+});
+
+builder.Services.AddHttpClient("webhook", client =>
+{
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Argus.WebhookService/1.0");
+    client.Timeout = TimeSpan.FromSeconds(60);
+}).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    MaxConnectionsPerServer = 10
+});
+
+builder.Services.AddHostedService<WebhookService>();
 
 var app = builder.Build();
+
+var dbContextFactory = app.Services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
+{
+    await dbContext.Database.EnsureCreatedAsync();
+}
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var webhookDbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
+    await webhookDbContext.Database.EnsureCreatedAsync();
+}
+
+var store = app.Services.GetRequiredService<RealtimeStore>();
+await store.InitializeAsync(app.Services);
 
 app.MapDefaultEndpoints();
 
 app.MapGet("/events", (int? take, RealtimeStore store) => store.GetEvents(take ?? 200));
+
+app.MapGet("/events/chain/{correlationId}", async (Guid correlationId, RealtimeStore store) =>
+{
+    var events = await store.GetEventsByCorrelationIdAsync(correlationId);
+    return events.Count == 0 ? Results.NotFound() : Results.Ok(events);
+});
 
 app.MapGet("/events/stream", async (
     HttpContext context,
@@ -90,28 +149,29 @@ app.MapPost("/workers/register", (WorkerRegistrationRequest request, RealtimeSto
     return Results.Created($"/workers/{worker.WorkerId}", worker);
 });
 
-app.MapPost("/workers/heartbeat", (WorkerHeartbeatRequest request, RealtimeStore store) =>
-    store.Heartbeat(request));
+app.MapPost("/workers/heartbeat", async (WorkerHeartbeatRequest request, RealtimeStore store, CancellationToken cancellationToken) =>
+    await store.Heartbeat(request, cancellationToken));
 
 var deadLetterConnection = app.Services.GetService<IConnection>();
 var deadLetterChannel = app.Services.GetService<IChannel>();
 
 if (deadLetterConnection is not null && deadLetterChannel is not null)
 {
-    app.MapGet("/admin/dead-letters", (int? take, IPoisonMessageStore store) =>
+    app.MapGet("/admin/dead-letters", async (int? take, IPoisonMessageStore store, CancellationToken ct) =>
     {
-        return Results.Ok(store.GetMessages(take ?? 100));
+        var messages = await store.GetMessagesAsync(take ?? 100, ct);
+        return Results.Ok(messages);
     });
 
-    app.MapGet("/admin/dead-letters/{eventId}", (Guid eventId, IPoisonMessageStore store) =>
+    app.MapGet("/admin/dead-letters/{eventId}", async (Guid eventId, IPoisonMessageStore store, CancellationToken ct) =>
     {
-        var record = store.GetMessage(eventId);
+        var record = await store.GetMessageAsync(eventId, ct);
         return record is null ? Results.NotFound() : Results.Ok(record);
     });
 
-    app.MapPost("/admin/dead-letters/{eventId}/replay", async (Guid eventId, IPoisonMessageStore store, IChannel channel) =>
+    app.MapPost("/admin/dead-letters/{eventId}/replay", async (Guid eventId, IPoisonMessageStore store, IChannel channel, CancellationToken ct) =>
     {
-        var record = store.GetMessage(eventId);
+        var record = await store.GetMessageAsync(eventId, ct);
         if (record is null) return Results.NotFound();
 
         var properties = new BasicProperties
@@ -125,18 +185,96 @@ if (deadLetterConnection is not null && deadLetterChannel is not null)
 
         var body = Encoding.UTF8.GetBytes(record.PayloadJson);
         var routingKey = record.EventType;
-        await channel.BasicPublishAsync("argus.integration.events", routingKey, false, properties, body);
+        await channel.BasicPublishAsync("argus.integration.events", routingKey, false, properties, body, ct);
 
-        store.MarkReplayed(eventId);
+        await store.MarkReplayedAsync(eventId, ct);
         return Results.Ok(new { eventId, replayed = true });
     });
 
-    app.MapDelete("/admin/dead-letters/{eventId}", (Guid eventId, IPoisonMessageStore store) =>
+    app.MapDelete("/admin/dead-letters/{eventId}", async (Guid eventId, IPoisonMessageStore store, CancellationToken ct) =>
     {
-        var removed = store.RemoveMessage(eventId);
+        var removed = await store.RemoveMessageAsync(eventId, ct);
         return removed ? Results.Ok(new { removed = true }) : Results.NotFound();
     });
 }
+
+var webhooks = app.MapGroup("/webhooks").WithTags("Webhooks");
+
+webhooks.MapGet("/", async (WebhookDbContext db) =>
+{
+    var configs = await db.WebhookConfigs.OrderBy(c => c.Name).ToListAsync();
+    return Results.Ok(configs.Select(c => c.ToDto()).ToArray());
+});
+
+webhooks.MapGet("/{id:guid}", async (Guid id, WebhookDbContext db) =>
+{
+    var config = await db.WebhookConfigs.FindAsync(id);
+    return config is null ? Results.NotFound() : Results.Ok(config.ToDto());
+});
+
+webhooks.MapPost("/", async (CreateWebhookRequest request, WebhookDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name))
+        return Results.BadRequest("Name is required.");
+    if (string.IsNullOrWhiteSpace(request.Url))
+        return Results.BadRequest("Url is required.");
+    if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
+        (uri.Scheme != "http" && uri.Scheme != "https"))
+        return Results.BadRequest("Url must be a valid HTTP or HTTPS URL.");
+
+    var config = request.ToEntity();
+    db.WebhookConfigs.Add(config);
+    await db.SaveChangesAsync();
+    return Results.Created($"/webhooks/{config.Id}", config.ToDto());
+});
+
+webhooks.MapPut("/{id:guid}", async (Guid id, UpdateWebhookRequest request, WebhookDbContext db) =>
+{
+    var config = await db.WebhookConfigs.FindAsync(id);
+    if (config is null)
+        return Results.NotFound();
+
+    if (request.Url is not null &&
+        (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)
+         || (uri.Scheme != "http" && uri.Scheme != "https")))
+    {
+        return Results.BadRequest("Url must be a valid HTTP or HTTPS URL.");
+    }
+
+    config.ApplyUpdate(request);
+    await db.SaveChangesAsync();
+    return Results.Ok(config.ToDto());
+});
+
+webhooks.MapDelete("/{id:guid}", async (Guid id, WebhookDbContext db) =>
+{
+    var config = await db.WebhookConfigs.FindAsync(id);
+    if (config is null)
+        return Results.NotFound();
+
+    db.WebhookConfigs.Remove(config);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { deleted = true });
+});
+
+webhooks.MapGet("/{id:guid}/logs", async (Guid id, int? take, int? skip, WebhookDbContext db) =>
+{
+    var query = db.WebhookDeliveryLogs
+        .Where(l => l.WebhookConfigId == id)
+        .OrderByDescending(l => l.AttemptedAt);
+
+    var total = await query.CountAsync();
+    var logs = await query
+        .Skip(skip ?? 0)
+        .Take(Math.Clamp(take ?? 50, 1, 500))
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        total,
+        logs = logs.Select(l => l.ToDto()).ToArray()
+    });
+});
 
 app.Run();
 
@@ -146,6 +284,70 @@ internal sealed class RealtimeStore
     private readonly ConcurrentDictionary<string, WorkerStatusDto> _workers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, WorkerCapabilityDescriptor> _workerCapabilities = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<Guid, Channel<IntegrationEventEnvelope<JsonNode>>> _subscriptions = new();
+    private readonly IServiceProvider _services;
+    private readonly ILogger<RealtimeStore> _logger;
+    private readonly ConcurrentQueue<WorkerRecord> _pendingWorkers = new();
+
+    public RealtimeStore(IServiceProvider services, ILogger<RealtimeStore> logger)
+    {
+        _services = services;
+        _logger = logger;
+    }
+
+    public async Task InitializeAsync(IServiceProvider services)
+    {
+        var dbContextFactory = services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        var recentEvents = await dbContext.Events
+            .OrderByDescending(e => e.RecordedAt)
+            .Take(5_000)
+            .ToListAsync();
+
+        foreach (var evt in recentEvents.AsEnumerable().Reverse())
+        {
+            var payload = string.IsNullOrWhiteSpace(evt.PayloadJson)
+                ? new JsonObject()
+                : JsonNode.Parse(evt.PayloadJson) ?? new JsonObject();
+
+            var envelope = IntegrationEventEnvelope<JsonNode>.Create(
+                payload,
+                evt.EventType,
+                evt.SourceService ?? "unknown",
+                correlationId: evt.CorrelationId,
+                causationId: evt.CausationId).WithEventId(evt.EventId);
+            _events.Enqueue(envelope);
+        }
+
+        var workers = await dbContext.Workers.ToListAsync();
+        foreach (var worker in workers)
+        {
+            _workers[worker.WorkerId] = new WorkerStatusDto(
+                worker.WorkerId,
+                worker.WorkerType,
+                worker.Version,
+                worker.RunningTasks,
+                worker.MaxConcurrency,
+                worker.LastSeenAt,
+                worker.IsOnline);
+        }
+
+        var capabilities = await dbContext.WorkerCapabilities.ToListAsync();
+        foreach (var cap in capabilities)
+        {
+            var types = string.IsNullOrWhiteSpace(cap.SubscribedAssetTypes)
+                ? Array.Empty<string>()
+                : JsonSerializer.Deserialize<string[]>(cap.SubscribedAssetTypes) ?? Array.Empty<string>();
+
+            _workerCapabilities[cap.WorkerId] = new WorkerCapabilityDescriptor(
+                cap.WorkerType,
+                types,
+                [],
+                RequiresHttp: false,
+                SupportsCheckpoint: false,
+                cap.MaxConcurrency);
+        }
+    }
 
     public IReadOnlyCollection<IntegrationEventEnvelope<JsonNode>> GetEvents(int take) =>
         _events
@@ -163,8 +365,31 @@ internal sealed class RealtimeStore
             payload,
             request.EventType.Trim(),
             request.SourceService ?? "unknown",
-            request.CorrelationId,
-            request.CausationId);
+            correlationId: request.CorrelationId,
+            causationId: request.CausationId);
+
+        var record = new EventRecord
+        {
+            EventId = envelope.EventId,
+            EventType = envelope.EventType,
+            SourceService = envelope.SourceService,
+            RecordedAt = envelope.OccurredAt,
+            CorrelationId = envelope.CorrelationId,
+            CausationId = envelope.CausationId,
+            PayloadJson = request.PayloadJson
+        };
+
+        try
+        {
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+            dbContext.Events.Add(record);
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist event {EventId}", record.EventId);
+        }
 
         _events.Enqueue(envelope);
 
@@ -217,10 +442,64 @@ internal sealed class RealtimeStore
         _workers[request.WorkerId] = worker;
         _workerCapabilities[request.WorkerId] = request.Capability;
 
+        try
+        {
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+
+            var workerRecord = dbContext.Workers.FirstOrDefault(x => x.WorkerId == request.WorkerId);
+            if (workerRecord is null)
+            {
+                dbContext.Workers.Add(new WorkerRecord
+                {
+                    WorkerId = worker.WorkerId,
+                    WorkerType = worker.WorkerType,
+                    Version = worker.Version,
+                    RunningTasks = worker.RunningTasks,
+                    MaxConcurrency = worker.MaxConcurrency,
+                    LastSeenAt = now,
+                    IsOnline = true
+                });
+            }
+            else
+            {
+                workerRecord.WorkerType = worker.WorkerType;
+                workerRecord.Version = worker.Version;
+                workerRecord.RunningTasks = worker.RunningTasks;
+                workerRecord.MaxConcurrency = worker.MaxConcurrency;
+                workerRecord.LastSeenAt = now;
+                workerRecord.IsOnline = true;
+            }
+
+            var capabilityRecord = dbContext.WorkerCapabilities.FirstOrDefault(x => x.WorkerId == request.WorkerId);
+            if (capabilityRecord is null)
+            {
+                dbContext.WorkerCapabilities.Add(new WorkerCapabilityRecord
+                {
+                    WorkerId = request.WorkerId,
+                    WorkerType = request.Capability.WorkerType,
+                    MaxConcurrency = request.Capability.MaxConcurrency,
+                    SubscribedAssetTypes = JsonSerializer.Serialize(request.Capability.SubscribedAssetTypes)
+                });
+            }
+            else
+            {
+                capabilityRecord.WorkerType = request.Capability.WorkerType;
+                capabilityRecord.MaxConcurrency = request.Capability.MaxConcurrency;
+                capabilityRecord.SubscribedAssetTypes = JsonSerializer.Serialize(request.Capability.SubscribedAssetTypes);
+            }
+
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist worker {WorkerId}", request.WorkerId);
+        }
+
         return worker;
     }
 
-    public WorkerStatusDto Heartbeat(WorkerHeartbeatRequest request)
+    public async Task<WorkerStatusDto> Heartbeat(WorkerHeartbeatRequest request, CancellationToken cancellationToken = default)
     {
         var worker = _workers.AddOrUpdate(
             request.WorkerId,
@@ -240,12 +519,46 @@ internal sealed class RealtimeStore
                 IsOnline = true
             });
 
+        try
+        {
+            using var scope = _services.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<RealtimeDbContext>();
+            var workerRecord = dbContext.Workers.FirstOrDefault(x => x.WorkerId == request.WorkerId);
+
+            if (workerRecord is null)
+            {
+                dbContext.Workers.Add(new WorkerRecord
+                {
+                    WorkerId = request.WorkerId,
+                    WorkerType = request.WorkerType,
+                    RunningTasks = request.RunningTasks,
+                    MaxConcurrency = request.MaxConcurrency,
+                    LastSeenAt = request.SeenAt,
+                    IsOnline = true
+                });
+            }
+            else
+            {
+                workerRecord.WorkerType = request.WorkerType;
+                workerRecord.RunningTasks = request.RunningTasks;
+                workerRecord.MaxConcurrency = request.MaxConcurrency;
+                workerRecord.LastSeenAt = request.SeenAt;
+                workerRecord.IsOnline = true;
+            }
+
+            dbContext.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist heartbeat for worker {WorkerId}", request.WorkerId);
+        }
+
         RecordEvent(new EventIngestRequest(
             "WorkerHeartbeat",
             "Argus.RealtimeService",
             null,
             null,
-            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\"}}"));
+            $"{{\"workerId\":\"{request.WorkerId}\",\"workerType\":\"{request.WorkerType}\",\"runningTasks\":{request.RunningTasks}}}"));
 
         return worker;
     }
@@ -280,6 +593,33 @@ internal sealed class RealtimeStore
     {
         return _workerCapabilities.TryGetValue(workerId, out var capability) ? capability : null;
     }
+
+    public async Task<IReadOnlyList<IntegrationEventEnvelope<JsonNode>>> GetEventsByCorrelationIdAsync(Guid correlationId)
+    {
+        var dbContextFactory = _services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        var events = await dbContext.Events
+            .Where(e => e.CorrelationId == correlationId)
+            .OrderBy(e => e.RecordedAt)
+            .ToListAsync();
+
+        return events
+            .Select(evt =>
+            {
+                var payload = string.IsNullOrWhiteSpace(evt.PayloadJson)
+                    ? new JsonObject()
+                    : JsonNode.Parse(evt.PayloadJson) ?? new JsonObject();
+
+                return IntegrationEventEnvelope<JsonNode>.Create(
+                    payload,
+                    evt.EventType,
+                    evt.SourceService ?? "unknown",
+                    correlationId: evt.CorrelationId,
+                    causationId: evt.CausationId).WithEventId(evt.EventId);
+            })
+            .ToArray();
+    }
 }
 
 internal sealed record EventSubscription(
@@ -294,7 +634,8 @@ internal static class SseWriter
         CancellationToken cancellationToken)
     {
         await context.Response.WriteAsync($"id: {envelope.EventId}\n", cancellationToken);
-        await context.Response.WriteAsync($"event: {envelope.EventType}\n", cancellationToken);
+        var sanitizedEventType = envelope.EventType.Replace("\r", "").Replace("\n", " ");
+        await context.Response.WriteAsync($"event: {sanitizedEventType}\n", cancellationToken);
         await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(envelope)}\n\n", cancellationToken);
         await context.Response.Body.FlushAsync(cancellationToken);
     }

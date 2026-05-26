@@ -1,0 +1,194 @@
+@using System.Globalization
+@using Argus.Web
+
+<div class="pu-window-cell @ToneClass @DisabledClass @TriggeredClass">
+    <div class="pu-window-label">@Label</div>
+    <div class="pu-window-value-line">
+        <span class="pu-window-value">@PercentText</span>
+        @if (HasData && Enabled)
+        {
+            <span class="pu-window-rem">rem.</span>
+        }
+    </div>
+
+    @if (HasData && Enabled)
+    {
+        <div class="pu-progress" aria-hidden="true">
+            <div class="pu-progress-fill" style="width: @ProgressWidth;"></div>
+        </div>
+        <div class="pu-window-meta">
+            <span class="pu-reset" title="@AbsoluteResetText">↺ @RelativeResetText</span>
+            <button class="pu-alert-button @AlertButtonClass" type="button" @onclick="ToggleAlert">@AlertButtonText</button>
+        </div>
+    }
+
+    @if (IsOpen && Enabled)
+    {
+        <div class="pu-alert-panel">
+            <div class="pu-alert-title">ALERT RULES</div>
+            <label class="pu-alert-field">
+                <span>Remaining below</span>
+                <input type="number" min="0" max="100" placeholder="—" @bind="_remBelowText" @bind:event="oninput" />
+                <span>%</span>
+            </label>
+            <label class="pu-alert-field">
+                <span>Resets within</span>
+                <input type="number" min="0" placeholder="—" @bind="_rstWithinText" @bind:event="oninput" />
+                <span>min</span>
+            </label>
+            <div class="pu-alert-actions">
+                <button class="pu-alert-save" type="button" @onclick="SaveAlert">SAVE</button>
+                <button class="pu-alert-clear" type="button" @onclick="ClearAlert">CLEAR</button>
+                <button class="pu-alert-close" type="button" @onclick="CloseAlert">✕</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string AlertKey { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public decimal? RemainingPercent { get; set; }
+    [Parameter] public DateTimeOffset? ResetsAt { get; set; }
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public ProviderUsageAlertRule? Rule { get; set; }
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<string> OnToggleAlert { get; set; }
+    [Parameter] public EventCallback<ProviderUsageAlertSaveArgs> OnSaveAlert { get; set; }
+    [Parameter] public EventCallback OnCloseAlert { get; set; }
+
+    private string _remBelowText = string.Empty;
+    private string _rstWithinText = string.Empty;
+    private string? _initializedForKey;
+
+    private bool HasData => RemainingPercent.HasValue;
+
+    private string PercentText => HasData
+        ? $"{RemainingPercent.Value.ToString(RemainingPercent.Value % 1 == 0 ? "0" : "0.#", CultureInfo.InvariantCulture)}%"
+        : "—";
+
+    private string ProgressWidth => $"{Math.Clamp((double)(RemainingPercent ?? 0), 0, 100).ToString("0.#", CultureInfo.InvariantCulture)}%";
+
+    private string ToneClass => RemainingPercent switch
+    {
+        null => "is-unknown",
+        > 50 => "is-green",
+        >= 20 => "is-amber",
+        _ => "is-red"
+    };
+
+    private string DisabledClass => Enabled ? string.Empty : "is-disabled";
+
+    private string TriggeredClass => IsTriggered ? "is-triggered" : string.Empty;
+
+    private bool IsTriggered
+    {
+        get
+        {
+            if (Rule is null || !RemainingPercent.HasValue)
+            {
+                return false;
+            }
+
+            if (Rule.RemBelow.HasValue && RemainingPercent.Value <= Rule.RemBelow.Value)
+            {
+                return true;
+            }
+
+            if (Rule.RstWithin.HasValue && ResetsAt.HasValue)
+            {
+                var minutes = (ResetsAt.Value - DateTimeOffset.UtcNow).TotalMinutes;
+                return minutes <= Rule.RstWithin.Value;
+            }
+
+            return false;
+        }
+    }
+
+    private string AlertButtonText => IsTriggered ? "⚡ ALERT" : Rule is not null ? "● ALERT" : "+ ALERT";
+
+    private string AlertButtonClass => IsTriggered ? "is-firing" : Rule is not null ? "is-saved" : "is-empty";
+
+    private string RelativeResetText => FormatRelativeReset(ResetsAt);
+
+    private string AbsoluteResetText => ResetsAt.HasValue
+        ? ResetsAt.Value.ToLocalTime().ToString("MMM d, HH:mm", CultureInfo.InvariantCulture)
+        : "—";
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && _initializedForKey != AlertKey)
+        {
+            _remBelowText = Rule?.RemBelow?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+            _rstWithinText = Rule?.RstWithin?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+            _initializedForKey = AlertKey;
+        }
+
+        if (!IsOpen && _initializedForKey == AlertKey)
+        {
+            _initializedForKey = null;
+        }
+    }
+
+    private Task ToggleAlert() => OnToggleAlert.InvokeAsync(AlertKey);
+
+    private async Task SaveAlert()
+    {
+        var remBelow = ParseNullableInt(_remBelowText, 0, 100);
+        var rstWithin = ParseNullableInt(_rstWithinText, 0, int.MaxValue);
+        var rule = remBelow.HasValue || rstWithin.HasValue
+            ? new ProviderUsageAlertRule { RemBelow = remBelow, RstWithin = rstWithin }
+            : null;
+
+        await OnSaveAlert.InvokeAsync(new ProviderUsageAlertSaveArgs(AlertKey, rule));
+    }
+
+    private Task ClearAlert() => OnSaveAlert.InvokeAsync(new ProviderUsageAlertSaveArgs(AlertKey, null));
+
+    private Task CloseAlert() => OnCloseAlert.InvokeAsync();
+
+    private static int? ParseNullableInt(string? value, int min, int max)
+    {
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return null;
+        }
+
+        return Math.Clamp(parsed, min, max);
+    }
+
+    private static string FormatRelativeReset(DateTimeOffset? value)
+    {
+        if (!value.HasValue)
+        {
+            return "—";
+        }
+
+        var diff = value.Value - DateTimeOffset.UtcNow;
+        if (diff.TotalSeconds <= 0)
+        {
+            return "expired";
+        }
+
+        if (diff.TotalSeconds < 60)
+        {
+            return $"{Math.Max(1, (int)Math.Floor(diff.TotalSeconds))}s";
+        }
+
+        if (diff.TotalMinutes < 60)
+        {
+            return $"{(int)Math.Floor(diff.TotalMinutes)}m";
+        }
+
+        if (diff.TotalHours < 24)
+        {
+            var hours = (int)Math.Floor(diff.TotalHours);
+            var minutes = diff.Minutes;
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+
+        var days = (int)Math.Floor(diff.TotalDays);
+        var remainingHours = diff.Hours;
+        return remainingHours > 0 ? $"{days}d {remainingHours}h" : $"{days}d";
+    }
+}

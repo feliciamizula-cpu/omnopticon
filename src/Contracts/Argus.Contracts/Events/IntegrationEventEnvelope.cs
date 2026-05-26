@@ -8,12 +8,14 @@ public sealed record IntegrationEventEnvelope<T>
     public required Guid CorrelationId { get; init; }
     public required Guid CausationId { get; init; }
     public required string SourceService { get; init; }
+    public required int SchemaVersion { get; init; } = 1;
     public required T Payload { get; init; }
 
     public static IntegrationEventEnvelope<T> Create(
         T payload,
         string eventType,
         string sourceService,
+        int schemaVersion = 1,
         Guid? correlationId = null,
         Guid? causationId = null)
     {
@@ -27,15 +29,21 @@ public sealed record IntegrationEventEnvelope<T>
             CorrelationId = correlationId ?? eventId,
             CausationId = causationId ?? eventId,
             SourceService = sourceService,
+            SchemaVersion = schemaVersion,
             Payload = payload
         };
     }
+
+    public IntegrationEventEnvelope<T> WithEventId(Guid eventId) => this with { EventId = eventId };
+
+    public void SetEventId(Guid eventId) => throw new NotSupportedException("Use WithEventId instead");
 }
 
 public sealed record ProgramCreated(Guid ProgramId, string Name);
 public sealed record ScopeCreated(Guid ProgramId, Guid ScopeId, string Pattern, string ScopeType);
 public sealed record AssetDiscovered(Guid AssetId, Guid ProgramId, string AssetType, string Value);
 public sealed record AssetCreated(Guid AssetId, Guid ProgramId, string AssetType, string Value, string? CreatedByWorkerId);
+public sealed record FindingCandidateCreated(Guid AssetId, Guid ProgramId, string AssetType, string Value, int InterestingScore);
 public sealed record AssetConfirmed(Guid AssetId, Guid ProgramId, string AssetType, string Value, Guid? ConfirmedByTaskId);
 public sealed record AssetUpdated(Guid AssetId, Guid ProgramId, string AssetType, string Value);
 public sealed record AssetRelationshipDiscovered(Guid FromAssetId, Guid ToAssetId, string EdgeType);
@@ -58,3 +66,13 @@ public sealed record AssetPropertyChanged(
     IReadOnlyDictionary<string, string> PreviousMetadata,
     IReadOnlyDictionary<string, string> NewMetadata,
     IReadOnlyCollection<string> ChangedKeys);
+
+public sealed record ProxyAdded(Guid ProxyId, string Url, string Protocol);
+public sealed record ProxyRemoved(Guid ProxyId, string Url);
+public sealed record ProxyStatusChanged(Guid ProxyId, string Url, string OldStatus, string NewStatus);
+public sealed record ProxyRateLimitExceeded(Guid ProxyId, string Url, int CurrentRequestsPerSecond);
+public sealed record ArtifactCreated(Guid ArtifactId, Guid TargetId, string ArtifactType, string ContentType);
+public sealed record EvidenceAdded(Guid FindingId, Guid ArtifactId);
+public sealed record FindingCreated(Guid FindingId, Guid TargetId, string Title, string Severity);
+public sealed record FindingUpdated(Guid FindingId, string Status);
+public sealed record FindingTriaged(Guid FindingId, string OldStatus, string NewStatus, string Reason);

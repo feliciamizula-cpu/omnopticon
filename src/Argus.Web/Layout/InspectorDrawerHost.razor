@@ -1,0 +1,16 @@
+@inherits ComponentBase
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
+<div id="inspector-drawer-host"></div>
+
+@code {
+  protected override async Task OnInitializedAsync()
+  {
+    await JS.InvokeVoidAsync("eval", """
+      window.toggleInspectorDrawer = function() {
+        console.log('Inspector drawer toggle called');
+      };
+    """);
+  }
+}

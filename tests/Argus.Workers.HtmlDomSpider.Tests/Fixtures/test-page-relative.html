@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="5;url=./redirected-page">
+    <title>Test Page - Relative URLs</title>
+    <link rel="stylesheet" href="styles/responsive.css">
+    <link rel="icon" href="favicon.ico">
+</head>
+<body>
+    <h1>Relative URL Test</h1>
+
+    <nav>
+        <a href="page1.html">Page 1</a>
+        <a href="page2.html">Page 2</a>
+        <a href="./subdir/page3.html">Subdir Page 3</a>
+        <a href="../parent.html">Parent Page</a>
+        <a href="/absolute/path">Absolute Path</a>
+    </nav>
+
+    <main>
+        <script src="js/app.js"></script>
+        <script src="../lib/vendor.js"></script>
+        <script src="./scripts/init.js"></script>
+
+        <iframe src="embedded/content.html"></iframe>
+
+        <form action="submit-form.php" method="POST">
+            <input type="text" name="search">
+            <button type="submit">Search</button>
+        </form>
+
+        <form action="/api/process" method="POST">
+            <input type="text" name="data">
+            <button type="submit">Process</button>
+        </form>
+    </main>
+
+    <footer>
+        <a href="legal/privacy.html">Privacy</a>
+        <a href="legal/terms.html">Terms</a>
+        <a href="/legal/cookies">Cookies Policy</a>
+    </footer>
+</body>
+</html>

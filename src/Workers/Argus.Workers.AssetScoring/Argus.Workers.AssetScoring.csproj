@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Argus.Workers.AssetScoring.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.Workers\Argus.BuildingBlocks.Workers.csproj" />
   </ItemGroup>

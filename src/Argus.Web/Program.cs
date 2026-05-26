@@ -1,16 +1,53 @@
-using Argus.ServiceDefaults;
-using System.Text.Json.Nodes;
+﻿using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Argus.ServiceDefaults;
+using Argus.Web;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Distributed;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
+builder.Services.AddScoped(sp =>
+{
+    var nav = sp.GetRequiredService<NavigationManager>();
+    return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
+});
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+builder.Services.AddSignalR();
+builder.Services.AddScoped<DevelopmentRealtimeClient>();
+builder.Services.AddSingleton<DevelopmentRealtimeNotifier>();
+builder.Services.AddSingleton<ProviderUsageCacheWarmer>();
+builder.Services.AddHostedService<ProviderUsageBackgroundRefresher>();
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
+    options.InstanceName = "argus:web:";
+});
 
 var app = builder.Build();
 
+app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                     | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+    KnownIPNetworks = { },
+    KnownProxies = { },
+});
+
+app.MapHub<ArgusHub>("/hubs/argus");
 app.MapDefaultEndpoints();
+app.UseStaticFiles();
+app.UseAntiforgery();
 
 app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
 {
@@ -25,8 +62,9 @@ app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, Cancellatio
     var workersTask = gateway.GetJsonAsync(endpoints.Realtime, "/workers", cancellationToken);
     var rateLimitsTask = gateway.GetJsonAsync(endpoints.RateLimit, "/rate-limits", cancellationToken);
     var scanPlansTask = gateway.GetJsonAsync(endpoints.ScanOrchestrator, "/scan-plans", cancellationToken);
+    var webhooksTask = gateway.GetJsonAsync(endpoints.Realtime, "/webhooks", cancellationToken);
 
-    await Task.WhenAll(assetsTask, tasksTask, programsTask, scopesTask, eventsTask, workersTask, rateLimitsTask, scanPlansTask);
+    await Task.WhenAll(assetsTask, tasksTask, programsTask, scopesTask, eventsTask, workersTask, rateLimitsTask, scanPlansTask, webhooksTask);
 
     return Results.Json(new
     {
@@ -38,7 +76,8 @@ app.MapGet("/ui/state", async (IHttpClientFactory httpClientFactory, Cancellatio
         events = eventsTask.Result,
         workers = workersTask.Result,
         rateLimits = rateLimitsTask.Result,
-        scanPlans = scanPlansTask.Result
+        scanPlans = scanPlansTask.Result,
+        webhooks = webhooksTask.Result
     });
 });
 
@@ -52,6 +91,31 @@ app.MapGet("/ui/assets/{assetId:guid}/relationships", async (
     var relationships = await gateway.GetJsonAsync(endpoints.Asset, $"/assets/{assetId}/relationships", cancellationToken);
 
     return Results.Json(relationships ?? new JsonArray());
+});
+
+app.MapGet("/ui/programs", async (
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.ProgramScope, "/programs", cancellationToken);
+    return Results.Json(result ?? new JsonArray());
+});
+
+app.MapGet("/ui/ops/assets", async (
+    Guid? programId,
+    int? take,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var pageSize = Math.Clamp(take ?? 500, 1, 1000);
+    var path = $"/assets?pageSize={pageSize}";
+    if (programId.HasValue) path += $"&programId={programId}";
+    var result = await gateway.GetJsonAsync(endpoints.Asset, path, cancellationToken);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["totalCount"] = 0 });
 });
 
 app.MapPost("/ui/programs", async (
@@ -142,6 +206,79 @@ app.MapPost("/ui/scan-plans/domain-discovery", async (
     return await gateway.PostJsonAsync(endpoints.ScanOrchestrator, "/scan-plans/domain-discovery", payload, cancellationToken);
 });
 
+app.MapPost("/ui/assets/bulk/tag", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/tag", payload, cancellationToken);
+});
+
+app.MapPost("/ui/assets/bulk/enqueue", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/enqueue", payload, cancellationToken);
+});
+
+app.MapGet("/ui/webhooks/{id:guid}/logs", async (
+    Guid id,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Realtime, $"/webhooks/{id}/logs", cancellationToken);
+    return result is not null ? Results.Ok(result as object) : Results.NotFound();
+});
+
+app.MapPost("/ui/webhooks", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Realtime, "/webhooks", payload, cancellationToken);
+});
+
+app.MapPut("/ui/webhooks/{id:guid}", async (
+    Guid id,
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Realtime, $"/webhooks/{id}", payload, cancellationToken);
+});
+
+app.MapDelete("/ui/webhooks/{id:guid}", async (
+    Guid id,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    try
+    {
+        var client = httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(endpoints.Realtime);
+        var response = await client.DeleteAsync($"/webhooks/{id}", cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return Results.Content(content, "application/json", statusCode: (int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Unable to reach backend service: {ex.Message}");
+    }
+});
+
 app.MapGet("/ui/events/stream", async (
     HttpContext context,
     IHttpClientFactory httpClientFactory,
@@ -179,600 +316,599 @@ app.MapGet("/ui/events/stream", async (
     }
 });
 
-app.MapGet("/", () => Results.Content("""
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Argus Recon Platform</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #101214;
-      --panel: #171b1f;
-      --panel-2: #20262b;
-      --line: #364049;
-      --text: #edf2f4;
-      --muted: #aab5bd;
-      --blue: #4fb3ff;
-      --green: #54d990;
-      --amber: #f2b84b;
-      --red: #ff6b6b;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      height: 54px;
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--line);
-      background: #14181c;
-    }
-    h1 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 650;
-      letter-spacing: 0;
-    }
-    main {
-      display: grid;
-      grid-template-columns: 220px minmax(0, 1fr) 320px;
-      min-height: calc(100vh - 54px);
-    }
-    nav, aside {
-      background: var(--panel);
-      border-right: 1px solid var(--line);
-      padding: 10px;
-    }
-    aside {
-      border-right: 0;
-      border-left: 1px solid var(--line);
-      overflow: auto;
-      max-height: calc(100vh - 54px);
-    }
-    button, input, select, .chip {
-      min-height: 28px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--panel-2);
-      color: var(--text);
-      padding: 4px 8px;
-      font: inherit;
-    }
-    input, select { min-width: 140px; }
-    form.inline {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      padding: 10px;
-      border-bottom: 1px solid var(--line);
-      background: #12161a;
-    }
-    form.inline input, form.inline select { min-width: 170px; }
-    nav button {
-      width: 100%;
-      display: block;
-      text-align: left;
-      margin-bottom: 6px;
-    }
-    nav button.active {
-      border-color: var(--blue);
-      color: var(--blue);
-    }
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      min-height: 52px;
-      padding: 10px;
-      border-bottom: 1px solid var(--line);
-      background: #15191d;
-    }
-    .surface {
-      overflow: auto;
-      max-height: calc(100vh - 106px);
-    }
-    table {
-      width: 100%;
-      min-width: 1060px;
-      border-collapse: collapse;
-    }
-    th, td {
-      height: 32px;
-      border-bottom: 1px solid #293139;
-      padding: 5px 8px;
-      text-align: left;
-      white-space: nowrap;
-      vertical-align: middle;
-    }
-    th {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: #20262b;
-      color: var(--muted);
-      font-weight: 600;
-    }
-    tbody tr { cursor: default; }
-    tbody tr:hover { background: #1d2429; }
-    tbody tr.selected { background: #20313a; }
-    .metric-row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      padding: 8px 0;
-      border-bottom: 1px solid #293139;
-    }
-    .metric { font-size: 18px; font-weight: 700; }
-    .side-title {
-      margin: 14px 0 6px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .ok { color: var(--green); }
-    .warn { color: var(--amber); }
-    .hot { color: var(--red); }
-    .link { color: var(--blue); }
-    .muted { color: var(--muted); }
-    .log {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      white-space: pre-wrap;
-    }
-    @media (max-width: 980px) {
-      main { grid-template-columns: 1fr; }
-      nav, aside { border: 0; border-bottom: 1px solid var(--line); max-height: none; }
-      aside { border-top: 1px solid var(--line); }
-      table { min-width: 900px; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Argus Recon Platform</h1>
-    <div class="chip" id="refreshState">connecting</div>
-  </header>
-  <main>
-    <nav id="tabs">
-      <button data-view="assets" class="active">Asset Explorer</button>
-      <button data-view="tasks">Task Monitor</button>
-      <button data-view="workers">Worker Fleet</button>
-      <button data-view="events">Live Events</button>
-      <button data-view="rateLimits">Rate Limits</button>
-      <button data-view="scanPlans">Scan Plans</button>
-      <button data-view="scopes">Scope Explorer</button>
-      <button data-view="programs">Programs</button>
-    </nav>
-    <section>
-      <div class="toolbar">
-        <button id="refreshButton">Refresh</button>
-        <input id="search" placeholder="Filter visible rows">
-        <select id="assetType">
-          <option value="">All asset types</option>
-        </select>
-        <span class="chip" id="rowCount">0 rows</span>
-        <span class="chip" id="streamState">stream connecting</span>
-      </div>
-      <div class="surface" id="content"></div>
-    </section>
-    <aside>
-      <div class="metric-row"><span>Assets</span><span class="metric ok" id="assetCount">0</span></div>
-      <div class="metric-row"><span>Tasks running</span><span class="metric" id="runningTaskCount">0</span></div>
-      <div class="metric-row"><span>Queue depth</span><span class="metric" id="queueDepth">0</span></div>
-      <div class="metric-row"><span>Workers online</span><span class="metric ok" id="workerCount">0</span></div>
-      <div class="metric-row"><span>Rate-limit waits</span><span class="metric warn" id="rateLimitWaits">0</span></div>
-      <div class="side-title">Selection</div>
-      <div id="selectionRail" class="log muted">No row selected</div>
-      <div class="side-title">Recent Events</div>
-      <div id="eventRail" class="log muted"></div>
-    </aside>
-  </main>
-  <script>
-    const state = { view: "assets", data: null, filter: "", assetType: "", currentRows: [], selected: null };
-    const content = document.querySelector("#content");
-    const search = document.querySelector("#search");
-    const assetType = document.querySelector("#assetType");
 
-    document.querySelector("#tabs").addEventListener("click", event => {
-      const button = event.target.closest("button[data-view]");
-      if (!button) return;
-      state.view = button.dataset.view;
-      document.querySelectorAll("#tabs button").forEach(tab => tab.classList.toggle("active", tab === button));
-      state.selected = null;
-      render();
-    });
+app.MapPost("/ui/ops/send", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    CancellationToken cancellationToken) =>
+{
+    var method = payload["method"]?.GetValue<string>()?.Trim().ToUpperInvariant() ?? "GET";
+    var url = payload["url"]?.GetValue<string>()?.Trim();
 
-    document.querySelector("#refreshButton").addEventListener("click", load);
-    search.addEventListener("input", () => { state.filter = search.value.toLowerCase(); render(); });
-    assetType.addEventListener("change", () => { state.assetType = assetType.value; render(); });
-    content.addEventListener("submit", submitCommand);
-    content.addEventListener("click", selectRow);
-
-    async function load() {
-      const marker = document.querySelector("#refreshState");
-      marker.textContent = "refreshing";
-      try {
-        const response = await fetch("/ui/state", { cache: "no-store" });
-        state.data = await response.json();
-        marker.textContent = new Date(state.data.generatedAt).toLocaleTimeString();
-        populateAssetTypes();
-        render();
-      } catch (error) {
-        marker.textContent = "offline";
-        content.innerHTML = `<div class="toolbar hot">Unable to load service state: ${escapeHtml(error.message)}</div>`;
-      }
+    if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+    {
+        return Results.BadRequest(new { message = "A valid absolute URL is required." });
     }
 
-    function populateAssetTypes() {
-      const selected = assetType.value;
-      const assets = state.data?.assets?.items ?? [];
-      const types = [...new Set(assets.map(asset => asset.type).filter(Boolean))].sort();
-      assetType.innerHTML = `<option value="">All asset types</option>${types.map(type => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join("")}`;
-      assetType.value = selected;
+    if (uri.Scheme is not ("http" or "https"))
+    {
+        return Results.BadRequest(new { message = "Only http and https URLs are supported." });
     }
 
-    function render() {
-      if (!state.data) return;
-      updateMetrics();
-      const rows = getRowsForView();
-      state.currentRows = rows;
-      document.querySelector("#rowCount").textContent = `${rows.length} rows`;
-      content.innerHTML = controlsFor(state.view) + tableFor(state.view, rows);
-      highlightSelectedRow();
-      renderSelectionRail();
-      renderEventRail();
+    var allowedMethods = new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" };
+    if (!allowedMethods.Contains(method, StringComparer.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = $"HTTP method '{method}' is not allowed." });
     }
 
-    function updateMetrics() {
-      const assets = state.data.assets?.items ?? [];
-      const tasks = state.data.tasks ?? [];
-      const workers = state.data.workers ?? [];
-      const events = state.data.events ?? [];
-      document.querySelector("#assetCount").textContent = state.data.assets?.totalCount ?? assets.length;
-      document.querySelector("#runningTaskCount").textContent = tasks.filter(task => task.state === "Running").length;
-      document.querySelector("#queueDepth").textContent = tasks.filter(task => ["Requested", "Queued", "RetryPending"].includes(task.state)).length;
-      document.querySelector("#workerCount").textContent = workers.filter(worker => worker.isOnline).length;
-      document.querySelector("#rateLimitWaits").textContent = events.filter(event => event.eventType === "RateLimitDelayed").length;
+    var allowedHosts = (configuration["ARGUS_UI_OPS_ALLOWED_HOSTS"] ?? string.Empty)
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    if (allowedHosts.Length > 0 && !allowedHosts.Any(pattern => HostMatches(uri.Host, pattern)))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
     }
 
-    function getRowsForView() {
-      const data = state.data;
-      let rows = state.view === "assets" ? (data.assets?.items ?? [])
-        : state.view === "tasks" ? (data.tasks ?? [])
-        : state.view === "workers" ? (data.workers ?? [])
-        : state.view === "events" ? (data.events ?? [])
-        : state.view === "rateLimits" ? (data.rateLimits ?? [])
-        : state.view === "scanPlans" ? (data.scanPlans ?? [])
-        : state.view === "scopes" ? (data.scopes ?? [])
-        : (data.programs ?? []);
-
-      if (state.view === "assets" && state.assetType) {
-        rows = rows.filter(asset => asset.type === state.assetType);
-      }
-
-      if (state.filter) {
-        rows = rows.filter(row => JSON.stringify(row).toLowerCase().includes(state.filter));
-      }
-
-      return rows;
+    var allowPrivate = bool.TryParse(configuration["ARGUS_UI_OPS_ALLOW_PRIVATE"], out var parsedAllowPrivate) && parsedAllowPrivate;
+    if (!allowPrivate && await ResolvesToPrivateAddressAsync(uri, cancellationToken))
+    {
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
     }
 
-    function tableFor(view, rows) {
-      if (view === "assets") {
-        return renderTable(["Type","Subtype","Value","Status","Interesting","Risk","First Seen","Last Seen","Tags"], rows.map(asset => [
-          asset.type, asset.subtype ?? "", asset.value, asset.status, asset.interestingScore, asset.riskScore,
-          formatTime(asset.firstSeenAt), formatTime(asset.lastSeenAt), (asset.tags ?? []).join(", ")
-        ]));
-      }
-      if (view === "tasks") {
-        return renderTable(["Type","Capability","State","Attempt","Progress","Lease Owner","Started","Completed","Error"], rows.map(task => [
-          task.taskType, task.workerCapability, task.state, `${task.attempt}/${task.maxAttempts}`, `${task.progressPercent}%`,
-          task.leaseOwner ?? "", formatTime(task.startedAt), formatTime(task.completedAt), task.errorCode ?? ""
-        ]));
-      }
-      if (view === "workers") {
-        return renderTable(["Worker","Type","Online","Running","Capacity","Last Seen","Version"], rows.map(worker => [
-          worker.workerId, worker.workerType, worker.isOnline ? "yes" : "no", worker.runningTasks, worker.maxConcurrency,
-          formatTime(worker.lastSeenAt), worker.version ?? ""
-        ]));
-      }
-      if (view === "events") {
-        return renderTable(["Time","Type","Source","Correlation","Payload"], rows.map(event => [
-          formatTime(event.occurredAt), event.eventType, event.sourceService, event.correlationId, JSON.stringify(event.payload ?? {})
-        ]));
-      }
-      if (view === "rateLimits") {
-        return renderTable(["Bucket","Capacity","Remaining","Resets"], rows.map(bucket => [
-          bucket.bucketKey, bucket.capacity, bucket.remaining, formatTime(bucket.resetsAt)
-        ]));
-      }
-      if (view === "scanPlans") {
-        return renderTable(["Workflow","Target","State","Tasks","Seed Asset","Created"], rows.map(plan => [
-          plan.workflowType, plan.target, plan.state, (plan.createdTaskIds ?? []).length,
-          plan.seededDomainAssetId ?? "", formatTime(plan.createdAt)
-        ]));
-      }
-      if (view === "scopes") {
-        return renderTable(["Program","Type","Action","Pattern","Notes","Created"], rows.map(scope => [
-          programName(scope.programId), scope.scopeType, scope.action, scope.pattern, scope.notes ?? "", formatTime(scope.createdAt)
-        ]));
-      }
-      return renderTable(["Name","Source","Scopes","Created","Updated"], rows.map(program => [
-        program.name, program.source, (program.scopes ?? []).length, formatTime(program.createdAt), formatTime(program.updatedAt)
-      ]));
+    var client = httpClientFactory.CreateClient();
+    client.Timeout = TimeSpan.FromSeconds(int.TryParse(configuration["ARGUS_UI_OPS_TIMEOUT_SECONDS"], out var timeoutSeconds)
+        ? Math.Clamp(timeoutSeconds, 1, 60)
+        : 20);
+
+    using var request = new HttpRequestMessage(new HttpMethod(method), uri);
+
+    var body = payload["body"]?.GetValue<string>() ?? string.Empty;
+    if (method is not ("GET" or "HEAD") || !string.IsNullOrEmpty(body))
+    {
+        request.Content = new StringContent(body, Encoding.UTF8);
     }
 
-    function controlsFor(view) {
-      if (view === "programs") {
-        return `<form class="inline" data-command="create-program">
-          <input name="name" placeholder="Program name" required>
-          <input name="source" placeholder="Source" value="custom">
-          <input name="externalUrl" placeholder="External URL">
-          <button type="submit">Create Program</button>
-        </form>`;
-      }
-      if (view === "scopes") {
-        return `<form class="inline" data-command="create-scope">
-          ${programSelect("programId")}
-          <select name="scopeType"><option value="domain">Domain</option><option value="wildcard-domain">Wildcard Domain</option><option value="url">URL</option><option value="cidr">CIDR</option></select>
-          <select name="action"><option value="Include">Include</option><option value="Exclude">Exclude</option></select>
-          <input name="pattern" placeholder="Scope pattern" required>
-          <input name="notes" placeholder="Notes">
-          <button type="submit">Add Scope</button>
-        </form>`;
-      }
-      if (view === "scanPlans") {
-        return `<form class="inline" data-command="start-domain-discovery">
-          ${programSelect("programId")}
-          ${scopeSelect("scopeId")}
-          <input name="domain" placeholder="example.com" required>
-          <button type="submit">Start Discovery</button>
-        </form>`;
-      }
-      return "";
-    }
+    if (payload["headers"] is JsonArray headers)
+    {
+        foreach (var headerNode in headers)
+        {
+            if (headerNode is not JsonArray pair || pair.Count < 2)
+            {
+                continue;
+            }
 
-    async function submitCommand(event) {
-      const form = event.target.closest("form[data-command]");
-      if (!form) return;
-      event.preventDefault();
+            var name = pair[0]?.GetValue<string>()?.Trim();
+            var value = pair[1]?.GetValue<string>() ?? string.Empty;
 
-      const marker = document.querySelector("#refreshState");
-      marker.textContent = "submitting";
-      const formData = new FormData(form);
-      const command = form.dataset.command;
-      const payload = Object.fromEntries([...formData.entries()].map(([key, value]) => [key, normalizeFormValue(value)]));
+            if (string.IsNullOrWhiteSpace(name) || IsBlockedHeader(name))
+            {
+                continue;
+            }
 
-      try {
-        let response;
-        if (command === "create-program") {
-          response = await postJson("/ui/programs", payload);
-        } else if (command === "create-scope") {
-          response = await postJson(`/ui/programs/${encodeURIComponent(payload.programId)}/scopes`, payload);
-        } else if (command === "start-domain-discovery") {
-          response = await postJson("/ui/scan-plans/domain-discovery", payload);
+            if (request.Content is not null && IsContentHeader(name))
+            {
+                request.Content.Headers.Remove(name);
+                request.Content.Headers.TryAddWithoutValidation(name, value);
+            }
+            else
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
+            }
         }
-
-        if (!response?.ok) {
-          const message = await response?.text();
-          throw new Error(message || `Command failed with ${response?.status ?? "unknown status"}`);
-        }
-
-        form.reset();
-        await load();
-      } catch (error) {
-        marker.textContent = "command failed";
-        content.insertAdjacentHTML("afterbegin", `<div class="toolbar hot">${escapeHtml(error.message)}</div>`);
-      }
     }
 
-    function programSelect(name) {
-      const programs = state.data?.programs ?? [];
-      const options = programs.map(program => `<option value="${escapeHtml(program.programId)}">${escapeHtml(program.name)}</option>`).join("");
-      return `<select name="${name}" required><option value="">Program</option>${options}</select>`;
+    try
+    {
+        var stopwatch = Stopwatch.StartNew();
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        stopwatch.Stop();
+
+        const int maxBodyBytes = 256 * 1024;
+        var truncated = bytes.Length > maxBodyBytes;
+        var returnedBytes = truncated ? bytes[..maxBodyBytes] : bytes;
+        var responseBody = Encoding.UTF8.GetString(returnedBytes);
+
+        var responseHeaders = response.Headers
+            .Concat(response.Content.Headers)
+            .Select(h => new[] { h.Key, string.Join(", ", h.Value) })
+            .ToArray();
+
+        return Results.Json(new
+        {
+            status = (int)response.StatusCode,
+            statusText = response.ReasonPhrase ?? response.StatusCode.ToString(),
+            headers = responseHeaders,
+            body = responseBody,
+            time = stopwatch.ElapsedMilliseconds,
+            size = bytes.Length,
+            truncated
+        });
     }
-
-    function scopeSelect(name) {
-      const scopes = state.data?.scopes ?? [];
-      const options = scopes
-        .filter(scope => scope.action === "Include")
-        .map(scope => `<option value="${escapeHtml(scope.scopeId)}">${escapeHtml(programName(scope.programId))}: ${escapeHtml(scope.pattern)}</option>`)
-        .join("");
-      return `<select name="${name}"><option value="">Scope optional</option>${options}</select>`;
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        return Results.Problem($"Unable to send request: {ex.Message}", statusCode: StatusCodes.Status502BadGateway);
     }
+});
 
-    function programName(programId) {
-      const program = (state.data?.programs ?? []).find(program => program.programId === programId);
-      return program?.name ?? programId;
-    }
+// Agent management endpoints (BFF proxy)
+app.MapGet("/ui/agents", ProxyGetAgent);
+app.MapPost("/ui/agents", ProxyPostAgent);
+app.MapGet("/ui/agents/{agentId:guid}", ProxyGetAgentById);
+app.MapPut("/ui/agents/{agentId:guid}", ProxyPutAgent);
+app.MapDelete("/ui/agents/{agentId:guid}", ProxyDeleteAgent);
+app.MapPatch("/ui/agents/{agentId:guid}/pause", ProxyPauseAgent);
+app.MapPatch("/ui/agents/{agentId:guid}/resume", ProxyResumeAgent);
+app.MapPost("/ui/agents/{agentId:guid}/assign/{taskId}", ProxyAssignTask);
 
-    function normalizeFormValue(value) {
-      const stringValue = String(value).trim();
-      return stringValue.length ? stringValue : null;
-    }
+app.MapGet("/ui/agent-tasks", ProxyGetTasks);
+app.MapPost("/ui/agent-tasks", ProxyPostTask);
+app.MapGet("/ui/agent-tasks/{taskId}", ProxyGetTaskById);
+app.MapPut("/ui/agent-tasks/{taskId}", ProxyPutTask);
+app.MapDelete("/ui/agent-tasks/{taskId}", ProxyDeleteTask);
+app.MapPost("/ui/agent-tasks/{taskId}/run", ProxyRunTask);
 
-    function postJson(url, payload) {
-      return fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-    }
+app.MapGet("/ui/agent-chat/history", ProxyGetChatHistory);
+app.MapPost("/ui/agent-chat", ProxyPostChat);
 
-    function renderTable(headers, rows) {
-      const body = rows.length
-        ? rows.map((row, index) => `<tr data-row-index="${index}">${row.map(value => `<td>${escapeHtml(value ?? "")}</td>`).join("")}</tr>`).join("")
-        : `<tr><td colspan="${headers.length}" class="muted">No rows</td></tr>`;
-      return `<table><thead><tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
-    }
+app.MapGet("/ui/todos", ProxyGetTodos);
+app.MapPost("/ui/todos", ProxyPostTodo);
+app.MapGet("/ui/todos/{todoId:guid}", ProxyGetTodoById);
+app.MapPut("/ui/todos/{todoId:guid}", ProxyPutTodo);
+app.MapDelete("/ui/todos/{todoId:guid}", ProxyDeleteTodo);
 
-    function selectRow(event) {
-      const row = event.target.closest("tr[data-row-index]");
-      if (!row) return;
+app.MapGet("/ui/code-reviews", ProxyGetCodeReviews);
+app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 
-      const index = Number(row.dataset.rowIndex);
-      state.selected = {
-        view: state.view,
-        index,
-        row: state.currentRows[index],
-        relationships: null,
-        relationshipStatus: state.view === "assets" ? "loading" : null
-      };
+app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
+app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
+app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
 
-      highlightSelectedRow();
-      renderSelectionRail();
-      loadSelectedAssetRelationships();
-    }
-
-    function highlightSelectedRow() {
-      content.querySelectorAll("tr[data-row-index]").forEach(row => {
-        const isSelected = state.selected?.view === state.view && Number(row.dataset.rowIndex) === state.selected.index;
-        row.classList.toggle("selected", isSelected);
-      });
-    }
-
-    function renderSelectionRail() {
-      const rail = document.querySelector("#selectionRail");
-
-      if (!state.selected?.row) {
-        rail.textContent = "No row selected";
-        return;
-      }
-
-      const lines = flattenForDisplay(state.selected.row);
-
-      if (state.selected.view === "assets") {
-        lines.push("");
-        lines.push("relationships:");
-
-        if (state.selected.relationshipStatus === "loading") {
-          lines.push("  loading...");
-        } else if (state.selected.relationshipStatus === "error") {
-          lines.push("  unavailable");
-        } else if (state.selected.relationships?.length) {
-          lines.push(...state.selected.relationships.map(formatRelationship));
-        } else {
-          lines.push("  none");
-        }
-      }
-
-      rail.textContent = lines.join("\n");
-    }
-
-    async function loadSelectedAssetRelationships() {
-      const selected = state.selected;
-      const assetId = selected?.row?.assetId;
-
-      if (selected?.view !== "assets" || !assetId) {
-        return;
-      }
-
-      try {
-        const response = await fetch(`/ui/assets/${encodeURIComponent(assetId)}/relationships`, { cache: "no-store" });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const relationships = await response.json();
-
-        if (state.selected?.row?.assetId !== assetId) {
-          return;
-        }
-
-        state.selected.relationships = Array.isArray(relationships) ? relationships : [];
-        state.selected.relationshipStatus = "ready";
-        renderSelectionRail();
-      } catch {
-        if (state.selected?.row?.assetId === assetId) {
-          state.selected.relationshipStatus = "error";
-          renderSelectionRail();
-        }
-      }
-    }
-
-    function formatRelationship(relationship) {
-      const direction = relationship.fromAssetId === state.selected?.row?.assetId ? "out" : "in";
-      const peer = direction === "out" ? relationship.toAssetId : relationship.fromAssetId;
-      return `  ${direction} ${relationship.edgeType} ${peer}`;
-    }
-
-    function flattenForDisplay(row) {
-      return Object.entries(row)
-        .filter(([, value]) => value !== null && value !== undefined && value !== "")
-        .map(([key, value]) => `${key}: ${formatDetailValue(value)}`);
-    }
-
-    function formatDetailValue(value) {
-      if (Array.isArray(value)) {
-        return value.length ? value.map(item => typeof item === "object" ? JSON.stringify(item) : item).join(", ") : "[]";
-      }
-
-      if (typeof value === "object") {
-        return JSON.stringify(value);
-      }
-
-      return value;
-    }
-
-    function renderEventRail() {
-      const events = (state.data.events ?? []).slice(0, 12);
-      document.querySelector("#eventRail").textContent = events.map(event => `${formatTime(event.occurredAt)} ${event.eventType}`).join("\n");
-    }
-
-    function connectEventStream() {
-      const streamState = document.querySelector("#streamState");
-
-      if (!window.EventSource) {
-        streamState.textContent = "stream unsupported";
-        setInterval(load, 5000);
-        return;
-      }
-
-      const source = new EventSource("/ui/events/stream");
-      source.addEventListener("open", () => { streamState.textContent = "stream live"; });
-      source.addEventListener("argus-event", () => { streamState.textContent = "event received"; load(); });
-      source.addEventListener("error", () => {
-        streamState.textContent = "stream reconnecting";
-      });
-    }
-
-    function formatTime(value) {
-      return value ? new Date(value).toLocaleTimeString() : "";
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
-
-    load();
-    connectEventStream();
-    setInterval(load, 15000);
-  </script>
-</body>
-</html>
-""", "text/html"));
+app.MapStaticAssets();
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();
+
+// Agent proxy handlers
+async Task<IResult> ProxyGetAgent(IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.Agents,
+        () => gateway.GetJsonAsync(endpoints.Agent, "/agents", ct),
+        ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostAgent(JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, "/agents", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "created", ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetAgentById(Guid agentId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/agents/{agentId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyPutAgent(Guid agentId, JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PutJsonAsync(endpoints.Agent, $"/agents/{agentId}", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "updated", ct);
+    return result;
+}
+
+async Task<IResult> ProxyDeleteAgent(Guid agentId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = httpClientFactory.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Agent);
+    var response = await client.DeleteAsync($"/agents/{agentId}", ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "deleted", ct);
+    return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
+}
+
+async Task<IResult> ProxyPauseAgent(Guid agentId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/pause", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "paused", ct);
+    return result;
+}
+
+async Task<IResult> ProxyResumeAgent(Guid agentId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PatchJsonAsync(endpoints.Agent, $"/agents/{agentId}/resume", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agents", "resumed", ct);
+    return result;
+}
+
+async Task<IResult> ProxyAssignTask(Guid agentId, string taskId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/agents/{agentId}/assign/{taskId}", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Agents, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("agent-tasks", "assigned", ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetTasks(string? status, string? priority, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = "/agent-tasks";
+    if (!string.IsNullOrWhiteSpace(status) || !string.IsNullOrWhiteSpace(priority))
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+        if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={Uri.EscapeDataString(priority)}");
+        path += "?" + string.Join("&", query);
+    }
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.AgentTasks, ("status", status), ("priority", priority)),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostTask(JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, "/agent-tasks", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "created", ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetTaskById(string taskId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/agent-tasks/{taskId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyPutTask(string taskId, JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PutJsonAsync(endpoints.Agent, $"/agent-tasks/{Uri.EscapeDataString(taskId)}", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "updated", ct);
+    return result;
+}
+
+async Task<IResult> ProxyDeleteTask(string taskId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = httpClientFactory.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Agent);
+    var response = await client.DeleteAsync($"/agent-tasks/{taskId}", ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "deleted", ct);
+    return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
+}
+
+async Task<IResult> ProxyRunTask(string taskId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/agent-tasks/{Uri.EscapeDataString(taskId)}/run", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.AgentTasks, DevelopmentCache.Agents, DevelopmentCache.CodeReviews, DevelopmentCache.SystemReports);
+    await notifier.NotifyAsync("agent-tasks", "run", ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetTodos(string? status, string? priority, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = "/todos";
+    var query = new List<string>();
+    if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+    if (!string.IsNullOrWhiteSpace(priority)) query.Add($"priority={Uri.EscapeDataString(priority)}");
+    if (query.Count > 0) path += "?" + string.Join("&", query);
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.Todos, ("status", status), ("priority", priority)),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostTodo(JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, "/todos", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Todos, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("todos", "created", ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetTodoById(Guid todoId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, $"/todos/{todoId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyPutTodo(Guid todoId, JsonObject payload, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PutJsonAsync(endpoints.Agent, $"/todos/{todoId}", payload, ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Todos, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("todos", "updated", ct);
+    return result;
+}
+
+async Task<IResult> ProxyDeleteTodo(Guid todoId, IHttpClientFactory httpClientFactory, IDistributedCache cache, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = httpClientFactory.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Agent);
+    var response = await client.DeleteAsync($"/todos/{todoId}", ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.Todos, DevelopmentCache.AgentTasks);
+    await notifier.NotifyAsync("todos", "deleted", ct);
+    return response.IsSuccessStatusCode ? Results.NoContent() : Results.StatusCode((int)response.StatusCode);
+}
+
+async Task<IResult> ProxyGetChatHistory(IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.Agent, "/agent-chat/history", ct);
+    return Results.Json(result ?? new JsonObject());
+}
+
+async Task<IResult> ProxyPostChat(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Agent, "/agent-chat", payload, ct);
+}
+
+async Task<IResult> ProxyGetCodeReviews(int? take, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = $"/code-reviews?take={Math.Clamp(take ?? 100, 1, 500)}";
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.CodeReviews, ("take", (take ?? 100).ToString())),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
+}
+
+async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClientFactory, IDistributedCache cache, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var path = $"/system-reports?take={Math.Clamp(take ?? 100, 1, 500)}";
+    var result = await DevelopmentCache.GetOrCreateJsonAsync(
+        cache,
+        DevelopmentCache.QueryKey(DevelopmentCache.SystemReports, ("take", (take ?? 100).ToString())),
+        () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
+        ct);
+    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
+}
+
+async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
+{
+    var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderUsage, ct);
+    if (ProviderUsageDefaults.IsEmptyOverview(result))
+    {
+        var gateway = new ArgusUiGateway(httpClientFactory);
+        var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+        var live = await gateway.GetJsonAsync(endpoints.Agent, "/provider-usage", ct);
+        if (!ProviderUsageDefaults.IsEmptyOverview(live))
+        {
+            await DevelopmentCache.SetJsonAsync(cache, DevelopmentCache.ProviderUsage, live!, ct);
+            result = live;
+        }
+    }
+
+    warmer.QueueWarm();
+    return Results.Json(result ?? ProviderUsageDefaults.EmptyOverview());
+}
+
+async Task<IResult> ProxyLoginProvider(string providerId, IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, DevelopmentRealtimeNotifier notifier, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.PostJsonAsync(endpoints.Agent, $"/provider-usage/{Uri.EscapeDataString(providerId)}/login", new JsonObject(), ct);
+    await DevelopmentCache.RemoveAsync(cache, ct, DevelopmentCache.ProviderUsage, DevelopmentCache.ProviderRouting);
+    await warmer.WarmAsync(forceRefresh: true, ct);
+    return result;
+}
+
+async Task<IResult> ProxyGetRoutingPreview(IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
+{
+    var result = await DevelopmentCache.GetJsonAsync(cache, DevelopmentCache.ProviderRouting, ct);
+    warmer.QueueWarm();
+    return Results.Json(result ?? new JsonObject
+    {
+        ["providerId"] = null,
+        ["providerName"] = null,
+        ["toolId"] = null,
+        ["agentId"] = null,
+        ["agentName"] = null,
+        ["isRunnable"] = false,
+        ["routingScore"] = 0,
+        ["reason"] = "AgentService is unavailable."
+    });
+}
+
+static bool HostMatches(string host, string pattern)
+{
+    host = host.Trim().TrimEnd('.').ToLowerInvariant();
+    pattern = pattern.Trim().TrimEnd('.').ToLowerInvariant();
+
+    if (string.IsNullOrWhiteSpace(pattern) || pattern == "*")
+    {
+        return true;
+    }
+
+    if (pattern.StartsWith("*."))
+    {
+        var suffix = pattern[1..];
+        return host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            || host.Equals(pattern[2..], StringComparison.OrdinalIgnoreCase);
+    }
+
+    return host.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsBlockedHeader(string headerName)
+{
+    var blocked = new[]
+    {
+        "Host",
+        "Connection",
+        "Content-Length",
+        "Transfer-Encoding",
+        "Keep-Alive",
+        "Expect",
+        "Upgrade",
+        "Proxy-Authorization",
+        "Proxy-Authenticate"
+    };
+
+    return blocked.Contains(headerName, StringComparer.OrdinalIgnoreCase);
+}
+
+static bool IsContentHeader(string headerName)
+{
+    var contentHeaders = new[]
+    {
+        "Content-Type",
+        "Content-Language",
+        "Content-Location",
+        "Content-MD5",
+        "Content-Range",
+        "Expires",
+        "Last-Modified"
+    };
+
+    return contentHeaders.Contains(headerName, StringComparer.OrdinalIgnoreCase);
+}
+
+static async Task<bool> ResolvesToPrivateAddressAsync(Uri uri, CancellationToken cancellationToken)
+{
+    if (uri.HostNameType == UriHostNameType.Dns && IsLocalHostName(uri.Host))
+    {
+        return true;
+    }
+
+    IPAddress[] addresses;
+    if (IPAddress.TryParse(uri.Host, out var parsedAddress))
+    {
+        addresses = new[] { parsedAddress };
+    }
+    else
+    {
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(uri.DnsSafeHost, cancellationToken);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    return addresses.Any(IsPrivateOrLoopback);
+}
+
+static bool IsLocalHostName(string host)
+{
+    return host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase)
+        || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsPrivateOrLoopback(IPAddress address)
+{
+    if (IPAddress.IsLoopback(address))
+    {
+        return true;
+    }
+
+    if (address.IsIPv4MappedToIPv6)
+    {
+        address = address.MapToIPv4();
+    }
+
+    if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+    {
+        var bytes = address.GetAddressBytes();
+        return bytes[0] == 10
+            || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+            || (bytes[0] == 192 && bytes[1] == 168)
+            || (bytes[0] == 169 && bytes[1] == 254)
+            || bytes[0] == 0
+            || bytes[0] >= 224;
+    }
+
+    if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+    {
+        return address.IsIPv6LinkLocal
+            || address.IsIPv6SiteLocal
+            || address.IsIPv6Multicast
+            || address.Equals(IPAddress.IPv6Loopback)
+            || address.Equals(IPAddress.IPv6None)
+            || address.Equals(IPAddress.IPv6Any);
+    }
+
+    return false;
+}
+
+
+internal static class ProviderUsageDefaults
+{
+    public static JsonNode EmptyOverview() => JsonNode.Parse("""{"generatedAt":"1970-01-01T00:00:00Z","providers":[],"recommendedRoute":null}""")!;
+
+    public static bool IsEmptyOverview(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return true;
+        }
+
+        var providers = node["providers"];
+        return providers is JsonArray { Count: 0 }
+            && string.Equals(node["generatedAt"]?.GetValue<string>(), "1970-01-01T00:00:00Z", StringComparison.OrdinalIgnoreCase);
+    }
+}
 
 internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 {
@@ -786,19 +922,76 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return path.Contains("assets", StringComparison.OrdinalIgnoreCase)
-                ? JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""")
-                : JsonNode.Parse("[]");
+            _ = ex;
+            if (path.Contains("assets", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""");
+            }
+
+            if (path.Contains("provider-usage/routing-preview", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (path.Contains("provider-usage", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (path.Contains("agents", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("agent-tasks", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("agent-chat", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("todos", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("code-reviews", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("system-reports", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonNode.Parse("""{"items":[],"count":0}""");
+            }
+
+            return JsonNode.Parse("[]");
         }
     }
 
-    public async Task<IResult> PostJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
+    public Task<IResult> PostJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Post, baseAddress, path, payload, cancellationToken);
+
+    public async Task<JsonNode?> PostJsonNodeAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
     {
         try
         {
             var client = httpClientFactory.CreateClient();
             client.BaseAddress = new Uri(baseAddress);
             using var response = await client.PostAsJsonAsync(path, payload, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    public Task<IResult> PutJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Put, baseAddress, path, payload, cancellationToken);
+
+    public Task<IResult> PatchJsonAsync(string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken) =>
+        SendJsonAsync(HttpMethod.Patch, baseAddress, path, payload, cancellationToken);
+
+    private async Task<IResult> SendJsonAsync(HttpMethod method, string baseAddress, string path, JsonObject payload, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(baseAddress);
+            using var request = new HttpRequestMessage(method, path)
+            {
+                Content = JsonContent.Create(payload)
+            };
+            using var response = await client.SendAsync(request, cancellationToken);
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
             var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/json";
 
@@ -826,6 +1019,7 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
 }
 
 internal sealed record ArgusServiceEndpoints(
+    string Agent,
     string ProgramScope,
     string Asset,
     string Task,
@@ -835,6 +1029,7 @@ internal sealed record ArgusServiceEndpoints(
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) =>
         new(
+            configuration["ARGUS_AGENT_SERVICE"] ?? "https+http://agent-service",
             configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
             configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
             configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",

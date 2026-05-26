@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAspireProject>false</IsAspireProject>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="NSubstitute.Analyzers.CSharp" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingBlocks\Argus.BuildingBlocks.Workers\Argus.BuildingBlocks.Workers.csproj" />
+    <ProjectReference Include="..\..\src\Workers\Argus.Workers.HtmlDomSpider\Argus.Workers.HtmlDomSpider.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\test-page-basic.html" />
+    <EmbeddedResource Include="Fixtures\test-page-forms.html" />
+    <EmbeddedResource Include="Fixtures\test-page-api.html" />
+    <EmbeddedResource Include="Fixtures\test-page-relative.html" />
+  </ItemGroup>
+
+</Project>

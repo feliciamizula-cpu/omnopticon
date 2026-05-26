@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Argus Recon - Code Review Report</title>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--critical:#f85149;--high:#d29922;--medium:#58a6ff;--low:#8b949e;--accent:#58a6ff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:0}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+.header{background:linear-gradient(135deg,#161b22,#0d1117);border-bottom:1px solid var(--border);padding:32px 0;margin-bottom:24px}
+.header h1{font-size:28px;font-weight:600;color:#f0f6fc}
+.header .subtitle{color:var(--text-muted);font-size:14px;margin-top:4px}
+.header .meta{display:flex;gap:24px;margin-top:12px;font-size:13px;color:var(--text-muted)}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}
+.summary-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.summary-card .label{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted)}
+.summary-card .value{font-size:32px;font-weight:700;margin-top:4px}
+.summary-card .value.critical{color:var(--critical)}
+.summary-card .value.high{color:var(--high)}
+.summary-card .value.medium{color:var(--medium)}
+.summary-card .value.low{color:var(--low)}
+.summary-card .value.total{color:var(--text)}
+.review-table{width:100%;border-collapse:collapse;margin-bottom:24px;background:var(--surface);border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.review-table th{background:#1c2128;padding:10px 14px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);border-bottom:1px solid var(--border)}
+.review-table td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px}
+.review-table tr:last-child td{border-bottom:none}
+.severity-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-right:4px}
+.severity-badge.critical{background:rgba(248,81,73,0.15);color:var(--critical)}
+.severity-badge.high{background:rgba(210,153,34,0.15);color:var(--high)}
+.severity-badge.medium{background:rgba(88,166,255,0.15);color:var(--medium)}
+.severity-badge.low{background:rgba(139,148,158,0.15);color:var(--low)}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.status-badge.complete{background:rgba(63,185,80,0.15);color:#3fb950}
+.status-badge.in_progress{background:rgba(210,153,34,0.15);color:var(--high)}
+.finding{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden}
+.finding-header{padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.finding-header:hover{background:#1c2128}
+.finding-meta{display:flex;align-items:center;gap:8px}
+.finding-reviewer{font-size:12px;color:var(--text-muted)}
+.finding-body{padding:16px;border-top:1px solid var(--border);display:none}
+.finding-body.open{display:block}
+.finding-body pre{background:#0d1117;border:1px solid var(--border);border-radius:6px;padding:12px;overflow-x:auto;font-family:SF Mono,Fira Code,monospace;font-size:13px;line-height:1.4;margin:8px 0}
+.finding-body code{background:#0d1117;padding:2px 4px;border-radius:3px;font-family:SF Mono,monospace;font-size:13px}
+.finding-body h4{color:var(--text);margin:12px 0 4px;font-size:14px}
+.finding-body ul{margin:4px 0 8px;padding-left:20px}
+.finding-body li{margin:4px 0}
+.toggle-icon{font-size:14px;color:var(--text-muted)}
+.finding-section-title{font-size:18px;font-weight:600;margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.question-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.question-header{padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:14px}
+.question-header:hover{background:#1c2128}
+.question-body{padding:0 16px 12px;border-top:1px solid var(--border);display:none;font-size:13px;color:var(--text-muted)}
+.question-body.open{display:block;padding-top:12px}
+nav{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);padding:8px 0;z-index:10}
+nav a{color:var(--accent);text-decoration:none;font-size:13px;margin-right:16px}
+nav a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="header"><div class="container">
+<h1>Argus Recon &mdash; Code Review Report</h1>
+<div class="subtitle">Aggregated findings from all reviewer agents</div>
+<div class="meta"><span>Generated: 2026-05-23 02:45:38 UTC</span><span>Reviews: 8</span><span>Total Findings: 13</span></div>
+</div></div>
+<nav><div class="container">
+<a href="#summary">Summary</a>
+<a href="#reviews">Reviews</a>
+<a href="#critical-findings">Critical Findings</a>
+<a href="#all-findings">All Findings</a>
+<a href="#questions">Open Questions</a>
+</div></nav>
+<div class="container">
+
+<section id="summary">
+<h2 class="finding-section-title">Summary</h2>
+<div class="summary-grid">
+<div class="summary-card"><div class="label">Total Findings</div><div class="value total">13</div></div>
+<div class="summary-card"><div class="label">Critical</div><div class="value critical">2</div></div>
+<div class="summary-card"><div class="label">High</div><div class="value high">3</div></div>
+<div class="summary-card"><div class="label">Medium</div><div class="value medium">4</div></div>
+<div class="summary-card"><div class="label">Low</div><div class="value low">4</div></div>
+<div class="summary-card"><div class="label">Review Documents</div><div class="value total">8</div></div>
+</div>
+</section>
+
+<section id="reviews">
+<h2 class="finding-section-title">Review Documents</h2>
+<table class="review-table">
+<tr><th>File</th><th>Reviewer</th><th>Status</th><th>Findings</th><th>Batch</th></tr>
+
+<tr><td><a href="#review-reviewer-1-" style="color:var(--accent);text-decoration:none;">20260522-233640-90bef64403a9-reviewer...</a></td>
+<td>reviewer-1</td>
+<td><span class="status-badge complete">Complete</span></td>
+<td><span class="severity-badge critical">1 critical</span><span class="severity-badge high">1 high</span><span class="severity-badge medium">2 medium</span><span class="severity-badge low">2 low</span></td>
+<td><code style="font-size:11px;color:var(--text-muted);"></code></td></tr>
+<tr><td><a href="#review-reviewer-2-90bef644" style="color:var(--accent);text-decoration:none;">20260522-233640-90bef64403a9-reviewer...</a></td>
+<td>reviewer-2</td>
+<td><span class="status-badge complete">Complete</span></td>
+<td></td>
+<td><code style="font-size:11px;color:var(--text-muted);">90bef64403a9</code></td></tr>
+<tr><td><a href="#review-reviewer-2-f6eecd29" style="color:var(--accent);text-decoration:none;">20260522-233832-f6eecd2981b9-reviewer...</a></td>
+<td>reviewer-2</td>
+<td><span class="status-badge complete">Complete</span></td>
+<td><span class="severity-badge high">1 high</span><span class="severity-badge medium">1 medium</span><span class="severity-badge low">1 low</span></td>
+<td><code style="font-size:11px;color:var(--text-muted);">f6eecd2981b9</code></td></tr>
+<tr><td><a href="#review-reviewer-1-review-2" style="color:var(--accent);text-decoration:none;">20260522-233847-f6eecd2981b9-reviewer...</a></td>
+<td>reviewer-1</td>
+<td><span class="status-badge in_progress">In Progress</span></td>
+<td><span class="severity-badge critical">1 critical</span><span class="severity-badge high">1 high</span><span class="severity-badge medium">1 medium</span><span class="severity-badge low">1 low</span></td>
+<td><code style="font-size:11px;color:var(--text-muted);">review-20260</code></td></tr>
+<tr><td><a href="#review-reviewer-1-90bef644" style="color:var(--accent);text-decoration:none;">20260522-234356-90bef64403a9-reviewer...</a></td>
+<td>reviewer-1</td>
+<td><span class="status-badge in_progress">In Progress</span></td>
+<td></td>
+<td><code style="font-size:11px;color:var(--text-muted);">90bef64403a9</code></td></tr>
+<tr><td><a href="#review-reviewer-2-90bef644" style="color:var(--accent);text-decoration:none;">20260522-234356-90bef64403a9-reviewer...</a></td>
+<td>reviewer-2</td>
+<td><span class="status-badge in_progress">In Progress</span></td>
+<td></td>
+<td><code style="font-size:11px;color:var(--text-muted);">90bef64403a9</code></td></tr>
+<tr><td><a href="#review-reviewer-2-90bef644" style="color:var(--accent);text-decoration:none;">20260522-234445-90bef64403a9-reviewer...</a></td>
+<td>reviewer-2</td>
+<td><span class="status-badge in_progress">In Progress</span></td>
+<td></td>
+<td><code style="font-size:11px;color:var(--text-muted);">90bef64403a9</code></td></tr>
+<tr><td><a href="#review-reviewer-1-90bef644" style="color:var(--accent);text-decoration:none;">20260522-234501-90bef64403a9-reviewer...</a></td>
+<td>reviewer-1</td>
+<td><span class="status-badge in_progress">In Progress</span></td>
+<td></td>
+<td><code style="font-size:11px;color:var(--text-muted);">90bef64403a9</code></td></tr>
+</table></section>
+<section id="questions"><h2 class="finding-section-title">Open Questions</h2>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>1. **Bug #14 vs Bug #15 conflict:** The relationship between these two bug fixes needs clarification. Was the `Semaphore</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>2. ** EfCoreOutboxStore conflict markers:** Has this file been verified to compile? The conflict markers would cause a b</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>3. **review-agents.sh state persistence:** The reviewer state uses JSON files in `$SCRIPT_DIR/.reviewer-state-$reviewer.</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body"><p>---</p></div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>1. **EfCoreOutboxStore constructor** — Was the merge conflict intentionally resolved this way, or was the fix incomplete</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>2. **IPoisonMessageStore population path** — Is there a consumer or writer that populates the `InMemoryPoisonMessageStor</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>3. **Bug #15 intent** — Was the intent to fix MaxConcurrency handling at the worker level, or was the change made to sil</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>4. **`reconcile` subcommand** — `agent-coord.sh reconcile` is called but its implementation was not reviewed. Does it co</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>5. **Reviewer loop review** — This review was generated by the reviewer agent loop itself (commit `cab47c0`). The review</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body"><p>---</p></div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>1. **Is the AGENT_COORD_AUTOCOMMIT=0 default intentional for production?** If so, how do multiple supervisor instances c</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>2. **Why was the agent self-recovery (resume from crashed) removed from `run_agent_if_needed()`?** The commit message fo</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>3. **Bug #14 fix (cc93e586): The heartbeat now reports `MaxConcurrency - _concurrencyLimiter.CurrentCount`. Does this ac</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>4. **review-agents.sh: Is the RECENT_LIMIT of 20 appropriate for the reviewer batch?** If many commits accumulate betwee</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>1. **AssetDto.StalenessScore** is computed server-side at query time (`ComputeStalenessScore()`) but not persisted. This</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>2. The `reconcile_state()` function in agent-coord.sh requeues tasks that were &quot;in_progress&quot; but whose assignee is not c</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+<div class="question-item"><div class="question-header" onclick="this.nextElementSibling.classList.toggle('open')"><span>3. The `WorkerPriority` enum has three values (high/normal/low). In `EfTaskStore.LeaseTaskAsync`, the SQL uses `task.Pri</span><span class="toggle-icon">&#9660;</span></div>
+<div class="question-body">No additional details.</div></div>
+</section>
+<section><h2 class="finding-section-title">Follow-Up Actions</h2>
+<div class="summary-grid"><div class="summary-card"><div class="label">Total Actions</div><div class="value total">12</div></div></div>
+<ul style="list-style:none;padding:0;">
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>EfCoreOutboxStore.cs</strong>: Resolve conflict markers immediately — this is a build blocker.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>ArgusWorkerBackgroundService.cs</strong>: Clarify whether <code>SemaphoreSlim</code> concurrency control is correct or needs to be re-added for Bug #15.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>auto-run-agents.sh</strong>: Consider adding failure logging when <code>git_pull || true</code> suppresses errors.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>review-agents.sh</strong>: Add file locking around reviewer state for concurrent safety.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>Build verification</strong>: Run <code>dotnet build</code> on the affected projects (<code>Argus.BuildingBlocks.EventBus</code>, <code>Argus.BuildingBlocks.Workers</code>, <code>Argus.RealtimeService</code>) to confirm the conflict markers don&#x27;t break CI.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p>--</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>EfCoreOutboxStore</strong> (cc93e58): Remove the orphaned <code>dbContext.Set&lt;OutboxMessage&gt;().Add(message);</code> line or restore the proper conflict resolution.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>IPoisonMessageStore</strong>: Confirm the population path or remove the admin endpoints if they are dead code.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>ArgusWorkerBackgroundService heartbeat</strong> (5e29777): Restore dynamic <code>_runningTaskCount</code> tracking or clarify the intended fix for Bug #15.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>git pull silence</strong> (6631fac): Add logging when <code>git_pull</code> fails so failures are visible in the log output.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p><strong>Shell script tests</strong>: Add bats or shUnit2 tests for <code>agent-coord.sh</code>, <code>auto-run-agents.sh</code>, and <code>review-agents.sh</code> critical paths.</p></li>
+<li style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;"><p>*Status: complete**</p></li>
+</ul></section>
+<section id="critical-findings"><h2 class="finding-section-title" style="color:var(--critical)">Critical Findings</h2>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge critical">critical</span>
+<span style="font-weight:600;">Unresolved Git Conflict Markers in Source Code</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-9315b64f"><p>### CRITICAL: Unresolved Git Conflict Markers in Source Code</p>
+<p><strong>Commit:</strong> <code>cc93e586fcbcf3ea7f91d455cb6bf1b36fb36f51</code></p>
+<p><strong>File:</strong> <code>src/BuildingBlocks/Argus.BuildingBlocks.EventBus/EfCoreOutboxStore.cs:9-19</code></p>
+<p>The diff reveals unresolved <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</code> / <code>=======</code> / <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> conflict markers in the <code>EfCoreOutboxStore</code> constructor:</p>
+<p><pre><code>public EfCoreOutboxStore(TDbContext dbContext)</p>
+<p>{</p>
+<p>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</p>
+<p>        dbContext.Set&lt;OutboxMessage&gt;().Add(message);</p>
+<p>=======</p>
+<p>        _dbContext = dbContext;</p>
+<p>    }</p>
+<p>    public Task AddAsync(OutboxMessage message, CancellationToken cancellationToken = default)</p>
+<p>    {</p>
+<p>        _dbContext.Set&lt;OutboxMessage&gt;().Add(message);</p>
+<p>        return Task.CompletedTask;</p>
+<p>&gt;&gt;&gt;&gt;&gt;&gt;&gt; c48c6f9f728704bb7dab1f776908c9f9b594cdb2</p>
+<p></code></pre></p>
+<p>This will cause a <strong>build failure</strong> in <code>EfCoreOutboxStore.cs</code>. The class has two constructors (the original and the conflict remnant) and the file does not compile.</p>
+<p><strong>Recommended Action:</strong> Resolve the conflict markers before merging. The correct state should preserve the <code>_dbContext = dbContext</code> assignment and remove the conflicting sections.</p>
+<p>---</p></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge critical">critical</span>
+<span style="font-weight:600;">1. **review-agents.sh:174-188 - Unchecked PIPESTATUS after opencode**</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-8fee6c45"><p>### Critical</p>
+<ul>
+<li><strong>review-agents.sh:174-188 - Unchecked PIPESTATUS after opencode</strong></li>
+</ul>
+<p>   <pre><code>   printf &#x27;%s\n&#x27; &quot;$prompt&quot; | &quot;$OPENCODE_BIN&quot; run --dir &quot;$WORK_DIR&quot; 2&gt;&amp;1 | while IFS= read -r line; do</p>
+<p>       log &quot;[$reviewer] $line&quot;</p>
+<p>   done</p>
+<p>   exit_code=${PIPESTATUS[1]}</p>
+<p>   </code></pre></p>
+<p>   The pipe to <code>while</code> introduces an additional subshell. <code>PIPESTATUS[1]</code> captures the opencode exit code correctly, but if the <code>while</code> loop itself fails (e.g., due to a signal), <code>exit_code</code> could reflect the wrong process. Use <code>set -o pipefail</code> and capture <code>${PIPESTATUS[0]}</code> directly after the cat/pipe.</p>
+<ul>
+<li><strong>tools/agent-coord.sh:361-429 - reconcile_state() holds lock for entire iteration</strong></li>
+</ul>
+<p>   The <code>acquire_lock</code> at line 362 is held while looping through all agents and making multiple state writes. If any <code>agent_write_state</code> or <code>write_state</code> call takes significant time or blocks, all other concurrent <code>agent-coord.sh</code> invocations (e.g., checkpoint calls from running agents) will be blocked. Consider releasing the lock between agent iterations or using shorter critical sections.</p>
+<ul>
+<li><strong>tools/auto-run-agents.sh:507-527 - Heartbeat subprocess not tracked for cleanup</strong></li>
+</ul>
+<p>   <pre><code>   (</p>
+<p>       while kill -0 &quot;$runtime_pid&quot; 2&gt;/dev/null; do</p>
+<p>           sleep 45</p>
+<p>           ...</p>
+<p>       done</p>
+<p>   ) &amp;</p>
+<p>   heartbeat_pid=$!</p>
+<p>   </code></pre></p>
+<p>   The heartbeat subprocess is started after the agent process. If <code>spawn_agent</code> exits prematurely (e.g., opencode dies instantly), <code>heartbeat_pid</code> is still captured, but the heartbeat subshell may race with the parent&#x27;s <code>kill &quot;$heartbeat_pid&quot;</code>. Race condition: the subshell may already be gone when <code>kill</code> is called, or a new heartbeat for a subsequent agent could reuse the same PID. Use a process group (<code>set -o monitor</code> + <code>kill -PID</code> of the process group) or store PID in a file.</p></div></div>
+</section>
+<section><h3 style="margin-top:24px;margin-bottom:12px;font-size:16px;">High</h3>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge high">high</span>
+<span style="font-weight:600;">Bug Fix (cc93e58) Partially Reverted in Subsequent Commit (5e29777)</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-1a26739b"><p>### HIGH: Bug Fix (cc93e58) Partially Reverted in Subsequent Commit (5e29777)</p>
+<p><strong>Commits:</strong> <code>cc93e586</code> (Bug #14 fix) and <code>5e297774</code> (Bug #15)</p>
+<p><strong>File:</strong> <code>src/BuildingBlocks/Argus.BuildingBlocks.Workers/ArgusWorkerBackgroundService.cs</code></p>
+<p>The Bug #14 fix introduced:</p>
+<ul>
+<li>A <code>SemaphoreSlim _concurrencyLimiter</code> for true concurrency control</li>
+<li><code>Interlocked.Exchange(ref _runningTaskCount, 1)</code> to track running task count</li>
+<li><code>_runningTaskCount</code> field with <code>#pragma warning disable CS0649</code></li>
+</ul>
+<p>The Bug #15 commit (5e29777) <strong>removes the <code>SemaphoreSlim</code> and <code>_runningTaskCount</code></strong>, effectively reverting Bug #14&#x27;s fix:</p>
+<p><pre><code>// 5e29777 removes:</p>
+<p>private int _runningTaskCount;</p>
+<p>private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);</p>
+<p>// And changes heartbeat back to:</p>
+<p>await HeartbeatAsync(0, cancellationToken);  // instead of _runningTaskCount</p>
+<p></code></pre></p>
+<p>This is contradictory — Bug #15&#x27;s title says &quot;MaxConcurrency declared but only 1 task at a time&quot; but the fix removes the concurrency limiter that was added in Bug #14. The <code>context</code> field in <code>agent-4</code>&#x27;s state says &quot;Bug #15 fixed: Added SemaphoreSlim for true concurrency,&quot; but the actual C# code removes it.</p>
+<p><strong>Risk:</strong> The C# implementation does not match the stated fix intent. If Bug #14&#x27;s <code>SemaphoreSlim</code> approach was correct for true concurrency, Bug #15&#x27;s changes undo it. If the semaphore was wrong, then the agent&#x27;s context note is misleading.</p>
+<p>---</p></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge high">high</span>
+<span style="font-weight:600;">PRIORITY</span>
+<span class="finding-reviewer">reviewer-2</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-03e4f835"><p>### HIGH PRIORITY</p>
+<ul>
+<li><strong>review-agents.sh: Potential infinite loop under branch condition (lines 243-249)</strong></li>
+<li>In <code>spawn_reviewer()</code>, the bash process reads prompt via <code>printf &#x27;%s\n&#x27; &quot;$prompt&quot; | &quot;$OPENCODE_BIN&quot; run --dir &quot;$WORK_DIR&quot; 2&gt;&amp;1 | while IFS= read -r line</code>. The PIPESTATUS check <code>exit_code=${PIPESTATUS[1]}</code> is unreliable when the while loop may consume stdin. If opencode exits before reading all input, the while loop continues waiting on stdin forever. The background subshell <code>(&amp;)</code> ensures supervisor loop continues but the spawned reviewer could hang.</li>
+<li>File: <code>tools/review-agents.sh:243-249</code></li>
+<li>Risk: Reviewer agent hangs; supervisor moves on but orphaned process may consume resources.</li>
+</ul>
+<ul>
+<li><strong>auto-run-agents.sh: Supervisor no longer resumes crashed/stalled agents (lines 576-588)</strong></li>
+<li>In <code>5ebef78c367084de7854520c020a8121c58a37df</code>, the resume logic for crashed/stalled agents was removed from <code>run_agent_if_needed()</code>. Previously lines 601-611 would respawn an agent onto its current task if the runtime was crashed/stalled/working. This behavior was intentionally removed; now <code>run_agent_if_needed()</code> only assigns new work to idle agents. Crash recovery now depends entirely on the <code>reconcile_task_board()</code> periodic call and the reconcile logic in <code>agent-coord.sh:reconcile_state()</code>. This is a behavioral regression if agents were previously self-recovering.</li>
+<li>File: <code>tools/auto-run-agents.sh:576-588</code></li>
+<li>Risk: If reconcile interval is too large, tasks can be stuck on crashed agents. Monitor <code>AGENT_STALE_TIMEOUT</code> and <code>RECONCILE_INTERVAL</code> carefully.</li>
+</ul>
+<ul>
+<li><strong>auto-run-agents.sh: PID tracking mismatch between supervisor and agent (lines 505-517)</strong></li>
+<li>In <code>spawn_agent()</code>, <code>exit_code=${PIPESTATUS[1]}</code> relies on opencode being in pipe position [1]. However, the pipeline is <code>cat &quot;$prompt_file&quot; | &quot;$OPENCODE_BIN&quot; run --dir &quot;$WORK_DIR&quot; 2&gt;&amp;1 | while IFS= read -r line</code>. The PID at index [1] is the opencode process. But if <code>cat</code> fails (e.g., prompt file disappears), the pipeline still runs opencode with exit 0 from cat. This is fragile.</li>
+<li>File: <code>tools/auto-run-agents.sh:505-517</code></li>
+<li>Risk: Exit codes may be misreported; crashed agents may not be marked failed.</li>
+</ul></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge high">high</span>
+<span style="font-weight:600;">4. **tools/agent-coord.sh:414-420 - Task requeued with stale context after crash detection**</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-75859654"><p>### High</p>
+<ul>
+<li><strong>tools/agent-coord.sh:414-420 - Task requeued with stale context after crash detection</strong></li>
+</ul>
+<p>   When <code>reconcile_state()</code> detects a crashed agent, it requeues the task with <code>.recoveryContext = (if $context == &quot;&quot; then null else $context end)</code>. The context from the crashed agent may be incomplete or corrupted if the agent was interrupted mid-write. No validation that the context is valid JSON or non-circular.</p>
+<ul>
+<li><strong>src/Services/Argus.ScanOrchestratorService/Program.cs:165-170 - HTTP client created per-asset in loop without disposal</strong></li>
+</ul>
+<p>   <pre><code>   foreach (var asset in assetsResult.Items.Take(10))</p>
+<p>   {</p>
+<p>       using var request = new CreateReconTaskRequest(...);</p>
+<p>       using var taskResponse = await taskClient.PostAsJsonAsync(...);</p>
+<p>   }</p>
+<p>   </code></pre></p>
+<p>   The <code>HttpClient</code> is reused across all assets (good), but each iteration uses <code>using</code> on the response, which is fine. However, the <code>HttpClient</code> itself is never disposed on errors in the loop. If <code>ProcessScheduledScanAsync</code> throws mid-loop, the <code>HttpClient</code> leaks until <code>ProcessScheduledScanAsync</code> is called again.</p>
+<ul>
+<li><strong>tools/dashboard.sh:170-184 - get_critical_alerts() reports &quot;BUILD CHECK PENDING&quot; as critical</strong></li>
+</ul>
+<p>   <pre><code>   case &quot;$build_status&quot; in</p>
+<p>       FAILED)</p>
+<p>           alerts=&quot;${alerts}BUILD FAILED&quot;</p>
+<p>           ;;</p>
+<p>       CHECKING)</p>
+<p>           alerts=&quot;${alerts}BUILD CHECK PENDING&quot;</p>
+<p>           ;;</p>
+<p>   esac</p>
+<p>   </code></pre></p>
+<p>   &quot;CHECKING&quot; is treated as a critical alert and shown in the red warning banner with <code>⚠ CRITICAL ALERTS:</code>. A pending build check is not a critical condition. This could cause alert fatigue and mask real build failures.</p>
+<ul>
+<li><strong>src/Services/Argus.AssetService/Program.cs:728-740 - ComputeStalenessScore uses hardcoded intervals without validation</strong></li>
+</ul>
+<p>   <code>ExpectedScanIntervals</code> and <code>MaxStalenessInterval</code> are hardcoded static dictionaries. If an <code>AssetType</code> is added to the enum but not to <code>ExpectedScanIntervals</code>, it silently defaults to 7 days. A type-unsafe <code>GetValueOrDefault</code> means a typo in an asset type string would also silently use the default. Consider logging a warning for unmapped types.</p>
+<ul>
+<li><strong>src/Contracts/Argus.Contracts/Tasks/TaskContracts.cs - WorkerPriority enum missing explicit values</strong></li>
+</ul>
+<p>   The <code>WorkerPriority</code> enum used in <code>CreateReconTaskRequest</code> has implicit integer values (0, 1, 2). The ordering <code>High=0, Normal=1, Low=2</code> is relied upon in <code>EfTaskStore</code> for SQL <code>&gt;=</code> comparison (<code>task.Priority &gt;= request.MinimumPriority</code>). If enum members are reordered during future development, the SQL logic silently breaks. Use explicit values.</p></div></div>
+</section>
+<section><h3 style="margin-top:24px;margin-bottom:12px;font-size:16px;">Medium</h3>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge medium">medium</span>
+<span style="font-weight:600;">review-agents.sh Exposes Secrets via Environment</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-ffe3511d"><p>### MEDIUM: review-agents.sh Exposes Secrets via Environment</p>
+<p><strong>Commit:</strong> <code>cab47c0f4a7a7b577d4746d17de554945cafcb5d</code></p>
+<p><strong>File:</strong> <code>tools/review-agents.sh</code></p>
+<p>The script reads <code>OPENCODE_BIN</code> from environment but the prompt passed to <code>opencode</code> includes commit messages that could contain sensitive information (e.g., bug titles like &quot;No authentication or authorization&quot;). While not a direct secret exposure, this is a pattern to watch.</p>
+<p>Additionally, the script uses:</p>
+<p><pre><code>printf &#x27;%s\n&#x27; &quot;$prompt&quot; | &quot;$OPENCODE_BIN&quot; run --dir &quot;$WORK_DIR&quot; 2&gt;&amp;1 | while IFS= read -r line; do</p>
+<p></code></pre></p>
+<p>The <code>PIPESTATUS[1]</code> is checked for exit code, but the <code>while</code> loop consumes stdin, which could cause issues if <code>opencode</code> behavior changes.</p>
+<p>---</p></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge medium">medium</span>
+<span style="font-weight:600;">git_pull || true Masks Failures in Auto-Run Agents</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-45d9dfcc"><p>### MEDIUM: git_pull || true Masks Failures in Auto-Run Agents</p>
+<p><strong>Commit:</strong> <code>6631facedb3fccfcd9be966186eb5b565c4751d1</code></p>
+<p><strong>File:</strong> <code>tools/auto-run-agents.sh:656,679</code></p>
+<p>Two locations where <code>git_pull || true</code> was added, suppressing all failures:</p>
+<p><pre><code>git_pull || true           # line 656</p>
+<p>git_pull || true           # line 679 (in 5+ minute branch)</p>
+<p></code></pre></p>
+<p><strong>Risk:</strong> Network failures, authentication issues, or merge conflicts during <code>git pull</code> are silently ignored. The agent could run with stale code indefinitely without any warning being emitted. Consider at least logging failures:</p>
+<p><pre><code>git_pull || log &quot;WARNING: git_pull failed, continuing with current code&quot;</p>
+<p></code></pre></p>
+<p>---</p></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge medium">medium</span>
+<span style="font-weight:600;">PRIORITY</span>
+<span class="finding-reviewer">reviewer-2</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-7c5534f0"><p>### MEDIUM PRIORITY</p>
+<ul>
+<li><strong>ScanOrchestratorService: CronExpression.GetNextOccurrence may return null silently (Program.cs:113, 130, 154, 176, 177, 196)</strong></li>
+<li><code>CronExpression.GetNextOccurrence</code> returns <code>DateTimeOffset?</code>. In <code>ProcessScheduledScanAsync</code> (line 176) and <code>EfScanSchedulerStore.CreateAsync</code> (line 196), this value is assigned to <code>NextRunAt</code> which is <code>DateTimeOffset?</code>. The method iterates up to 366*2 iterations but can return <code>null</code> if parsing fails. No null-check is performed before assignment. Downstream code that reads <code>NextRunAt</code> (e.g., in the scheduled scan query at line 165) could get null, causing tasks to be considered &quot;always due&quot; (line 165: <code>!s.NextRunAt.HasValue || s.NextRunAt &lt;= now</code>).</li>
+<li>File: <code>src/Services/Argus.ScanOrchestratorService/Program.cs:113-130, 165, 176-177, 196</code></li>
+<li>Risk: Scheduled scans with invalid cron expressions could cause infinite reprocessing loops.</li>
+</ul>
+<ul>
+<li><strong>ArgusWorkerBackgroundService: SemaphoreSlim initialized with MaxConcurrency then released before first task (lines 36-51, 53-74)</strong></li>
+<li>At line 26, <code>_concurrencyLimiter = new SemaphoreSlim(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency)</code>. In <code>ExecuteAsync</code>, the semaphore is waited on (line 36), then <code>RunTaskWithReleaseAsync</code> is called asynchronously without await (line 37 <code>_ = RunTaskWithReleaseAsync(stoppingToken)</code>). The semaphore is released in the finally block of <code>RunTaskWithReleaseAsync</code> (line 72). But <code>_concurrencyLimiter.CurrentCount</code> at line 57 reports <code>- _concurrencyLimiter.CurrentCount</code> which equals <code>MaxConcurrency - CurrentCount</code> where <code>CurrentCount</code> is the number of available slots. If <code>MaxConcurrency</code> is 5 and 1 slot is taken, <code>CurrentCount</code> is 4, so <code>5-4=1</code>. However, after the first <code>WaitAsync</code> succeeds, the count is 4. But the task fires and releases immediately, so multiple concurrent <code>RunTaskWithReleaseAsync</code> calls could all compute <code>runningTasks</code> before any releases happen.</li>
+<li>File: <code>src/BuildingBlocks/Argus.BuildingBlocks.Workers/ArgusWorkerBackgroundService.cs:26, 36-51, 53-74, 57</code></li>
+<li>Risk: Heartbeat reports incorrect running task count; bug #14 fix may not fully address the symptom if the concurrency model doesn&#x27;t account for the fire-and-forget pattern.</li>
+</ul>
+<ul>
+<li><strong>Review-agents.sh: Reviewer state not persisted atomically; concurrent writes possible (lines 55-63, 105-114)</strong></li>
+<li><code>write_reviewer_state()</code> writes to a temp file then renames. This is atomic. But <code>spawn_reviewer()</code> updates the reviewer&#x27;s state to &quot;reviewing&quot; inside a subshell <code>(&amp;)</code>, then the parent continues. The subshell&#x27;s state writes are visible to the parent via the file (since they share the filesystem). This is safe for single reviewer. However, both reviewer-1 and reviewer-2 could theoretically spawn simultaneously on the same batch if both have idle/crashed status. This is intentional per <code>run_once()</code> logic. No mutex prevents concurrent writes to the same reviewer state file if one reviewer is slow and the other&#x27;s <code>read_reviewer_state()</code> races between read and write.</li>
+<li>File: <code>tools/review-agents.sh:55-63, 105-114, 262-297</code></li>
+<li>Risk: Low - the file rename is atomic; the window for a corrupted state file is very small.</li>
+</ul>
+<ul>
+<li><strong>agent-coord.sh: <code>write_state</code> no longer commits to git unless AGENT_COORD_AUTOCOMMIT=1 (ef75e3ea lines 42-55)</strong></li>
+<li>The git auto-commit behavior was made conditional on <code>AGENT_COORD_AUTOCOMMIT</code>. Without this env var set, the agent task state file changes are not committed or pushed. This means the coordination state is not replicated across clones. This is a significant operational change: if multiple workers run with different clones, their state files will diverge and <code>reconcile_task_board()</code> may produce unexpected results.</li>
+<li>File: <code>tools/agent-coord.sh:42-55</code></li>
+<li>Risk: Coordination state drift across distributed workers; task board may become inconsistent.</li>
+</ul></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge medium">medium</span>
+<span style="font-weight:600;">9. **tools/agent-coord.sh:247-250 - take_task() uses `.status // &quot;active&quot;` which masks &quot;inactive&quot;**</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-2d269780"><p>### Medium</p>
+<ul>
+<li><strong>tools/agent-coord.sh:247-250 - take_task() uses <code>.status // &quot;active&quot;</code> which masks &quot;inactive&quot;</strong></li>
+</ul>
+<p>   <pre><code>   .status = (.status // &quot;active&quot;) |</p>
+<p>   .workStatus = &quot;working&quot; |</p>
+<p>   </code></pre></p>
+<p>   If an agent is truly inactive (e.g., disabled), this silently overrides the inactive status to &quot;active&quot;. The intent appears to be defensive handling of null, but it should probably reject or warn when taking a task for an inactive agent.</p>
+<ul>
+<li><strong>tools/auto-run-agents.sh:653-654 - git_pull || true masks all errors</strong></li>
+</ul>
+<p>    <pre><code>    git_pull || true</p>
+<p>    </code></pre></p>
+<p>    If <code>git_pull</code> fails due to network, auth, or merge conflicts, the supervisor continues silently. Operational visibility is lost. At minimum, log a warning when <code>git_pull</code> fails.</p>
+<ul>
+<li><strong>tools/agent-coord.sh:680-684 - doctor_agents() output to stdout, not parseable machine output</strong></li>
+</ul>
+<p>    <code>doctor_agents()</code> emits free-text warnings like <code>&quot;WARN $agent_id: missing or empty local state file&quot;</code>. This cannot be consumed programmatically for alerting. Consider exiting with a non-zero code when issues are found, or outputting JSON.</p>
+<ul>
+<li><strong>review-agents.sh:137-150 - spawn_reviewer() uses string-based SHA-1 for batch_id</strong></li>
+</ul>
+<p>    <pre><code>    batch_id=&quot;$(batch_id_for_commits &quot;$commits&quot;)&quot;</p>
+<p>    </code></pre></p>
+<p>    The batch ID is a 12-char SHA-1 prefix of the concatenated commit hashes and messages. This is non-deterministic if the commits change order (though <code>git log --reverse</code> provides a stable order). If two reviewers compute different batch IDs for the same set of commits (e.g., due to race condition in <code>commit_batch()</code>), they would never mark the batch as complete. Use a canonical serialization (sorted commit hashes only) for the batch ID.</p>
+<ul>
+<li><strong>tools/agent-coord.sh - reconcile_state() and checkpoint_agent() can race</strong></li>
+</ul>
+<p>    Both functions acquire the same lock but <code>write_state</code> itself is inside the locked section while also calling <code>agent_write_state</code> for each agent. If an agent&#x27;s <code>checkpoint_agent</code> runs concurrently during reconciliation, they could be writing to the same state files simultaneously. The per-agent lock in <code>agent_write_state</code> doesn&#x27;t protect against concurrent <code>write_state</code> calls.</p>
+<ul>
+<li><strong>src/Services/Argus.ScanOrchestratorService/Program.cs:152-156 - ScheduledScanBackgroundService processes scans sequentially</strong></li>
+</ul>
+<p>    <pre><code>    foreach (var scheduled in dueScans)</p>
+<p>    {</p>
+<p>        try { await ProcessScheduledScanAsync(...); }</p>
+<p>    }</p>
+<p>    </code></pre></p>
+<p>    Scans are processed one at a time with <code>await</code>. If one scan&#x27;s <code>ProcessScheduledScanAsync</code> is slow (network-bound), other due scans are delayed up to 1 minute (the loop interval). Consider <code>Task.WhenAll</code> with a bounded degree of parallelism.</p></div></div>
+</section>
+<section><h3 style="margin-top:24px;margin-bottom:12px;font-size:16px;">Low</h3>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge low">low</span>
+<span style="font-weight:600;">Missing EOF Trailing Newline</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-ddbeb099"><p>### LOW: Missing EOF Trailing Newline</p>
+<p><strong>Commit:</strong> <code>cc93e586</code></p>
+<p><strong>File:</strong> <code>src/BuildingBlocks/Argus.BuildingBlocks.EventBus/EfCoreOutboxStore.cs:89</code></p>
+<p>The file ends with <code>}\n</code> instead of <code>}\n</code> (no trailing newline). This is a minor style issue but could cause issues with some tools.</p>
+<p>---</p></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge low">low</span>
+<span style="font-weight:600;">agent-state-lib.sh Trailing Whitespace Removal</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-720433fa"><p>### LOW: agent-state-lib.sh Trailing Whitespace Removal</p>
+<p><strong>Commit:</strong> <code>5ebef78c</code></p>
+<p><strong>File:</strong> <code>tools/agent-state-lib.sh:124</code></p>
+<p>The file had a trailing newline removed (line 124 was blank before the final line 123). This is cosmetic but worth noting.</p>
+<p>---</p></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge low">low</span>
+<span style="font-weight:600;">PRIORITY / OBSERVATIONS</span>
+<span class="finding-reviewer">reviewer-2</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-215c45ff"><p>### LOW PRIORITY / OBSERVATIONS</p>
+<ul>
+<li><strong>AssetService: StalenessScore computed on every ToDto() call (Program.cs:758)</strong></li>
+<li><code>ComputeStalenessScore()</code> is called in <code>ToDto()</code> every time an asset DTO is serialized. This does floating-point division and dictionary lookup. For large asset lists, this adds CPU overhead. Consider caching the score or computing it at insert time.</li>
+<li>File: <code>src/Services/Argus.AssetService/Program.cs:726-750, 758</code></li>
+<li>Risk: Performance degradation with large asset volumes.</li>
+</ul>
+<ul>
+<li><strong>TaskService: LeaseReconTaskRequest has <code>SubscribedAssetTypes</code> (IReadOnlyCollection&lt;string&gt;) but the capability routing is a stub (bf137406) - no functional change in this batch, but the stub remains.</strong></li>
+<li>The <code>LeaseReconTaskRequest.SubscribedAssetTypes</code> parameter is passed but never used in routing decisions. The SQL in <code>EfTaskStore</code> (Program.cs:610) only uses <code>WorkerCapability</code> filter; asset type filters are commented out. This is tracked as Bug #13 and remains unresolved in the contracts layer. Workers will continue to receive all tasks matching their capability, regardless of asset type subscription.</li>
+<li>File: <code>src/Contracts/Argus.Contracts/Tasks/TaskContracts.cs:63-67</code></li>
+<li>Risk: Workers may process tasks for asset types they did not subscribe to; capability routing does not enforce subscriptions.</li>
+</ul>
+<ul>
+<li><strong>RabbitMqConsumerService: Inconsistent poison message handling - requeue on retry vs. dead-letter on max (lines 110-130)</strong></li>
+<li>When <code>retryCount &gt;= _maxRetries</code>, the message is recorded to <code>_poisonStore</code> and then <code>BasicNackAsync</code> is called with <code>requeue: false</code>. This moves the message to DLQ via dead-letter exchange. However, the poison record&#x27;s <code>EventId</code> is used for replay. The replay endpoint at <code>RealtimeService/Program.cs:112</code> uses <code>BasicPublishAsync</code> with <code>routingKey = record.EventType</code>. This should correctly route to the DLQ consumer. No issues here, but the interaction between the event bus and the dead-letter admin UI should be tested end-to-end.</li>
+<li>File: <code>src/BuildingBlocks/Argus.BuildingBlocks.EventBus/RabbitMqConsumerService.cs:110-130</code>, <code>src/Services/Argus.RealtimeService/Program.cs:112-131</code></li>
+<li>Risk: Integration test gap.</li>
+</ul>
+<ul>
+<li><strong>Scheduled scan uses hardcoded pageSize=10 in ProcessScheduledScanAsync (Program.cs:176)</strong></li>
+<li><code>assetsResult.Items.Take(10)</code> caps at 10 assets per scheduled scan run. The <code>pageSize=100</code> is sent to the query, but only the first 10 are processed. This means at most 10 tasks are created per scheduled scan execution. With a 1-minute background interval, this limits re-scan rate. This may be intentional for rate limiting, but the mismatch between queried (100) and processed (10) could be confusing.</li>
+<li>File: <code>src/Services/Argus.ScanOrchestratorService/Program.cs:176</code></li>
+<li>Risk: Throttling may be too aggressive for high-volume scheduled scans.</li>
+</ul></div></div>
+<div class="finding"><div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open')">
+<div class="finding-meta"><span class="severity-badge low">low</span>
+<span style="font-weight:600;">15. **tools/review-agents.sh:61-70 - read_reviewer_state() uses jq but no error handling if jq fails</span>
+<span class="finding-reviewer">reviewer-1</span></div>
+<span class="toggle-icon">&#9660;</span></div>
+<div class="finding-body" id="finding-94a854eb"><p>### Low</p>
+<ul>
+<li><strong>tools/review-agents.sh:61-70 - read_reviewer_state() uses jq but no error handling if jq fails</strong></li>
+</ul>
+<p>    <pre><code>    if [ -s &quot;$state_file&quot; ] &amp;&amp; jq -e . &quot;$state_file&quot; &gt;/dev/null 2&gt;&amp;1; then</p>
+<p>        cat &quot;$state_file&quot;</p>
+<p>    else</p>
+<p>        jq -n &#x27;...&#x27;  # generates default state</p>
+<p>    fi</p>
+<p>    </code></pre></p>
+<p>    If <code>jq -e .</code> fails due to a parse error in the state file, the else branch generates default state but the malformed file is not repaired or moved aside. On the next cycle, it will attempt to read the same malformed file. The file should be renamed/archived on parse failure.</p>
+<ul>
+<li><strong>src/Services/Argus.TaskService/Program.cs:610-617 - SQL string interpolation with inline <code>assetTypeCondition</code></strong></li>
+</ul>
+<p>    The raw SQL in <code>EfTaskStore</code> constructs <code>assetTypeCondition</code> as an empty string when no subscribed asset types are provided. The parameter list is built conditionally:</p>
+<p>    <pre><code>    if (capabilityFilter is not null)</p>
+<p>    {</p>
+<p>        parameters.AddRange(request.SubscribedAssetTypes!);</p>
+<p>    }</p>
+<p>    </code></pre></p>
+<p>    This means the parameter count varies. If <code>capabilityFilter</code> is non-null but <code>SubscribedAssetTypes</code> is empty, the SQL will be malformed. Ensure the logic is tested for all combinations (empty, null, single, multiple asset types).</p>
+<ul>
+<li><strong>tools/dashboard.sh:290-306 - draw_completed() uses <code>echo</code> pipeline that loses exit codes</strong></li>
+</ul>
+<p>    <pre><code>    echo &quot;$state_json&quot; | jq -r &#x27;...&#x27; 2&gt;/dev/null | tr &#x27;\n&#x27; &#x27; &#x27;</p>
+<p>    </code></pre></p>
+<p>    The <code>tr</code> at the end always succeeds (exit 0) even if <code>jq</code> fails. The function silently shows empty output on parse errors. No indication to the user that data was lost.</p>
+<ul>
+<li><strong>Missing test coverage for critical paths:</strong></li>
+<li><code>reconcile_state()</code> in agent-coord.sh - no unit tests for the state reconciliation logic</li>
+<li><code>choose_task_for_agent()</code> in auto-run-agents.sh - task selection priority and recovery scenarios untested</li>
+<li><code>ComputeStalenessScore()</code> in AssetRecord - staleness calculation logic not unit tested</li>
+<li><code>CronExpression.Validate()</code> and <code>GetNextOccurrence()</code> - cron parsing not unit tested</li>
+</ul></div></div>
+</section>
+
+</div>
+<script>
+if(window.location.hash){var t=document.querySelector(window.location.hash);if(t)t.classList.add("open")}
+</script>
+</body>
+</html>

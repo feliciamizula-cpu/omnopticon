@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +14,7 @@ public static class ServiceCollectionExtensions
         string rabbitMqConnectionName = "eventbus")
     {
         builder.Services.AddHttpClient();
+        builder.Services.TryAddSingleton<IEventTypeRegistry, EventTypeRegistry>();
         builder.Services.AddOptions<ArgusEventBusOptions>()
             .Configure(options =>
             {
@@ -49,6 +51,7 @@ public static class ServiceCollectionExtensions
         Action<ArgusEventBusOptions>? configure = null)
     {
         builder.Services.AddHttpClient();
+        builder.Services.TryAddSingleton<IEventTypeRegistry, EventTypeRegistry>();
         builder.Services.AddOptions<ArgusEventBusOptions>()
             .Configure(options =>
             {
@@ -73,6 +76,7 @@ public static class ServiceCollectionExtensions
         Action<ArgusEventBusOptions>? configure = null)
     {
         builder.AddRabbitMQClient(connectionName);
+        builder.Services.TryAddSingleton<IEventTypeRegistry, EventTypeRegistry>();
         builder.Services.AddOptions<ArgusEventBusOptions>()
             .Configure(options =>
             {

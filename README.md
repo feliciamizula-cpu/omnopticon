@@ -2,52 +2,65 @@
 
 A distributed bug-bounty reconnaissance platform built on Microsoft .NET Aspire. Argus discovers, processes, classifies, and visualizes assets across authorized bug-bounty targets at scale.
 
+> **SDK note:** this repository currently targets .NET 10 / Aspire 13.2 preview-era packages. Build agents and contractor machines must use the SDK pinned in `global.json`.
+
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Argus.AppHost                           │
 │                    (Aspire Orchestrator)                        │
 └─────────────────────────────────────────────────────────────────┘
-         │              │              │              │
-         ▼              ▼              ▼              ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│  Argus.Web   │ │ Argus.Api   │ │   Workers   │ │  Services   │
-│   (UI)       │ │  Gateway    │ │  (10 types) │ │  (6 types)  │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
-                                           │              │
-                                    ┌──────┴──────────────┴──────┐
-                                    │     Infrastructure        │
-                                    │  PostgreSQL / Redis /     │
-                                    │  RabbitMQ                 │
-                                    └───────────────────────────┘
+         │                 │                  │
+         ▼                 ▼                  ▼
+┌────────────────┐ ┌────────────────┐ ┌──────────────────────────┐
+│   Argus.Web    │ │ Argus.ApiGateway│ │ Workers                  │
+│   Command UI   │ │ YARP Gateway    │ │ Discovery + processing   │
+└────────────────┘ └────────────────┘ └──────────────────────────┘
+         │                 │                  │
+         └─────────────────┴──────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Services: ProgramScope, Asset, Artifact, Finding, Task,          │
+│ RateLimit, Realtime, EventRouter, ProxyRegistry, Orchestrator    │
+└─────────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Infrastructure: PostgreSQL + pgvector, Redis, RabbitMQ           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Concepts
 
-**Assets** are the fundamental entity. Every discovered host, domain, URL, endpoint, or finding is an asset with metadata, relationships, timestamps, and scoring.
+**Assets** are the fundamental entity. Every discovered host, domain, URL, endpoint, artifact, or finding is modeled as an asset with metadata, relationships, timestamps, and scoring.
 
-**Workers** are long-running services that subscribe to asset events and perform reconnaissance tasks (subdomain enumeration, HTTP probing, spidering, fingerprinting, etc.).
+**Workers** are long-running services that subscribe to asset and task events and perform reconnaissance work such as subdomain enumeration, DNS resolution, HTTP probing, crawling, fingerprinting, validation, scoring, and finding deduplication.
 
-**Tasks** provide durable, resumable work tracking. Workers lease tasks, report progress, and complete or fail — ensuring no work is lost on interruption.
+**Tasks** provide durable, resumable work tracking. Workers lease tasks, report progress, and complete or fail so work can be recovered after interruption.
 
-**Rate Limiting** is distributed and tiered (per-program, per-scope, per-host) to respect bug-bounty rules while maximizing throughput.
+**Rate limiting** is distributed and tiered by program, scope, and host to respect bug-bounty rules while maximizing throughput.
 
 ## Services
 
-| Service | Purpose |
-|---------|---------|
-| `ProgramScopeService` | Manage bug-bounty programs and their in-scope/excluded domains |
-| `AssetService` | Store, query, and relate discovered assets |
-| `TaskService` | Durable task orchestration with leasing and checkpoints |
-| `RateLimitService` | Distributed multi-tier rate limiting |
-| `RealtimeService` | Server-sent events for live UI updates |
-| `ScanOrchestratorService` | Workflow orchestration for discovery pipelines |
+| Service | Started by AppHost | Routed by Gateway | Purpose |
+|---|---:|---:|---|
+| `ProgramScopeService` | Yes | Yes | Bug-bounty programs, scopes, targets, and settings |
+| `AssetService` | Yes | Yes | Asset storage, query, relationships, tagging, bulk enqueue |
+| `ArtifactService` | Yes | Yes | Scan artifacts and evidence |
+| `FindingService` | Yes | Yes | Vulnerability finding records |
+| `TaskService` | Yes | Yes | Durable task orchestration with leasing and checkpoints |
+| `RateLimitService` | Yes | Yes | Distributed multi-tier rate limiting |
+| `RealtimeService` | Yes | Yes | Server-sent events and worker status |
+| `EventRouterService` | Yes | Yes | Event routing configuration |
+| `ProxyRegistryService` | Yes | No | Proxy registry support |
+| `ScanOrchestratorService` | Yes | No | Workflow orchestration for discovery pipelines |
 
 ## Workers
 
 | Worker | Input | Output |
-|--------|-------|--------|
+|---|---|---|
 | Amass | Domain | Subdomain, DnsRecord |
 | Subfinder | Domain | Subdomain |
 | DnsResolver | Domain, Subdomain | Ip, DnsRecord |
@@ -57,53 +70,71 @@ A distributed bug-bounty reconnaissance platform built on Microsoft .NET Aspire.
 | WordlistDiscovery | Url | Url |
 | HeadlessSpider | Url | Url, ApiEndpoint, JavaScriptFile |
 | Fingerprint | Url, HttpResponse, HtmlPage | Technology |
-| AssetScoring | * | FindingCandidate |
+| Validation | Asset | Validation status |
+| AssetScoring | Asset/FindingCandidate | Scores and finding candidates |
+| FindingDeduper | FindingCandidate | Deduplicated findings |
 
 ## Event-Driven Workflow
 
-```
+```text
 AssetDiscovered (Domain)
     │
     ├──► AmassWorker ──────► SubdomainAssetDiscovered
     ├──► SubfinderWorker ──► SubdomainAssetDiscovered
     │
 SubdomainAssetDiscovered ──► DnsResolverWorker ──► IpAssetDiscovered
-    │                           │
-    │                           ▼
-    │                      HttpProbeWorker ──► UrlAssetDiscovered
-    │                                              │
-    │                                              ▼
-    │                      HtmlDomSpider ──► (more Url, ApiEndpoint, JS)
-    │                           │
-    │                           ▼
-    │                      JsExtractor ──► ApiEndpoint, FindingCandidate
-    │                           │
-    │                           ▼
-    │                      FingerprintWorker ──► Technology
-    │                           │
-    │                           ▼
-    │                      AssetScoringWorker ──► FindingCandidate
+                                │
+                                ▼
+                         HttpProbeWorker ──► UrlAssetDiscovered
+                                                │
+                                                ▼
+                         HtmlDomSpider ──► Url, ApiEndpoint, JS
+                                                │
+                                                ▼
+                         JsExtractor ──► ApiEndpoint, FindingCandidate
+                                                │
+                                                ▼
+                         FingerprintWorker ──► Technology
+                                                │
+                                                ▼
+                         AssetScoringWorker ──► FindingCandidate
+                                                │
+                                                ▼
+                         FindingDeduperWorker ──► Finding
 ```
 
 ## Asset Types
 
-Domain, Subdomain, Ip, Cidr, Url, HttpResponse, HtmlPage, JavaScriptFile, ApiEndpoint, Technology, FindingCandidate, Port, DnsRecord, Program, Scope, CssFile, JsonDocument
+Domain, Subdomain, Ip, Cidr, Url, HttpResponse, HtmlPage, JavaScriptFile, ApiEndpoint, Technology, FindingCandidate, Port, DnsRecord, Program, Scope, CssFile, JsonDocument.
 
 ## Technology Stack
 
 - **.NET 10** with Aspire for orchestration
-- **PostgreSQL** (via EF Core) for normalized asset metadata
+- **PostgreSQL + pgvector** for normalized metadata and vector-ready enrichment
 - **Redis** for leases, rate limits, and caching
 - **RabbitMQ** for event bus messaging
+- **YARP service discovery** for API gateway forwarding
+- **Playwright** for browser-based end-to-end tests
 
 ## Local Development
 
 ```bash
-# Prerequisites: .NET 10 SDK, Docker Desktop
+# Prerequisites: .NET SDK from global.json and Docker Desktop
+dotnet restore eShop.slnx
+dotnet build eShop.slnx
 dotnet run --project src/Argus.AppHost/Argus.AppHost.csproj
 ```
 
 The Aspire dashboard provides service URLs, logs, traces, metrics, and health status.
+
+## Validation
+
+```bash
+dotnet restore eShop.slnx
+dotnet build eShop.slnx --configuration Release
+dotnet test eShop.slnx --configuration Release
+docker compose --env-file deploy/argus.env.example -f deploy/compose.yaml config --quiet
+```
 
 ## Container Deployment
 
@@ -113,7 +144,7 @@ docker compose --env-file deploy/argus.env -f deploy/compose.yaml up --build -d
 ```
 
 | Endpoint | URL |
-|----------|-----|
+|---|---|
 | Web UI | http://localhost:8080 |
 | API Gateway | http://localhost:8081 |
 | Realtime SSE | http://localhost:8082 |
@@ -126,22 +157,38 @@ tools/seed-demo-data.sh
 
 ## Project Structure
 
-```
+```text
 src/
-├── Argus.AppHost/          Aspire orchestrator
-├── Argus.ApiGateway/       API gateway
-├── Argus.Web/              Web UI command center
-├── Argus.ServiceDefaults/  Shared telemetry, health, resilience
-├── Contracts/              DTOs and event contracts
+├── Argus.AppHost/                  Aspire orchestrator
+├── Argus.ApiGateway/               API gateway
+├── Argus.Web/                      Web UI command center
+├── Argus.ServiceDefaults/          Shared telemetry, health, resilience
+├── Contracts/                      DTOs and event contracts
 ├── BuildingBlocks/
-│   ├── Argus.BuildingBlocks.EventBus/   Event publishing
-│   └── Argus.BuildingBlocks.Workers/   Worker host infra
+│   ├── Argus.BuildingBlocks.EventBus/
+│   └── Argus.BuildingBlocks.Workers/
 ├── Services/
+│   ├── Argus.ArtifactService/
 │   ├── Argus.AssetService/
-│   ├── Argus.TaskService/
-│   ├── Argus.RateLimitService/
+│   ├── Argus.EventRouterService/
+│   ├── Argus.FindingService/
 │   ├── Argus.ProgramScopeService/
+│   ├── Argus.ProxyRegistryService/
+│   ├── Argus.RateLimitService/
 │   ├── Argus.RealtimeService/
-│   └── Argus.ScanOrchestratorService/
-└── Workers/                (10 worker projects)
+│   ├── Argus.ScanOrchestratorService/
+│   └── Argus.TaskService/
+└── Workers/
+    ├── Argus.Workers.Amass/
+    ├── Argus.Workers.AssetScoring/
+    ├── Argus.Workers.DnsResolver/
+    ├── Argus.Workers.FindingDeduper/
+    ├── Argus.Workers.Fingerprint/
+    ├── Argus.Workers.HeadlessSpider/
+    ├── Argus.Workers.HtmlDomSpider/
+    ├── Argus.Workers.HttpProbe/
+    ├── Argus.Workers.JsExtractor/
+    ├── Argus.Workers.Subfinder/
+    ├── Argus.Workers.Validation/
+    └── Argus.Workers.WordlistDiscovery/
 ```

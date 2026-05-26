@@ -7,6 +7,7 @@ using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,9 @@ builder.AddBasicServiceDefaults();
 builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
 builder.Services.AddSingleton<ITaskStore, InMemoryTaskStore>();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
+builder.Services.AddScoped<AssetPipelineConsumer>();
+builder.Services.AddScoped<IIntegrationEventConsumer<AssetDiscovered>>(provider => provider.GetRequiredService<AssetPipelineConsumer>());
+builder.Services.AddScoped<IIntegrationEventConsumer<AssetConfirmed>>(provider => provider.GetRequiredService<AssetPipelineConsumer>());
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
@@ -66,19 +70,9 @@ app.MapPost("/tasks/bulk/enqueue", async (
     }
 
     var createdTasks = new List<ReconTaskDto>();
-    var skippedCount = 0;
 
     foreach (var assetId in request.AssetIds)
     {
-        var dedupeHash = TaskDedupeHash.Compute(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability);
-        var existingTask = await store.FindByDedupeAsync(dedupeHash, cancellationToken);
-
-        if (existingTask is not null)
-        {
-            skippedCount++;
-            continue;
-        }
-
         var createRequest = new CreateReconTaskRequest(
             TaskType: request.TaskType,
             ProgramId: request.ProgramId,
@@ -89,7 +83,7 @@ app.MapPost("/tasks/bulk/enqueue", async (
             RequiredAssetType: null,
             MaxAttempts: request.MaxAttempts,
             Priority: request.Priority,
-            DedupeHash: dedupeHash);
+            DedupeHash: null);
 
         var task = await store.CreateAsync(createRequest, cancellationToken);
         createdTasks.Add(task);
@@ -104,7 +98,7 @@ app.MapPost("/tasks/bulk/enqueue", async (
             cancellationToken: cancellationToken);
     }
 
-    var response = new BulkEnqueueResponse(createdTasks, createdTasks.Count, skippedCount);
+    var response = new BulkEnqueueResponse(createdTasks, createdTasks.Count, 0);
     return Results.Created("/tasks/bulk/enqueue", response);
 });
 
@@ -298,7 +292,283 @@ app.MapGet("/tasks/dedupe/{dedupeHash}", async (
     return task is not null ? Results.Ok(task) : Results.NotFound();
 });
 
+app.MapGet("/tasks/retry-queue", async (
+    Guid? programId,
+    ReconTaskState? state,
+    string? capability,
+    int? take,
+    TaskDbContext dbContext,
+    CancellationToken cancellationToken) =>
+{
+    var query = dbContext.Tasks.AsNoTracking();
+
+    if (state.HasValue)
+    {
+        query = query.Where(t => t.State == state.Value);
+    }
+    else
+    {
+        query = query.Where(t => t.State == ReconTaskState.RetryPending);
+    }
+
+    if (programId.HasValue)
+    {
+        query = query.Where(t => t.ProgramId == programId.Value);
+    }
+
+    if (!string.IsNullOrWhiteSpace(capability))
+    {
+        query = query.Where(t => t.WorkerCapability == capability);
+    }
+
+    var tasks = await query
+        .OrderBy(t => t.Attempt)
+        .ThenBy(t => t.Priority)
+        .Take(Math.Clamp(take ?? 100, 1, 1000))
+        .ToListAsync(cancellationToken);
+
+    return Results.Ok(tasks.Select(t => t.ToDto()).ToArray());
+});
+
+app.MapPost("/tasks/retry-queue/dispatch", async (
+    Guid? taskId,
+    int? dispatchCount,
+    TaskDbContext dbContext,
+    IIntegrationEventPublisher events,
+    ILogger<Program> logger,
+    CancellationToken cancellationToken) =>
+{
+    var now = DateTimeOffset.UtcNow;
+    int dispatched = 0;
+
+    if (taskId.HasValue)
+    {
+        var task = await dbContext.Tasks.FindAsync([taskId.Value], cancellationToken);
+        if (task is null || task.State != ReconTaskState.RetryPending)
+        {
+            return Results.NotFound();
+        }
+
+        task.State = ReconTaskState.Requested;
+        dbContext.TaskHistory.Add(new TaskHistoryRecord
+        {
+            HistoryId = Guid.NewGuid(),
+            TaskId = task.TaskId,
+            State = ReconTaskState.RetryPending,
+            Timestamp = now,
+            Message = $"Manual dispatch (attempt {task.Attempt}/{task.MaxAttempts})"
+        });
+
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { taskId, dispatched = 1 });
+    }
+
+    var count = Math.Clamp(dispatchCount ?? 50, 1, 500);
+    var pending = await dbContext.Tasks
+        .Where(t => t.State == ReconTaskState.RetryPending && t.Attempt < t.MaxAttempts)
+        .OrderBy(t => t.Attempt)
+        .Take(count)
+        .ToListAsync(cancellationToken);
+
+    foreach (var task in pending)
+    {
+        task.State = ReconTaskState.Requested;
+        dbContext.TaskHistory.Add(new TaskHistoryRecord
+        {
+            HistoryId = Guid.NewGuid(),
+            TaskId = task.TaskId,
+            State = ReconTaskState.RetryPending,
+            Timestamp = now,
+            Message = $"Bulk dispatch (attempt {task.Attempt}/{task.MaxAttempts})"
+        });
+
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+
+        dispatched++;
+    }
+
+    if (dispatched > 0)
+    {
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    return Results.Ok(new { dispatched });
+});
+
 app.Run();
+
+internal sealed class AssetPipelineConsumer(
+    ITaskStore store,
+    IIntegrationEventPublisher events,
+    ILogger<AssetPipelineConsumer> logger)
+    : IIntegrationEventConsumer<AssetDiscovered>, IIntegrationEventConsumer<AssetConfirmed>
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static readonly HashSet<string> WebFetchTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Subdomain",
+        "Url",
+        "ApiEndpoint",
+        "JavaScriptFile",
+        "JsonDocument"
+    };
+
+    private static readonly HashSet<string> SpiderTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Subdomain",
+        "Url",
+        "HtmlPage"
+    };
+
+    private static readonly HashSet<string> RegexCandidateTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Url",
+        "ApiEndpoint",
+        "HtmlPage",
+        "JsonDocument",
+        "JavaScriptFile",
+        "HttpResponse",
+        "Observation"
+    };
+
+    public async Task HandleAsync(IntegrationEventEnvelope<AssetDiscovered> envelope, CancellationToken cancellationToken = default)
+    {
+        var asset = envelope.Payload;
+        var assetType = asset.AssetType;
+
+        if (string.Equals(assetType, "Domain", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "subdomain-enumeration", "SubfinderWorker",
+                assetType, new { domain = asset.Value, assetType }, WorkerPriority.High, cancellationToken);
+
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "subdomain-enumeration", "AmassWorker",
+                assetType, new { domain = asset.Value, assetType }, WorkerPriority.High, cancellationToken);
+
+            return;
+        }
+
+        if (WebFetchTypes.Contains(assetType))
+        {
+            var payload = CreateHttpPayload(assetType, asset.Value);
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "http-probe", "HttpProbeWorker",
+                assetType, payload, WorkerPriority.High, cancellationToken);
+        }
+
+        if (SpiderTypes.Contains(assetType))
+        {
+            var payload = CreateSpiderPayload(assetType, asset.Value);
+            if (payload is not null)
+            {
+                await EnqueueAsync(asset.ProgramId, asset.AssetId, "spider", "HtmlDomSpiderWorker",
+                    assetType, payload, WorkerPriority.Normal, cancellationToken);
+            }
+        }
+
+        if (RegexCandidateTypes.Contains(assetType))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "regex-scan-discovered", "RegexScannerWorker",
+                assetType, new { assetId = asset.AssetId, assetType, value = asset.Value, eventStage = "discovered" },
+                WorkerPriority.Normal, cancellationToken);
+        }
+    }
+
+    public async Task HandleAsync(IntegrationEventEnvelope<AssetConfirmed> envelope, CancellationToken cancellationToken = default)
+    {
+        var asset = envelope.Payload;
+        var assetType = asset.AssetType;
+
+        if (RegexCandidateTypes.Contains(assetType))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "regex-scan-confirmed", "RegexScannerWorker",
+                assetType, new { assetId = asset.AssetId, assetType, value = asset.Value, eventStage = "confirmed" },
+                WorkerPriority.High, cancellationToken);
+        }
+
+        if (string.Equals(assetType, "Url", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(assetType, "HtmlPage", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "spider", "HtmlDomSpiderWorker",
+                assetType, CreateSpiderPayload(assetType, asset.Value) ?? new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "headless-spider", "HeadlessSpiderWorker",
+                assetType, new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "fingerprint", "FingerprintWorker",
+                assetType, new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+        }
+
+        if (string.Equals(assetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnqueueAsync(asset.ProgramId, asset.AssetId, "js-extract", "JsExtractorWorker",
+                assetType, new { url = asset.Value, assetType },
+                WorkerPriority.Normal, cancellationToken);
+        }
+    }
+
+    private async Task EnqueueAsync(
+        Guid programId,
+        Guid inputAssetId,
+        string taskType,
+        string workerCapability,
+        string requiredAssetType,
+        object payload,
+        WorkerPriority priority,
+        CancellationToken cancellationToken)
+    {
+        var request = new CreateReconTaskRequest(
+            TaskType: taskType,
+            ProgramId: programId,
+            ScopeId: null,
+            InputAssetId: inputAssetId,
+            InputPayloadJson: JsonSerializer.Serialize(payload, JsonOptions),
+            WorkerCapability: workerCapability,
+            RequiredAssetType: requiredAssetType,
+            MaxAttempts: 3,
+            Priority: priority,
+            DedupeHash: TaskDedupeHash.Compute(programId, null, taskType, inputAssetId, workerCapability));
+
+        var task = await store.CreateAsync(request, cancellationToken);
+        await events.PublishAsync(
+            new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+            nameof(TaskRequested),
+            "Argus.TaskService",
+            cancellationToken: cancellationToken);
+
+        logger.LogInformation("Queued {TaskType} for asset {AssetId} using {WorkerCapability}", taskType, inputAssetId, workerCapability);
+    }
+
+    private static object CreateHttpPayload(string assetType, string value)
+    {
+        return string.Equals(assetType, "Subdomain", StringComparison.OrdinalIgnoreCase)
+            ? new { host = value, assetType }
+            : new { url = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], assetType };
+    }
+
+    private static object? CreateSpiderPayload(string assetType, string value)
+    {
+        if (string.Equals(assetType, "Subdomain", StringComparison.OrdinalIgnoreCase))
+        {
+            return new { url = $"https://{value.TrimEnd('/')}/", host = value, assetType };
+        }
+
+        var url = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        return Uri.TryCreate(url, UriKind.Absolute, out _) ? new { url, assetType } : null;
+    }
+}
 
 internal interface ITaskStore
 {
@@ -377,8 +647,13 @@ internal sealed class InMemoryTaskStore : ITaskStore
         lock (_leaseLock)
         {
             var now = DateTimeOffset.UtcNow;
+            var subscribedAssetTypes = request.SubscribedAssetTypes is { Count: > 0 }
+                ? request.SubscribedAssetTypes.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : null;
+
             var candidate = _tasks.Values
                 .Where(task => string.Equals(task.WorkerCapability, request.WorkerCapability, StringComparison.OrdinalIgnoreCase))
+                .Where(task => task.RequiredAssetType is null || subscribedAssetTypes is null || subscribedAssetTypes.Contains(task.RequiredAssetType))
                 .Where(task => task.State is ReconTaskState.Requested or ReconTaskState.Queued or ReconTaskState.RetryPending)
                 .Where(task => task.Priority >= request.MinimumPriority)
                 .OrderByDescending(task => task.Priority)
@@ -562,18 +837,6 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
         var now = DateTimeOffset.UtcNow;
         var lockDuration = TaskMapping.NormalizeLeaseDuration(request.LeaseDuration);
 
-        var capabilityFilter = request.SubscribedAssetTypes?.Count > 0
-            ? string.Join(", ", request.SubscribedAssetTypes.Select((_, i) => $"{{{3 + i}}}"))
-            : null;
-
-        var assetTypeCondition = capabilityFilter is not null
-            ? @"
-                AND (
-                    ""RequiredAssetType"" IS NULL
-                    OR ""RequiredAssetType"" IN (" + capabilityFilter + @")
-                )"
-            : "";
-
         var parameters = new List<object>
         {
             ReconTaskState.Leased.ToString(),
@@ -582,6 +845,20 @@ internal sealed class EfTaskStore(TaskDbContext dbContext) : ITaskStore
             request.WorkerCapability,
             (int)request.MinimumPriority
         };
+
+        var assetTypeCondition = "";
+        var subscribedAssetTypes = request.SubscribedAssetTypes;
+        if (subscribedAssetTypes?.Count > 0)
+        {
+            var firstAssetTypeParameterIndex = parameters.Count;
+            var capabilityFilter = string.Join(", ", subscribedAssetTypes.Select((_, i) => $"{{{firstAssetTypeParameterIndex + i}}}"));
+            assetTypeCondition = @"
+                AND (
+                    ""RequiredAssetType"" IS NULL
+                    OR ""RequiredAssetType"" IN (" + capabilityFilter + @")
+                )";
+            parameters.AddRange(subscribedAssetTypes);
+        }
 
         var priorityCondition = $@"AND ""Priority"" >= {{4}}";
 
@@ -824,7 +1101,7 @@ internal sealed class TaskHistoryRecord
     public string? CheckpointSummary { get; set; }
 }
 
-internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, ILogger<TaskMaintenanceService> logger) : BackgroundService
+internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, ILogger<TaskMaintenanceService> logger, IIntegrationEventPublisher events) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -900,6 +1177,37 @@ internal sealed class TaskMaintenanceService(IServiceScopeFactory scopeFactory, 
         {
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        var retryPending = await dbContext.Tasks
+            .Where(t => t.State == ReconTaskState.RetryPending && t.Attempt < t.MaxAttempts)
+            .ToListAsync(cancellationToken);
+
+        foreach (var task in retryPending)
+        {
+            task.State = ReconTaskState.Requested;
+
+            dbContext.TaskHistory.Add(new TaskHistoryRecord
+            {
+                HistoryId = Guid.NewGuid(),
+                TaskId = task.TaskId,
+                State = ReconTaskState.RetryPending,
+                Timestamp = now,
+                Message = $"Retry dispatch (attempt {task.Attempt}/{task.MaxAttempts})"
+            });
+
+            await events.PublishAsync(
+                new TaskRequested(task.TaskId, task.TaskType, task.ProgramId, task.InputAssetId),
+                nameof(TaskRequested),
+                "Argus.TaskService",
+                cancellationToken: cancellationToken);
+
+            logger.LogInformation("Task {TaskId} dispatched for retry (attempt {Attempt}/{MaxAttempts})", task.TaskId, task.Attempt, task.MaxAttempts);
+        }
+
+        if (retryPending.Count > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 }
 
@@ -938,7 +1246,8 @@ internal static class TaskDedupeHash
 {
     public static string Compute(Guid programId, Guid? scopeId, string taskType, Guid inputAssetId, string workerCapability)
     {
-        var input = $"{programId:N}:{scopeId:N}:{taskType}:{inputAssetId:N}:{workerCapability}";
+        var scopePart = scopeId?.ToString("N") ?? string.Empty;
+        var input = $"{programId:N}:{scopePart}:{taskType}:{inputAssetId:N}:{workerCapability}";
         var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }

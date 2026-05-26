@@ -1,26 +1,62 @@
 # syntax=docker/dockerfile:1
 
 ARG DOTNET_VERSION=10.0
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG PROJECT_PATH=src/Argus.Web/Argus.Web.csproj
+ARG ASSEMBLY_NAME=Argus.Web
 
+# Build stage
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 WORKDIR /src
 
-COPY . .
-
 ARG PROJECT_PATH
-RUN dotnet restore "$PROJECT_PATH"
-RUN dotnet publish "$PROJECT_PATH" -c Release -o /app/publish --no-restore
+ARG ASSEMBLY_NAME
 
+COPY global.json Directory.Build.props Directory.Build.targets Directory.Packages.props ./
+COPY nuget.config ./
+
+COPY src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj                       src/Argus.ServiceDefaults/
+COPY src/Contracts/Argus.Contracts/Argus.Contracts.csproj                         src/Contracts/Argus.Contracts/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/Argus.BuildingBlocks.Artifacts.csproj   src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj     src/BuildingBlocks/Argus.BuildingBlocks.EventBus/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj       src/BuildingBlocks/Argus.BuildingBlocks.Workers/
+COPY ${PROJECT_PATH} ${PROJECT_PATH}
+
+RUN dotnet restore ${PROJECT_PATH}
+
+COPY src/ src/
+RUN dotnet publish ${PROJECT_PATH} \
+    -c Release \
+    -o /app/publish \
+    -p:TreatWarningsAsErrors=false
+
+RUN if [ -d /app/publish/wwwroot ]; then test -s /app/publish/wwwroot/_framework/blazor.web.js; fi
+
+# Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
 WORKDIR /app
 
-ARG ASSEMBLY_NAME
-ENV ARGUS_ASSEMBLY_NAME=${ASSEMBLY_NAME}
+ARG GIT_SHA
+ARG BUILD_DATE
+ARG ASSEMBLY_NAME=Argus.Web
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libgssapi-krb5-2 python3 \
+    && if [ "$ASSEMBLY_NAME" = "Argus.AgentService" ]; then apt-get install -y --no-install-recommends nodejs npm && npm install -g @openai/codex@0.133.0; fi \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV ARGUS_VERSION=${GIT_SHA}
+ENV ARGUS_BUILD_DATE=${BUILD_DATE}
 ENV ASPNETCORE_URLS=http://+:8080
 ENV DOTNET_EnableDiagnostics=0
+ENV DOTNET_GCConserveMemory=9
+ENV ASSEMBLY_DLL=${ASSEMBLY_NAME}.dll
 
 EXPOSE 8080
 
 COPY --from=build /app/publish .
 
-ENTRYPOINT ["sh", "-c", "dotnet ${ARGUS_ASSEMBLY_NAME}.dll"]
+RUN if [ -d /app/wwwroot ]; then echo "window.__ARGUS_BUILD__ = { version: \"${GIT_SHA}\", date: \"${BUILD_DATE}\" };" > /app/wwwroot/version.js; fi
+
+ENTRYPOINT ["sh", "-c", "exec dotnet $ASSEMBLY_DLL"]

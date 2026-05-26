@@ -1,0 +1,116 @@
+name: CD - Deploy to GCP Staging
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: argus-web
+      PROJECT_ID: project-30b3b95e-ed2b-4573-98a
+      REGION: us-central1
+      REPOSITORY: argus-staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          version: latest
+          driver-opts: |
+            image=moby/buildkit:latest
+
+      - name: Build Docker image
+        run: |
+           docker buildx build \
+              --build-arg GIT_SHA=${{ github.sha }} \
+              --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+              --load \
+              -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+              -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest \
+              -f deploy/Dockerfile.service .
+
+      - name: Push Docker image
+        run: |
+           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy-cloudrun:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: argus-web
+      PROJECT_ID: project-30b3b95e-ed2b-4573-98a
+      REGION: us-central1
+      REPOSITORY: argus-staging
+      SERVICE_NAME: argus-web-staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run (staging)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          region: ${{ env.REGION }}
+          env_vars: |
+            ASPNETCORE_ENVIRONMENT=Staging
+            ARGUS_VERSION=${{ github.sha }}
+            ARGUS_BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_id }}
+
+      - name: Verify staging deployment
+        run: |
+          set -euo pipefail
+
+          service_url="$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.REGION }} --format='value(status.url)')"
+          short_sha="$(echo "${{ github.sha }}" | cut -c1-7)"
+          echo "Service URL: ${service_url}"
+
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsSL "${service_url}/agents" || true)"
+            if echo "${body}" | grep -q "v${short_sha}"; then
+              blazor_src="$(echo "${body}" | sed -n 's/.*<script src="\([^"]*blazor\.web[^"]*\.js\)".*/\1/p' | tail -1)"
+              if [ -z "${blazor_src}" ]; then
+                echo "Staging is serving v${short_sha}, but no Blazor framework script was found." >&2
+                exit 1
+              fi
+
+              curl -fsSL "${service_url}/${blazor_src}" >/dev/null
+              echo "Verified staging is serving v${short_sha}"
+              exit 0
+            fi
+
+            echo "Waiting for staging to serve v${short_sha} (${attempt}/30)"
+            sleep 10
+          done
+
+          echo "Staging did not serve v${short_sha} after deployment." >&2
+          exit 1

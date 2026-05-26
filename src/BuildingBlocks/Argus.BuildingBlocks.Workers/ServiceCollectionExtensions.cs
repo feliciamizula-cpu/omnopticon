@@ -1,6 +1,8 @@
 using Argus.Contracts.Workers;
+using Argus.ServiceDefaults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Argus.BuildingBlocks.Workers;
 
@@ -54,11 +56,64 @@ public static class ServiceCollectionExtensions
                     options.SnapshotSecretKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"]!;
                 }
 
+                if (!string.IsNullOrEmpty(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"]))
+                {
+                    options.EventDrivenMode = bool.TryParse(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"], out var eventDriven) && eventDriven;
+                }
+
+                if (int.TryParse(builder.Configuration["ARGUS_WORKER_DRAIN_TIMEOUT"], out var drainTimeoutSeconds))
+                {
+                    options.DrainTimeout = TimeSpan.FromSeconds(drainTimeoutSeconds);
+                }
+
+                if (!string.IsNullOrEmpty(builder.Configuration["ARGUS_SAVE_CHECKPOINT_ON_SHUTDOWN"]))
+                {
+                    options.SaveCheckpointOnShutdown = bool.TryParse(builder.Configuration["ARGUS_SAVE_CHECKPOINT_ON_SHUTDOWN"], out var save) && save;
+                }
+
                 configure?.Invoke(options);
             });
 
-        builder.Services.AddHostedService<ArgusWorkerBackgroundService>();
+        builder.Services.AddSingleton<TaskNotificationChannel>();
+
+        builder.Services.AddSingleton<IHostedService>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>().Value;
+            return new TaskWorkerHostedServiceWrapper(
+                opts.EventDrivenMode
+                    ? (BackgroundService)new ArgusEventDrivenWorkerService(
+                        sp.GetRequiredService<IReconWorker>(),
+                        sp.GetRequiredService<IHttpClientFactory>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
+                        sp.GetRequiredService<ILogger<ArgusEventDrivenWorkerService>>(),
+                        sp.GetRequiredService<ArgusMetrics>(),
+                        sp.GetRequiredService<TaskNotificationChannel>().Reader)
+                    : new ArgusWorkerBackgroundService(
+                        sp.GetRequiredService<IReconWorker>(),
+                        sp.GetRequiredService<IHttpClientFactory>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
+                        sp.GetRequiredService<ILogger<ArgusWorkerBackgroundService>>(),
+                        sp.GetRequiredService<ArgusMetrics>()));
+        });
 
         return builder;
     }
+}
+
+public sealed class TaskWorkerHostedServiceWrapper : IHostedService, IDisposable
+{
+    private readonly BackgroundService _inner;
+
+    public TaskWorkerHostedServiceWrapper(BackgroundService inner)
+    {
+        _inner = inner;
+    }
+
+    Task IHostedService.StartAsync(CancellationToken cancellationToken)
+        => _inner.StartAsync(cancellationToken);
+
+    Task IHostedService.StopAsync(CancellationToken cancellationToken)
+        => _inner.StopAsync(cancellationToken);
+
+    void IDisposable.Dispose() => (_inner as IDisposable)?.Dispose();
 }

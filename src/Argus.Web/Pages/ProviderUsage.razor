@@ -1,0 +1,535 @@
+@page "/provider-usage"
+@page "/development/provider-usage"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
+@using System.Globalization
+@using System.Net.Http.Json
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using Argus.Contracts.Agents
+@using Argus.Web
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject DevelopmentRealtimeClient Realtime
+@inject IJSRuntime JS
+
+<ErrorBoundary>
+    <div class="page-body provider-usage-page">
+        <div class="pu-breadcrumb-bar">
+            <h1>Provider-usage</h1>
+            <span>·</span>
+            <p>Usage windows, remaining capacity, and reset tracking</p>
+        </div>
+
+        <div class="pu-summary-bar">
+            <div class="pu-summary-item">
+                <div class="pu-summary-label">ACTIVE</div>
+                <div class="pu-summary-value">@ActiveProviderCount</div>
+                <div class="pu-summary-sub">providers enabled</div>
+            </div>
+            <div class="pu-summary-item">
+                <div class="pu-summary-label">CRITICAL</div>
+                <div class="pu-summary-value @(CriticalWindowCount > 0 ? "is-red" : string.Empty)">@CriticalWindowCount</div>
+                <div class="pu-summary-sub">windows below 20%</div>
+            </div>
+            <div class="pu-summary-item">
+                <div class="pu-summary-label">WARNING</div>
+                <div class="pu-summary-value @(WarningWindowCount > 0 ? "is-amber" : string.Empty)">@WarningWindowCount</div>
+                <div class="pu-summary-sub">windows 20–50%</div>
+            </div>
+            <div class="pu-summary-item">
+                <div class="pu-summary-label">ALERTS</div>
+                <div class="pu-summary-value @(ConfiguredAlertCount > 0 ? "is-green" : string.Empty)">@ConfiguredAlertCount</div>
+                <div class="pu-summary-sub">rules configured</div>
+            </div>
+        </div>
+
+        <div class="pu-column-header">
+            <div>PROVIDER <span>↓ avg remaining</span></div>
+            <div>SHORT WINDOW</div>
+            <div>WEEKLY</div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="pu-alert-message">@_error</div>
+        }
+
+        @if (_loading && _overview is null)
+        {
+            <div class="pu-empty">Loading provider usage…</div>
+        }
+        else if (SortedProviders.Count == 0)
+        {
+            <div class="pu-empty">No provider usage data is available yet.</div>
+        }
+        else
+        {
+            <div class="pu-provider-list">
+                @foreach (var provider in SortedProviders)
+                {
+                    var enabled = IsProviderEnabled(provider.ProviderId);
+                    var isGemini = IsGemini(provider);
+                    var cardClass = enabled ? string.Empty : "is-disabled";
+
+                    @if (isGemini)
+                    {
+                        var modelRows = GetGeminiRows(provider);
+                        <section class="pu-provider-card @cardClass" @key="provider.ProviderId">
+                            <div class="pu-provider-row pu-provider-header-row">
+                                <ProviderUsageProviderName ProviderId="@provider.ProviderId"
+                                                               Name="@provider.ProviderName"
+                                                               Subtitle="@provider.DisplayModelHint"
+                                                               Enabled="@enabled"
+                                                               OnToggleProvider="ToggleProviderAsync" />
+                                <div class="pu-model-breakdown">MODEL BREAKDOWN</div>
+                            </div>
+                            @foreach (var row in modelRows)
+                            {
+                                <div class="pu-provider-row pu-model-row" @key="row.Name">
+                                    <div class="pu-model-name">@row.Name</div>
+                                    <ProviderUsageWindowCell AlertKey="@row.ShortWindow.AlertKey"
+                                                             Label="@row.ShortWindow.Label"
+                                                             RemainingPercent="@row.ShortWindow.RemainingPercent"
+                                                             ResetsAt="@row.ShortWindow.ResetsAt"
+                                                             Enabled="@enabled"
+                                                             Rule="@GetAlertRule(row.ShortWindow.AlertKey)"
+                                                             IsOpen="@IsAlertOpen(row.ShortWindow.AlertKey)"
+                                                             OnToggleAlert="OpenAlert"
+                                                             OnSaveAlert="SaveAlertAsync"
+                                                             OnCloseAlert="CloseAlert" />
+                                    <ProviderUsageWindowCell AlertKey="@row.WeeklyWindow.AlertKey"
+                                                             Label="@row.WeeklyWindow.Label"
+                                                             RemainingPercent="@row.WeeklyWindow.RemainingPercent"
+                                                             ResetsAt="@row.WeeklyWindow.ResetsAt"
+                                                             Enabled="@enabled"
+                                                             Rule="@GetAlertRule(row.WeeklyWindow.AlertKey)"
+                                                             IsOpen="@IsAlertOpen(row.WeeklyWindow.AlertKey)"
+                                                             OnToggleAlert="OpenAlert"
+                                                             OnSaveAlert="SaveAlertAsync"
+                                                             OnCloseAlert="CloseAlert" />
+                                </div>
+                            }
+                        </section>
+                    }
+                    else
+                    {
+                        var shortWindow = BuildWindow(provider, provider.FiveHour, "5H", "5 HOUR", $"{provider.ProviderId}|5H");
+                        var weeklyWindow = BuildWindow(provider, provider.Weekly, "WEEK", "WEEKLY", $"{provider.ProviderId}|WEEK");
+                        <section class="pu-provider-card @cardClass" @key="provider.ProviderId">
+                            <div class="pu-provider-row">
+                                <ProviderUsageProviderName ProviderId="@provider.ProviderId"
+                                                               Name="@provider.ProviderName"
+                                                               Subtitle="@provider.DisplayModelHint"
+                                                               Enabled="@enabled"
+                                                               OnToggleProvider="ToggleProviderAsync" />
+                                <ProviderUsageWindowCell AlertKey="@shortWindow.AlertKey"
+                                                         Label="@shortWindow.Label"
+                                                         RemainingPercent="@shortWindow.RemainingPercent"
+                                                         ResetsAt="@shortWindow.ResetsAt"
+                                                         Enabled="@enabled"
+                                                         Rule="@GetAlertRule(shortWindow.AlertKey)"
+                                                         IsOpen="@IsAlertOpen(shortWindow.AlertKey)"
+                                                         OnToggleAlert="OpenAlert"
+                                                         OnSaveAlert="SaveAlertAsync"
+                                                         OnCloseAlert="CloseAlert" />
+                                <ProviderUsageWindowCell AlertKey="@weeklyWindow.AlertKey"
+                                                         Label="@weeklyWindow.Label"
+                                                         RemainingPercent="@weeklyWindow.RemainingPercent"
+                                                         ResetsAt="@weeklyWindow.ResetsAt"
+                                                         Enabled="@enabled"
+                                                         Rule="@GetAlertRule(weeklyWindow.AlertKey)"
+                                                         IsOpen="@IsAlertOpen(weeklyWindow.AlertKey)"
+                                                         OnToggleAlert="OpenAlert"
+                                                         OnSaveAlert="SaveAlertAsync"
+                                                         OnCloseAlert="CloseAlert" />
+                            </div>
+                        </section>
+                    }
+                }
+            </div>
+        }
+    </div>
+</ErrorBoundary>
+
+@code {
+    private const string EnabledStorageKey = "argus:provider-enabled";
+    private const string AlertRulesStorageKey = "argus:alert-rules";
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = false
+    };
+
+    private ProviderUsageOverviewDto? _overview;
+    private bool _loading;
+    private string? _error;
+    private string? _openAlertKey;
+    private bool _preferencesLoaded;
+    private readonly Dictionary<string, bool> _enabledProviders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProviderUsageAlertRule> _alertRules = new(StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<ProviderUsageDto> Providers => _overview?.Providers ?? [];
+
+    private IReadOnlyList<ProviderUsageDto> SortedProviders => Providers
+        .OrderBy(provider => IsProviderEnabled(provider.ProviderId) ? 0 : 1)
+        .ThenByDescending(ProviderScore)
+        .ThenBy(provider => provider.ProviderName, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    private int ActiveProviderCount => Providers.Count(provider => IsProviderEnabled(provider.ProviderId));
+
+    private int CriticalWindowCount => DisplayWindows
+        .Count(window => window.RemainingPercent.HasValue && window.RemainingPercent.Value < 20);
+
+    private int WarningWindowCount => DisplayWindows
+        .Count(window => window.RemainingPercent.HasValue && window.RemainingPercent.Value >= 20 && window.RemainingPercent.Value <= 50);
+
+    private int ConfiguredAlertCount => _alertRules.Count;
+
+    private IReadOnlyList<ProviderUsageWindowView> DisplayWindows => Providers
+        .SelectMany(GetDisplayWindows)
+        .ToArray();
+
+    protected override Task OnInitializedAsync()
+    {
+        Realtime.Changed += OnDevelopmentDataChanged;
+        _ = Realtime.StartAsync();
+        _ = InvokeAsync(() => LoadAsync());
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _preferencesLoaded)
+        {
+            return;
+        }
+
+        _preferencesLoaded = true;
+        await LoadPreferencesAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync(bool showLoading = true)
+    {
+        _loading = showLoading && _overview is null;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            _overview = await GetJsonAsync<ProviderUsageOverviewDto>(Ui("/ui/provider-usage"), "provider usage")
+                ?? new ProviderUsageOverviewDto(DateTimeOffset.UtcNow, [], null);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to load provider usage: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task OnDevelopmentDataChanged(DevelopmentDataChangedEvent change)
+    {
+        if (change.Area is "provider-usage" or "agents" or "agent-tasks")
+        {
+            return InvokeAsync(() => LoadAsync(showLoading: false));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Realtime.Changed -= OnDevelopmentDataChanged;
+        return ValueTask.CompletedTask;
+    }
+
+    private IReadOnlyList<GeminiModelRow> GetGeminiRows(ProviderUsageDto provider)
+    {
+        var modelDetails = provider.Details
+            .Where(detail => detail.Key.StartsWith("model:", StringComparison.OrdinalIgnoreCase))
+            .Select(detail => BuildGeminiModelRow(provider, detail))
+            .Where(row => row is not null)
+            .Cast<GeminiModelRow>()
+            .ToArray();
+
+        if (modelDetails.Length > 0)
+        {
+            return modelDetails;
+        }
+
+        return
+        [
+            new GeminiModelRow(
+                "aggregate usage",
+                BuildWindow(provider, provider.TwentyFourHour, "DAY", "DAILY", $"{provider.ProviderId}|aggregate|DAY"),
+                BuildWindow(provider, provider.Weekly, "WEEK", "WEEKLY", $"{provider.ProviderId}|aggregate|WEEK"))
+        ];
+    }
+
+    private GeminiModelRow? BuildGeminiModelRow(ProviderUsageDto provider, ProviderUsageDetailDto detail)
+    {
+        var modelName = detail.Key["model:".Length..].Trim();
+        if (string.IsNullOrWhiteSpace(modelName))
+        {
+            modelName = detail.Label;
+        }
+
+        var remaining = ParsePercent(detail.Value);
+        var dailyWindow = new ProviderUsageWindowView(
+            "DAY",
+            "DAILY",
+            remaining,
+            detail.ResetsAt,
+            $"{provider.ProviderId}|{modelName}|DAY");
+
+        return new GeminiModelRow(
+            modelName,
+            dailyWindow,
+            BuildWindow(provider, provider.Weekly, "WEEK", "WEEKLY", $"{provider.ProviderId}|{modelName}|WEEK"));
+    }
+
+    private IEnumerable<ProviderUsageWindowView> GetDisplayWindows(ProviderUsageDto provider)
+    {
+        if (IsGemini(provider))
+        {
+            foreach (var row in GetGeminiRows(provider))
+            {
+                yield return row.ShortWindow;
+                yield return row.WeeklyWindow;
+            }
+
+            yield break;
+        }
+
+        yield return BuildWindow(provider, provider.FiveHour, "5H", "5 HOUR", $"{provider.ProviderId}|5H");
+        yield return BuildWindow(provider, provider.Weekly, "WEEK", "WEEKLY", $"{provider.ProviderId}|WEEK");
+    }
+
+    private static ProviderUsageWindowView BuildWindow(
+        ProviderUsageDto provider,
+        ProviderUsageWindowDto window,
+        string period,
+        string fallbackLabel,
+        string alertKey)
+    {
+        var label = string.IsNullOrWhiteSpace(window.Label)
+            ? fallbackLabel
+            : NormalizeWindowLabel(period, window.Label);
+
+        return new ProviderUsageWindowView(
+            period,
+            label,
+            window.IsKnown ? window.RemainingPercent : null,
+            window.IsKnown ? window.ResetsAt : null,
+            alertKey);
+    }
+
+    private static string NormalizeWindowLabel(string period, string label) => period switch
+    {
+        "5H" => "5 HOUR",
+        "DAY" => "DAILY",
+        "WEEK" => "WEEKLY",
+        _ => label.ToUpperInvariant()
+    };
+
+    private decimal ProviderScore(ProviderUsageDto provider)
+    {
+        var values = GetDisplayWindows(provider)
+            .Where(window => window.RemainingPercent.HasValue)
+            .Select(window => window.RemainingPercent!.Value)
+            .ToArray();
+
+        return values.Length == 0 ? -1 : values.Average();
+    }
+
+    private bool IsProviderEnabled(string providerId) =>
+        !_enabledProviders.TryGetValue(providerId, out var enabled) || enabled;
+
+    private async Task ToggleProviderAsync(string providerId)
+    {
+        _enabledProviders[providerId] = !IsProviderEnabled(providerId);
+        await PersistEnabledProvidersAsync();
+    }
+
+    private ProviderUsageAlertRule? GetAlertRule(string key) =>
+        _alertRules.TryGetValue(key, out var rule) ? rule : null;
+
+    private bool IsAlertOpen(string key) => string.Equals(_openAlertKey, key, StringComparison.OrdinalIgnoreCase);
+
+    private Task OpenAlert(string key)
+    {
+        _openAlertKey = IsAlertOpen(key) ? null : key;
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveAlertAsync(ProviderUsageAlertSaveArgs args)
+    {
+        if (args.Rule is null)
+        {
+            _alertRules.Remove(args.AlertKey);
+        }
+        else
+        {
+            _alertRules[args.AlertKey] = args.Rule;
+        }
+
+        _openAlertKey = null;
+        await PersistAlertRulesAsync();
+    }
+
+    private Task CloseAlert()
+    {
+        _openAlertKey = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadPreferencesAsync()
+    {
+        try
+        {
+            var enabledJson = await JS.InvokeAsync<string?>("localStorage.getItem", EnabledStorageKey);
+            var enabled = string.IsNullOrWhiteSpace(enabledJson)
+                ? null
+                : JsonSerializer.Deserialize<Dictionary<string, bool>>(enabledJson, JsonOptions);
+
+            if (enabled is not null)
+            {
+                foreach (var pair in enabled)
+                {
+                    _enabledProviders[pair.Key] = pair.Value;
+                }
+            }
+
+            var alertJson = await JS.InvokeAsync<string?>("localStorage.getItem", AlertRulesStorageKey);
+            var alerts = string.IsNullOrWhiteSpace(alertJson)
+                ? null
+                : JsonSerializer.Deserialize<Dictionary<string, ProviderUsageAlertRule>>(alertJson, JsonOptions);
+
+            if (alerts is not null)
+            {
+                foreach (var pair in alerts.Where(pair => pair.Value is not null))
+                {
+                    _alertRules[pair.Key] = pair.Value;
+                }
+            }
+        }
+        catch (JSException)
+        {
+            // Local preferences are optional; the page remains fully usable without browser storage.
+        }
+        catch (JsonException)
+        {
+            await ClearCorruptPreferencesAsync();
+        }
+    }
+
+    private async Task ClearCorruptPreferencesAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.removeItem", EnabledStorageKey);
+            await JS.InvokeVoidAsync("localStorage.removeItem", AlertRulesStorageKey);
+        }
+        catch (JSException)
+        {
+            // Ignore: storage cleanup is best-effort only.
+        }
+    }
+
+    private async Task PersistEnabledProvidersAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", EnabledStorageKey, JsonSerializer.Serialize(_enabledProviders, JsonOptions));
+        }
+        catch (JSException)
+        {
+            // Browser storage is an enhancement; ignore persistence failures.
+        }
+    }
+
+    private async Task PersistAlertRulesAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", AlertRulesStorageKey, JsonSerializer.Serialize(_alertRules, JsonOptions));
+        }
+        catch (JSException)
+        {
+            // Browser storage is an enhancement; ignore persistence failures.
+        }
+    }
+
+    private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
+
+    private async Task<T?> GetJsonAsync<T>(string url, string label)
+    {
+        using var response = await Http.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"{label} returned {(int)response.StatusCode}: {TrimBody(body)}");
+        }
+
+        return await ReadJsonContentAsync<T>(response, label);
+    }
+
+    private static async Task<T?> ReadJsonContentAsync<T>(HttpResponseMessage response, string label)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+        if (!mediaType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            var contentType = string.IsNullOrWhiteSpace(mediaType) ? "unknown content type" : mediaType;
+            throw new InvalidOperationException($"{label} returned {contentType}: {TrimBody(body)}");
+        }
+
+        return await response.Content.ReadFromJsonAsync<T>();
+    }
+
+    private static string TrimBody(string value)
+    {
+        value = value.ReplaceLineEndings(" ").Trim();
+        return value.Length <= 180 ? value : value[..180] + "...";
+    }
+
+    private static bool IsGemini(ProviderUsageDto provider) =>
+        provider.ProviderId.Equals("gemini", StringComparison.OrdinalIgnoreCase)
+        || provider.ProviderName.Equals("Gemini", StringComparison.OrdinalIgnoreCase);
+
+    private static decimal? ParsePercent(string value)
+    {
+        var match = Regex.Match(value, @"(?<pct>\d+(?:\.\d+)?)\s*%\s*remaining", RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            match = Regex.Match(value, @"\((?<pct>\d+(?:\.\d+)?)\s*%", RegexOptions.IgnoreCase);
+        }
+
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return decimal.TryParse(match.Groups["pct"].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var pct)
+            ? Math.Clamp(pct, 0, 100)
+            : null;
+    }
+
+    private sealed record ProviderUsageWindowView(
+        string Period,
+        string Label,
+        decimal? RemainingPercent,
+        DateTimeOffset? ResetsAt,
+        string AlertKey);
+
+    private sealed record GeminiModelRow(
+        string Name,
+        ProviderUsageWindowView ShortWindow,
+        ProviderUsageWindowView WeeklyWindow);
+}

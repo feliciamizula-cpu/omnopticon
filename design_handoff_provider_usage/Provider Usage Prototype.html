@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  PROVIDER USAGE REDESIGN — ANNOTATED DESIGN REFERENCE           ║
+  ║                                                                  ║
+  ║  This file is a DESIGN PROTOTYPE, not production code.           ║
+  ║  It contains three visual variants (V1/V2/V3) of the same        ║
+  ║  component so you can pick a direction.                          ║
+  ║                                                                  ║
+  ║  The target stack is .NET 10 / Blazor (Argus.Web project).       ║
+  ║  Recreate these designs using Blazor components, following        ║
+  ║  existing CSS patterns in the project.                           ║
+  ║                                                                  ║
+  ║  See README.md in this folder for the full implementation spec.  ║
+  ╚══════════════════════════════════════════════════════════════════╝
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<title>Provider Usage — Annotated Design Reference</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+/* ── DESIGN TOKENS ─────────────────────────────────────────────────
+   Match the existing Argus dark theme. If the app uses CSS variables
+   or a theme file already, map these there instead of re-declaring.  */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #0c1014;   /* page background                          */
+  --surface:   #141a22;   /* card / panel background                  */
+  --surface-2: #1c2530;   /* elevated surface (alert panel, sub-rows) */
+  --border:    #252e3a;   /* all borders                              */
+  --text:      #cdd8e3;   /* primary text                             */
+  --text-2:    #7d8e9e;   /* secondary / subtitle text                */
+  --text-dim:  #3d4e5c;   /* labels, placeholders, disabled           */
+
+  /* ── HEALTH COLOR SCALE (applied to remaining %) ─────────────── */
+  --green:     #00c9a7;   /* > 50% remaining  — healthy               */
+  --green-dim: rgba(0,201,167,.12);
+  --green-mid: rgba(0,201,167,.32);
+  --amber:     #f0a030;   /* 20–50% remaining — warning               */
+  --amber-dim: rgba(240,160,48,.14);
+  --amber-mid: rgba(240,160,48,.32);
+  --red:       #ff4545;   /* < 20% remaining  — critical              */
+  --red-dim:   rgba(255,69,69,.12);
+  --red-mid:   rgba(255,69,69,.32);
+
+  --font: 'JetBrains Mono','Fira Code',monospace;
+}
+body { background: #1a1f27; font-family: var(--font); }
+
+/* Variant selector tabs (prototype-only UI) */
+.variant-tabs { display:flex; gap:0; background:var(--surface); border-bottom:1px solid var(--border); padding:0 20px; }
+.variant-tab  { padding:10px 16px; font-size:10px; font-family:var(--font); cursor:pointer;
+                border:none; background:none; color:var(--text-dim); letter-spacing:.06em; border-bottom:2px solid transparent; }
+.variant-tab.active { color:var(--green); border-bottom-color:var(--green); }
+
+input[type=number] {
+  background:var(--bg); border:1px solid var(--border); color:var(--text);
+  font-family:var(--font); font-size:11px; padding:3px 6px; border-radius:3px; width:50px;
+  -moz-appearance:textfield;
+}
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; }
+input[type=number]:focus { outline:1px solid var(--green); border-color:var(--green); }
+button { font-family:var(--font); cursor:pointer; border:none; background:none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+/* ══════════════════════════════════════════════════════════════════
+   DATA SHAPES
+   ══════════════════════════════════════════════════════════════════
+   In production, this comes from your API. The shape expected:
+
+   Provider (with flat windows — Claude, OpenAI, Opencode):
+   {
+     id:       string,          // unique key
+     name:     string,          // display name
+     subtitle: string,          // model list e.g. "Haiku / Sonnet"
+     windows: [
+       {
+         period:    '5H'|'DAY'|'WEEK'|'MONTH',
+         label:     string,     // display label e.g. "5 HOUR"
+         remaining: number,     // NORMALIZED: always % remaining (0-100)
+                                // Claude API returns "used" — invert it:
+                                //   remaining = 100 - usedPct
+                                // OpenAI/Opencode return "remaining" — use as-is.
+         resetAt:   number,     // Unix ms timestamp of next reset
+       }
+     ]
+   }
+
+   Provider (model-based — Gemini):
+   {
+     id:       string,
+     name:     string,
+     subtitle: string,
+     models: [
+       {
+         name:    string,       // e.g. "gemini-2.0-flash"
+         windows: [ ...same shape as above... ]
+       }
+     ]
+   }
+
+   NOTE: Opencode returns null for remaining/resetAt when no usage
+   data is available yet. Render these as "—" cells.
+══════════════════════════════════════════════════════════════════ */
+const T=Date.now(), M=60000, H=3600000, D=86400000;
+const PROVIDERS = [
+  {
+    id:'claude', name:'Claude', subtitle:'Haiku / Sonnet',
+    windows:[
+      // Claude API returns "used" — prototype shows normalized remaining
+      { period:'5H',   label:'5 HOUR', remaining:73, resetAt:T+22*M },
+      { period:'WEEK', label:'WEEKLY', remaining:6,  resetAt:T+2*H  },
+    ],
+  },
+  {
+    id:'openai', name:'OpenAI', subtitle:'Codex / ChatGPT',
+    windows:[
+      // OpenAI/Codex returns remaining directly
+      { period:'5H',    label:'5 HOUR',  remaining:92, resetAt:T+73*M },
+      { period:'WEEK',  label:'WEEKLY',  remaining:64, resetAt:T+5*D  },
+      { period:'MONTH', label:'MONTHLY', remaining:42, resetAt:T+18*D },
+      // NOTE: MONTHLY is available from the API but not shown in the
+      // two-column layout. Store it for alerts/future use.
+    ],
+  },
+  {
+    id:'gemini', name:'Gemini', subtitle:'Flash / Pro',
+    // Gemini returns per-model data. Each model is its own row.
+    models:[
+      { name:'gemini-2.0-flash', windows:[
+          { period:'DAY',  label:'DAILY',  remaining:92, resetAt:T+4*H },
+          { period:'WEEK', label:'WEEKLY', remaining:80, resetAt:T+2*D },
+      ]},
+      { name:'gemini-1.5-pro', windows:[
+          { period:'DAY',  label:'DAILY',  remaining:12, resetAt:T+4*H },
+          { period:'WEEK', label:'WEEKLY', remaining:45, resetAt:T+2*D },
+      ]},
+    ],
+  },
+  {
+    id:'opencode', name:'Opencode', subtitle:'OpenCode Go',
+    windows:[
+      // null remaining = no usage data yet — renders as "—"
+      { period:'5H',    label:'5 HOUR',  remaining:null, resetAt:null },
+      { period:'WEEK',  label:'WEEKLY',  remaining:null, resetAt:null },
+      { period:'MONTH', label:'MONTHLY', remaining:null, resetAt:null },
+    ],
+  },
+];
+
+/* ══════════════════════════════════════════════════════════════════
+   LAYOUT CONSTANTS
+   The page uses a 3-column CSS grid:
+     [220px provider name] [1fr short window] [1fr weekly]
+   This is applied to the column header AND every provider row,
+   so window cells align vertically across providers.
+══════════════════════════════════════════════════════════════════ */
+const SHORT_PERIODS = ['5H', 'DAY']; // which periods fill the "short window" column
+const COL_GRID      = '220px 1fr 1fr';
+
+/* ══════════════════════════════════════════════════════════════════
+   UTILITIES
+══════════════════════════════════════════════════════════════════ */
+
+// Relative time until reset (shown by default in cell)
+const fmtRel = (ts) => {
+  if (!ts) return '—';
+  const d=ts-Date.now(); if (d<=0) return 'expired';
+  const s=Math.floor(d/1000), m=Math.floor(s/60), h=Math.floor(m/60), dy=Math.floor(h/24);
+  if (s<60) return `${s}s`;
+  if (m<60) return `${m}m`;
+  if (h<24) return m%60?`${h}h ${m%60}m`:`${h}h`;
+  return h%24?`${dy}d ${h%24}h`:`${dy}d`;
+};
+
+// Absolute reset time (shown on hover via title attribute)
+const fmtAbs = (ts) => !ts ? '—' : new Date(ts).toLocaleString('en-US',{
+  month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false
+});
+
+// Health color based on remaining %
+// Thresholds: >50 green, 20-50 amber, <20 red, null grey
+const col    = (p) => p==null?'var(--text-dim)':p>50?'var(--green)':p>20?'var(--amber)':'var(--red)';
+const colDim = (p) => p==null?'transparent':p>50?'var(--green-dim)':p>20?'var(--amber-dim)':'var(--red-dim)';
+const colMid = (p) => p==null?'var(--border)':p>50?'var(--green-mid)':p>20?'var(--amber-mid)':'var(--red-mid)';
+
+// Alert trigger check — used to highlight cell when a rule fires
+const isTriggered = (win, rule) => {
+  if (!rule||win.remaining===null) return false;
+  if (rule.remBelow  && win.remaining<=+rule.remBelow) return true;
+  if (rule.rstWithin && win.resetAt && (win.resetAt-Date.now())/60000<=+rule.rstWithin) return true;
+  return false;
+};
+
+// Sort score: average remaining across all windows (-1 if no data)
+const providerScore = (p) => {
+  const wins=p.windows||p.models.flatMap(m=>m.windows);
+  const vals=wins.filter(w=>w.remaining!==null).map(w=>w.remaining);
+  return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : -1;
+};
+
+const allWins = (ps) => ps.flatMap(p=>p.windows||p.models.flatMap(m=>m.windows));
+
+/* ══════════════════════════════════════════════════════════════════
+   ATOMS
+══════════════════════════════════════════════════════════════════ */
+
+// Enable/Disable toggle — 32×18px pill switch
+// Green when enabled, dim border when disabled
+const Toggle = ({ checked, onChange }) => (
+  <label style={{position:'relative',display:'inline-block',width:32,height:18,cursor:'pointer',flexShrink:0}}>
+    <input type="checkbox" checked={checked} onChange={onChange}
+      style={{opacity:0,width:0,height:0,position:'absolute'}}/>
+    <span style={{position:'absolute',inset:0,
+      background:checked?'var(--green)':'var(--border)',
+      borderRadius:9,transition:'background .18s'}}>
+      <span style={{position:'absolute',top:3,left:checked?17:3,width:12,height:12,
+        background:checked?'#0c1014':'var(--text-dim)',borderRadius:'50%',
+        transition:'left .18s,background .18s'}}/>
+    </span>
+  </label>
+);
+
+// Horizontal progress bar — fills left→right showing % remaining
+// Color matches health threshold (green/amber/red)
+const Bar = ({ pct, h=3 }) => (
+  <div style={{height:h,background:'var(--border)',borderRadius:2,overflow:'hidden'}}>
+    <div style={{width:`${pct??0}%`,height:'100%',background:col(pct),borderRadius:2,transition:'width .4s'}}/>
+  </div>
+);
+
+// SVG arc gauge — used in V3 only
+// Arc draws clockwise from 12-o'clock, fills based on remaining %
+const Ring = ({ pct, size=60 }) => {
+  const r=size/2-5, C=2*Math.PI*r, cx=size/2, cy=size/2;
+  const has=pct!==null&&pct!==undefined;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth="5"/>
+      {has&&<circle cx={cx} cy={cy} r={r} fill="none" stroke={col(pct)} strokeWidth="5"
+        strokeDasharray={`${(pct/100)*C} ${C}`} strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cy})`}/>}
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+        fill={has?col(pct):'var(--text-dim)'} fontSize={11}
+        fontFamily="var(--font)" fontWeight="600">
+        {has?`${pct}%`:'—'}
+      </text>
+    </svg>
+  );
+};
+
+/* ── Alert configuration panel ─────────────────────────────────────
+   Appears inline below the "+ ALERT" button when clicked.
+   Two rules per window:
+     remBelow  — fire if remaining % drops to or below this value
+     rstWithin — fire if reset is within this many minutes
+
+   In production: persist alert rules to user preferences / local
+   storage / backend. Shape:
+     { remBelow: number|null, rstWithin: number|null }         */
+const AlertPanel = ({ rule, onSave, onClose }) => {
+  const [rem,setRem]=useState(rule?.remBelow??'');
+  const [rst,setRst]=useState(rule?.rstWithin??'');
+  return (
+    <div style={{background:'var(--surface-2)',border:'1px solid var(--amber-mid)',
+      borderRadius:4,padding:'10px 12px',marginTop:6}}>
+      <div style={{fontSize:8,color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>ALERT RULES</div>
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        <label style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'var(--text-2)'}}>
+          Remaining below
+          <input type="number" min="0" max="100" value={rem} onChange={e=>setRem(e.target.value)} placeholder="—"/>%
+        </label>
+        <label style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'var(--text-2)'}}>
+          Resets within
+          <input type="number" min="0" value={rst} onChange={e=>setRst(e.target.value)} placeholder="—"/>min
+        </label>
+      </div>
+      <div style={{display:'flex',gap:6,marginTop:8}}>
+        <button onClick={()=>{onSave({remBelow:rem||null,rstWithin:rst||null});onClose();}}
+          style={{fontSize:9,padding:'3px 10px',background:'var(--green-dim)',
+            border:'1px solid var(--green-mid)',color:'var(--green)',borderRadius:3}}>SAVE</button>
+        <button onClick={()=>{onSave(null);onClose();}}
+          style={{fontSize:9,padding:'3px 10px',background:'transparent',
+            border:'1px solid var(--border)',color:'var(--text-dim)',borderRadius:3}}>CLEAR</button>
+        <button onClick={onClose} style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto',padding:'3px 6px'}}>✕</button>
+      </div>
+    </div>
+  );
+};
+
+/* Alert button — three visual states:
+   + ALERT  (dim border)       — no rule configured
+   ● ALERT  (green border)     — rule saved, not currently firing
+   ⚡ ALERT  (amber border+bg) — rule is currently triggered         */
+const AlertBtn = ({ alertKey, rule, openKey, setOpenKey, win, onSave }) => {
+  const active=!!rule, triggered=isTriggered(win,rule), open=openKey===alertKey;
+  const label=triggered?'⚡ ALERT':active?'● ALERT':'+ ALERT';
+  return (
+    <button onClick={()=>setOpenKey(open?null:alertKey)} style={{
+      fontSize:9,padding:'2px 7px',letterSpacing:'.04em',borderRadius:3,
+      background:triggered?'var(--amber-dim)':active?'var(--green-dim)':'transparent',
+      border:`1px solid ${triggered?'var(--amber-mid)':active?'var(--green-mid)':'var(--border)'}`,
+      color:triggered?'var(--amber)':active?'var(--green)':'var(--text-dim)',
+    }}>{label}</button>
+  );
+};
+
+const EmptyCell = () => (
+  <div style={{borderLeft:'1px solid var(--border)',display:'flex',alignItems:'center',
+    justifyContent:'center',color:'var(--text-dim)',fontSize:16,minHeight:90}}>—</div>
+);
+
+/* ══════════════════════════════════════════════════════════════════
+   SHARED PROVIDER ROW
+   All three variants share this grid skeleton. The only difference
+   is the CellComp passed in (V1Cell / V2Cell / V3Cell).
+
+   Grid: [name col 220px] [short window 1fr] [weekly 1fr]
+   Disabled card: opacity 0.6, alert buttons hidden, bars hidden
+══════════════════════════════════════════════════════════════════ */
+const CARD={background:'var(--surface)',border:'1px solid var(--border)',borderRadius:6,overflow:'hidden'};
+
+const ProviderRow = ({ provider, enabled, onToggle, alertRules, onSave, openKey, setOpenKey, CellComp, extraCardStyle }) => {
+  const dim=!enabled;
+
+  const NameCol = () => (
+    <div style={{padding:'12px 16px',borderRight:'1px solid var(--border)',
+      display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:600,color:'var(--text)'}}>{provider.name}</div>
+          <div style={{fontSize:10,color:'var(--text-2)',marginTop:2}}>{provider.subtitle}</div>
+        </div>
+        <Toggle checked={enabled} onChange={onToggle}/>
+      </div>
+      <div style={{marginTop:8,fontSize:8,letterSpacing:'.08em',
+        color:enabled?'var(--green)':'var(--text-dim)'}}>
+        {enabled?'ENABLED':'DISABLED'}
+      </div>
+    </div>
+  );
+
+  const getWins = (wins) => ({
+    short: wins.find(w=>SHORT_PERIODS.includes(w.period))||null,
+    week:  wins.find(w=>w.period==='WEEK')||null,
+  });
+
+  const makeCell = (win, key) => win
+    ? <CellComp win={win} alertKey={key} rule={alertRules[key]}
+        openKey={openKey} setOpenKey={setOpenKey}
+        onSave={(r)=>onSave(key,r)} dim={dim}/>
+    : <EmptyCell/>;
+
+  // Regular provider (flat windows array)
+  if (provider.windows) {
+    const {short,week}=getWins(provider.windows);
+    const sk=short?`${provider.id}|${short.period}`:null;
+    const wk=week?`${provider.id}|${week.period}`:null;
+    return (
+      <div style={{...CARD,opacity:dim?.6:1,transition:'opacity .2s',...extraCardStyle}}>
+        <div style={{display:'grid',gridTemplateColumns:COL_GRID,minHeight:90}}>
+          <NameCol/>{makeCell(short,sk)}{makeCell(week,wk)}
+        </div>
+      </div>
+    );
+  }
+
+  // Model-based provider (Gemini)
+  return (
+    <div style={{...CARD,opacity:dim?.6:1,transition:'opacity .2s',...extraCardStyle}}>
+      <div style={{display:'grid',gridTemplateColumns:COL_GRID,
+        borderBottom:'1px solid var(--border)',minHeight:56}}>
+        <NameCol/>
+        <div style={{gridColumn:'span 2',display:'flex',alignItems:'center',
+          padding:'0 14px',borderLeft:'1px solid var(--border)',
+          fontSize:8,color:'var(--text-dim)',letterSpacing:'.08em'}}>MODEL BREAKDOWN</div>
+      </div>
+      {provider.models.map((model,mi)=>{
+        const {short,week}=getWins(model.windows);
+        const sk=short?`gemini|${model.name}|${short.period}`:null;
+        const wk=week?`gemini|${model.name}|${week.period}`:null;
+        return (
+          <div key={mi} style={{display:'grid',gridTemplateColumns:COL_GRID,
+            background:'rgba(28,37,48,.35)',minHeight:90,
+            borderBottom:mi<provider.models.length-1?'1px solid var(--border)':'none'}}>
+            <div style={{padding:'8px 14px 8px 28px',fontSize:9,color:'var(--text-2)',
+              borderRight:'1px solid var(--border)',display:'flex',alignItems:'center'}}>
+              {model.name}
+            </div>
+            {makeCell(short,sk)}{makeCell(week,wk)}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   V1 — STATUS GRID
+   Each window cell gets a color-tinted background matching health.
+   Visually creates a "heatmap" — scan down and red cells stand out.
+══════════════════════════════════════════════════════════════════ */
+const V1Cell = ({ win, alertKey, rule, openKey, setOpenKey, onSave, dim }) => {
+  const has=win.remaining!==null, open=openKey===alertKey;
+  return (
+    <div style={{borderLeft:'1px solid var(--border)',padding:'12px 14px',
+      background:!dim&&has?colDim(win.remaining):'transparent',
+      display:'flex',flexDirection:'column',gap:5}}>
+      <div style={{fontSize:8,color:'var(--text-dim)',letterSpacing:'.1em',marginBottom:2}}>{win.label}</div>
+      <div style={{display:'flex',alignItems:'baseline',gap:5}}>
+        <span style={{fontSize:22,fontWeight:700,color:has?col(win.remaining):'var(--text-dim)',lineHeight:1}}>
+          {has?`${win.remaining}%`:'—'}
+        </span>
+        {has&&!dim&&<span style={{fontSize:8,color:'var(--text-dim)'}}>rem.</span>}
+      </div>
+      {has&&!dim&&<Bar pct={win.remaining} h={3}/>}
+      {!dim&&(
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:4,marginTop:2}}>
+          {/* Hover for absolute reset timestamp */}
+          <span style={{fontSize:9,color:'var(--text-2)',cursor:'default'}} title={fmtAbs(win.resetAt)}>
+            {has?`↺ ${fmtRel(win.resetAt)}`:''}
+          </span>
+          <AlertBtn alertKey={alertKey} rule={rule} openKey={openKey}
+            setOpenKey={setOpenKey} win={win} onSave={onSave}/>
+        </div>
+      )}
+      {!dim&&open&&<AlertPanel rule={rule} onSave={r=>onSave(r)} onClose={()=>setOpenKey(null)}/>}
+    </div>
+  );
+};
+const V1Card = (props) => <ProviderRow {...props} CellComp={V1Cell}/>;
+
+/* ══════════════════════════════════════════════════════════════════
+   V2 — BOLD STACK
+   No background tint on cells. Instead, the card gets a 3px left
+   accent border colored by the *worst* window across all windows
+   (the critical bottleneck, not the average).
+   Triggered alert cells get a subtle amber background wash.
+══════════════════════════════════════════════════════════════════ */
+const V2Cell = ({ win, alertKey, rule, openKey, setOpenKey, onSave, dim }) => {
+  const has=win.remaining!==null, triggered=isTriggered(win,rule), open=openKey===alertKey;
+  return (
+    <div style={{borderLeft:'1px solid var(--border)',padding:'12px 14px',
+      background:triggered&&!dim?'rgba(240,160,48,.05)':'transparent',
+      display:'flex',flexDirection:'column',gap:5}}>
+      <div style={{fontSize:8,color:'var(--text-dim)',letterSpacing:'.1em',marginBottom:2}}>{win.label}</div>
+      <div style={{display:'flex',alignItems:'baseline',gap:5}}>
+        <span style={{fontSize:22,fontWeight:700,
+          color:has&&!dim?col(win.remaining):'var(--text-dim)',lineHeight:1}}>
+          {has?`${win.remaining}%`:'—'}
+        </span>
+        {has&&!dim&&<span style={{fontSize:8,color:'var(--text-dim)'}}>rem.</span>}
+      </div>
+      {has&&!dim&&<Bar pct={win.remaining} h={4}/>}
+      {!dim&&(
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:4}}>
+          <span style={{fontSize:9,color:'var(--text-2)',cursor:'default'}} title={fmtAbs(win.resetAt)}>
+            {has?`↺ ${fmtRel(win.resetAt)}`:''}
+          </span>
+          {has&&<AlertBtn alertKey={alertKey} rule={rule} openKey={openKey}
+            setOpenKey={setOpenKey} win={win} onSave={onSave}/>}
+        </div>
+      )}
+      {!dim&&open&&<AlertPanel rule={rule} onSave={r=>onSave(r)} onClose={()=>setOpenKey(null)}/>}
+    </div>
+  );
+};
+const V2Card = (props) => {
+  const p=props.provider;
+  const wins=(p.windows||p.models.flatMap(m=>m.windows)).filter(w=>w.remaining!==null);
+  const worst=wins.length?Math.min(...wins.map(w=>w.remaining)):null;
+  const accent=props.enabled?colMid(worst):'var(--border)';
+  return <ProviderRow {...props} CellComp={V2Cell}
+    extraCardStyle={{borderLeft:`3px solid ${accent}`}}/>;
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   V3 — GAUGE PANEL
+   SVG arc gauge per window. Most visual — best for dashboards where
+   the page is seen at a glance rather than scanned line-by-line.
+══════════════════════════════════════════════════════════════════ */
+const V3Cell = ({ win, alertKey, rule, openKey, setOpenKey, onSave, dim }) => {
+  const has=win.remaining!==null, triggered=isTriggered(win,rule), open=openKey===alertKey;
+  return (
+    <div style={{borderLeft:'1px solid var(--border)',padding:'10px 14px',
+      background:triggered&&!dim?'rgba(240,160,48,.05)':'transparent',
+      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:5}}>
+      <div style={{fontSize:8,color:'var(--text-dim)',letterSpacing:'.1em',alignSelf:'flex-start'}}>{win.label}</div>
+      <Ring pct={!dim&&has?win.remaining:null} size={60}/>
+      <span style={{fontSize:9,color:'var(--text-2)',cursor:'default'}} title={fmtAbs(win.resetAt)}>
+        {has&&!dim?`↺ ${fmtRel(win.resetAt)}`:'—'}
+      </span>
+      {!dim&&<AlertBtn alertKey={alertKey} rule={rule} openKey={openKey}
+        setOpenKey={setOpenKey} win={win} onSave={onSave}/>}
+      {!dim&&open&&(
+        <div style={{width:210}}>
+          <AlertPanel rule={rule} onSave={r=>onSave(r)} onClose={()=>setOpenKey(null)}/>
+        </div>
+      )}
+    </div>
+  );
+};
+const V3Card = (props) => <ProviderRow {...props} CellComp={V3Cell}/>;
+
+/* ══════════════════════════════════════════════════════════════════
+   COLUMN HEADER
+   Same 3-column grid as provider rows — ensures alignment.
+══════════════════════════════════════════════════════════════════ */
+const ColHeader = () => (
+  <div style={{display:'grid',gridTemplateColumns:COL_GRID,
+    background:'var(--surface-2)',borderBottom:'2px solid var(--border)'}}>
+    <div style={{padding:'7px 16px',fontSize:8,color:'var(--text-dim)',letterSpacing:'.08em',
+      display:'flex',alignItems:'center',gap:6}}>
+      PROVIDER<span style={{opacity:.6,fontWeight:300}}> ↓ avg remaining</span>
+    </div>
+    {['SHORT WINDOW','WEEKLY'].map((lbl,i)=>(
+      <div key={i} style={{padding:'7px 14px',fontSize:8,color:'var(--text-dim)',
+        letterSpacing:'.1em',borderLeft:'1px solid var(--border)'}}>
+        {lbl}
+      </div>
+    ))}
+  </div>
+);
+
+/* ══════════════════════════════════════════════════════════════════
+   SUMMARY BAR
+   4 live counters derived from current provider state.
+   Update these reactively whenever usage data refreshes.
+══════════════════════════════════════════════════════════════════ */
+const SummaryBar = ({ enabled, alertRules }) => {
+  const wins=allWins(PROVIDERS).filter(w=>w.remaining!==null);
+  const critical=wins.filter(w=>w.remaining<20).length;
+  const warning =wins.filter(w=>w.remaining>=20&&w.remaining<=50).length;
+  const active  =Object.values(enabled).filter(Boolean).length;
+  const alerts  =Object.values(alertRules).filter(r=>r!==null).length;
+  const stats=[
+    {label:'ACTIVE',  value:active,   sub:'providers enabled', c:active>0?'var(--text)':'var(--text-dim)'},
+    {label:'CRITICAL',value:critical, sub:'windows below 20%', c:critical>0?'var(--red)':'var(--text)'},
+    {label:'WARNING', value:warning,  sub:'windows 20–50%',    c:warning>0?'var(--amber)':'var(--text)'},
+    {label:'ALERTS',  value:alerts,   sub:'rules configured',  c:alerts>0?'var(--green)':'var(--text)'},
+  ];
+  return (
+    <div style={{display:'flex',borderBottom:'1px solid var(--border)'}}>
+      {stats.map((s,i)=>(
+        <div key={i} style={{flex:1,padding:'12px 20px',
+          borderRight:i<3?'1px solid var(--border)':'none'}}>
+          <div style={{fontSize:8,color:'var(--text-dim)',letterSpacing:'.1em',marginBottom:4}}>{s.label}</div>
+          <div style={{fontSize:22,fontWeight:600,color:s.c,lineHeight:1}}>{s.value}</div>
+          <div style={{fontSize:9,color:'var(--text-dim)',marginTop:4}}>{s.sub}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   PAGE — Full provider usage view
+   Sort logic: enabled providers first, then by avg remaining desc.
+   Toggling a provider to disabled immediately moves it to the bottom.
+══════════════════════════════════════════════════════════════════ */
+const Page = ({ CardComp }) => {
+  const [enabled,setEnabled]=useState(Object.fromEntries(PROVIDERS.map(p=>[p.id,true])));
+  const [alertRules,setAlertRules]=useState({});
+  const [openKey,setOpenKey]=useState(null);
+
+  const toggle=(id)=>setEnabled(prev=>({...prev,[id]:!prev[id]}));
+  const saveAlert=(key,rule)=>setAlertRules(prev=>{
+    if (!rule){const n={...prev};delete n[key];return n;}
+    return {...prev,[key]:rule};
+  });
+
+  const sorted=[...PROVIDERS].sort((a,b)=>{
+    const aOn=enabled[a.id],bOn=enabled[b.id];
+    if (aOn!==bOn) return aOn?-1:1;
+    return providerScore(b)-providerScore(a);
+  });
+
+  return (
+    <div style={{background:'var(--bg)',fontFamily:'var(--font)',color:'var(--text)',minHeight:'100%'}}>
+      <div style={{padding:'9px 20px',borderBottom:'1px solid var(--border)',
+        display:'flex',alignItems:'center',gap:8,background:'var(--surface)'}}>
+        <span style={{fontSize:11,color:'var(--text-2)'}}>Provider-usage</span>
+        <span style={{color:'var(--text-dim)'}}>·</span>
+        <span style={{fontSize:10,color:'var(--text-dim)'}}>
+          Usage windows, remaining capacity, and reset tracking
+        </span>
+      </div>
+      <SummaryBar enabled={enabled} alertRules={alertRules}/>
+      <ColHeader/>
+      <div style={{display:'flex',flexDirection:'column',gap:8,padding:'12px 20px'}}>
+        {sorted.map(p=>(
+          <CardComp key={p.id} provider={p}
+            enabled={enabled[p.id]} onToggle={()=>toggle(p.id)}
+            alertRules={alertRules} onSave={saveAlert}
+            openKey={openKey} setOpenKey={setOpenKey}/>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   PROTOTYPE SHELL — variant switcher (not part of the real UI)
+══════════════════════════════════════════════════════════════════ */
+const VARIANTS = [
+  { id:'v1', label:'V1 — Status Grid (tinted cells)',  Card:V1Card },
+  { id:'v2', label:'V2 — Bold Stack (accent border)',  Card:V2Card },
+  { id:'v3', label:'V3 — Gauge Panel (arc gauges)',    Card:V3Card },
+];
+
+const App = () => {
+  const [active,setActive]=useState('v1');
+  const v=VARIANTS.find(x=>x.id===active);
+  return (
+    <div>
+      {/* Variant picker — prototype-only */}
+      <div style={{background:'var(--surface)',borderBottom:'1px solid var(--border)',
+        padding:'8px 20px 0',display:'flex',alignItems:'center',gap:16}}>
+        <span style={{fontSize:9,color:'var(--text-dim)',letterSpacing:'.1em',paddingBottom:10}}>
+          DESIGN VARIANT:
+        </span>
+        <div style={{display:'flex'}}>
+          {VARIANTS.map(v=>(
+            <button key={v.id} className={`variant-tab${active===v.id?' active':''}`}
+              onClick={()=>setActive(v.id)}>{v.label}</button>
+          ))}
+        </div>
+      </div>
+      <Page CardComp={v.Card}/>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

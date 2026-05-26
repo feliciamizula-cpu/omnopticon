@@ -1,0 +1,609 @@
+@page "/operations"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject HttpClient Http
+@inject ILogger<Operations> Logger
+@implements IAsyncDisposable
+
+<PageTitle>Operations</PageTitle>
+
+<div class="ops-layout">
+
+    @* ── Programs panel ── *@
+    <div class="ops-programs-panel">
+        <div class="ops-panel-header">
+            <span class="ops-panel-title">Programs</span>
+            <span class="ops-panel-count">@_programs.Count</span>
+            <button class="btn btn-sm" style="margin-left:auto;" @onclick="OpenNewProgramForm">+ New</button>
+        </div>
+        <div class="table-wrapper" style="flex:1;overflow:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Name</th><th>Scope</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in _programs)
+                    {
+                        var prog = p;
+                        <tr class="@(prog.ProgramId == _selectedProgramId ? "selected" : "")"
+                            @onclick="() => SelectProgram(prog)"
+                            @oncontextmenu="(e) => ShowProgramMenu(e, prog)"
+                            @oncontextmenu:preventDefault="true">
+                            <td>@prog.Name</td>
+                            <td style="color:var(--fg-3);font-size:11px;">@prog.ScopeCount scope(s)</td>
+                        </tr>
+                    }
+                    @if (_programs.Count == 0 && !_loadingPrograms)
+                    {
+                        <tr><td colspan="2" style="text-align:center;color:var(--fg-3);padding:24px;">No programs</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* ── Assets panel ── *@
+    <div class="ops-assets-panel">
+        <div class="ops-panel-header">
+            <span class="ops-panel-title">Assets</span>
+            <span class="ops-panel-count">@_assets.Count</span>
+            @if (_polling)
+            {
+                <span class="ops-live-badge">LIVE</span>
+            }
+            <button class="btn btn-sm @(_polling ? "btn-danger" : "")" style="margin-left:auto;"
+                    @onclick="TogglePolling">
+                @(_polling ? "Stop" : "Start Live")
+            </button>
+        </div>
+        <div class="table-wrapper" style="flex:1;overflow:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr><th>Type</th><th>Value</th><th>Status</th><th>Risk</th><th>First Seen</th><th>Last Seen</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _assets)
+                    {
+                        var asset = a;
+                        <tr class="@(asset.AssetId == _selectedAssetId ? "selected" : "") @(_flashingIds.Contains(asset.AssetId) ? "row-new" : "")"
+                            @onclick="() => SelectAsset(asset)"
+                            @oncontextmenu="(e) => ShowAssetMenu(e, asset)"
+                            @oncontextmenu:preventDefault="true">
+                            <td style="color:var(--fg-3);font-size:11px;">@asset.Type</td>
+                            <td class="ag-primary">@asset.Value</td>
+                            <td>@asset.Status</td>
+                            <td>@(asset.RiskScore.HasValue ? asset.RiskScore.Value.ToString("F1") : "—")</td>
+                            <td style="color:var(--fg-3);font-size:11px;">@FmtAgo(asset.FirstSeenAt)</td>
+                            <td style="color:var(--fg-3);font-size:11px;">@FmtAgo(asset.LastSeenAt)</td>
+                        </tr>
+                    }
+                    @if (_assets.Count == 0 && !_loadingAssets)
+                    {
+                        <tr><td colspan="6" style="text-align:center;color:var(--fg-3);padding:24px;">
+                            @(_selectedProgramId.HasValue ? "No assets for this program" : "Select a program")
+                        </td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* ── Activity feed ── *@
+    <div class="ops-activity-panel">
+        <div class="ops-panel-header">
+            <span class="ops-panel-title">Activity</span>
+        </div>
+        <div class="ops-log">
+            @foreach (var entry in _log)
+            {
+                <div class="ops-log-entry @(entry.IsError ? "ops-log-error" : "ops-log-success")">
+                    <span style="color:var(--fg-3);font-size:10px;">@entry.When.ToString("HH:mm:ss")</span>
+                    @entry.Message
+                </div>
+            }
+            @if (_log.Count == 0)
+            {
+                <div style="color:var(--fg-3);font-size:11px;padding:12px;">No activity yet</div>
+            }
+        </div>
+    </div>
+
+</div>
+
+@* ── Program context menu ── *@
+@if (_programMenu is { Visible: true })
+{
+    <div class="ops-ctx-backdrop" @onclick="CloseMenus"></div>
+    <div class="ops-ctx-menu" style="left:@(_programMenu.X)px;top:@(_programMenu.Y)px;">
+        <div class="ops-ctx-header">@_programMenu.Program!.Name</div>
+        <div class="ops-ctx-sep"></div>
+        <div class="ops-ctx-item" @onclick='() => RunProgramAction("enum-sub")'>Enumerate Subdomains</div>
+        <div class="ops-ctx-item" @onclick='() => RunProgramAction("spider")'>Spider All Assets</div>
+    </div>
+}
+
+@* ── New Program Modal ── *@
+@if (_showNewProgramForm)
+{
+    <div class="ops-modal-backdrop" @onclick="CancelNewProgram">
+        <div class="ops-modal" @onclick:stopPropagation="true">
+            <div class="ops-modal-header">
+                <span class="ops-modal-title">New Program</span>
+            </div>
+            <div class="ops-modal-body">
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">Name *</label>
+                    <input class="ops-modal-input" @bind="_newName" @bind:event="oninput"
+                           placeholder="e.g. ACME Corp Bug Bounty" />
+                </div>
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">Source *</label>
+                    <input class="ops-modal-input" @bind="_newSource" @bind:event="oninput"
+                           placeholder="HackerOne / Bugcrowd / Manual" />
+                </div>
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">External URL</label>
+                    <input class="ops-modal-input" @bind="_newExternalUrl" @bind:event="oninput"
+                           placeholder="https://hackerone.com/program" />
+                </div>
+                <div class="ops-modal-field">
+                    <label class="ops-modal-label">In-Scope Domains</label>
+                    @for (var i = 0; i < _newScopes.Count; i++)
+                    {
+                        var idx = i;
+                        <div class="ops-scope-row">
+                            <input class="ops-modal-input"
+                                   value="@_newScopes[idx].Pattern"
+                                   @oninput="e => UpdateNewScopePattern(idx, e.Value?.ToString())"
+                                   placeholder="example.com or *.example.com" />
+                            <select class="ops-modal-select"
+                                    value="@_newScopes[idx].ScopeType"
+                                    @onchange="e => UpdateNewScopeType(idx, e.Value?.ToString())">
+                                <option value="Domain">Domain</option>
+                                <option value="WildcardDomain">Wildcard Domain</option>
+                                <option value="Url">URL</option>
+                                <option value="Cidr">CIDR</option>
+                                <option value="IpRange">IP Range</option>
+                            </select>
+                            <button class="btn btn-sm" @onclick="() => RemoveNewScope(idx)"
+                                    disabled="@(_newScopes.Count <= 1)">×</button>
+                        </div>
+                    }
+                    <button class="btn btn-sm" style="align-self:flex-start;margin-top:2px;"
+                            @onclick="AddNewScope">+ Add Domain</button>
+                </div>
+                @if (!string.IsNullOrEmpty(_newProgramError))
+                {
+                    <div class="ops-modal-error">@_newProgramError</div>
+                }
+            </div>
+            <div class="ops-modal-footer">
+                <button class="btn btn-sm" @onclick="CancelNewProgram" disabled="@_newProgramSaving">Cancel</button>
+                <button class="btn btn-sm" @onclick="CreateProgramAsync"
+                        disabled="@(_newProgramSaving || string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newSource))">
+                    @(_newProgramSaving ? "Creating…" : "Create Program")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Asset context menu ── *@
+@if (_assetMenu is { Visible: true })
+{
+    <div class="ops-ctx-backdrop" @onclick="CloseMenus"></div>
+    <div class="ops-ctx-menu" style="left:@(_assetMenu.X)px;top:@(_assetMenu.Y)px;">
+        <div class="ops-ctx-header">@_assetMenu.Asset!.Value</div>
+        <div class="ops-ctx-sep"></div>
+        @foreach (var item in _assetMenu.Items)
+        {
+            var action = item.Action;
+            <div class="ops-ctx-item" @onclick="() => RunAssetAction(action)">@item.Label</div>
+        }
+    </div>
+}
+
+@code {
+    // ── Models ───────────────────────────────────────────────────────────────────
+
+    sealed record ProgramItem(Guid ProgramId, string Name, int ScopeCount);
+    sealed record AssetItem(Guid AssetId, string Type, string Value, string Status,
+        double? RiskScore, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt);
+    sealed record LogEntry(string Message, bool IsError, DateTimeOffset When = default)
+    {
+        public DateTimeOffset When { get; init; } = When == default ? DateTimeOffset.UtcNow : When;
+    }
+    sealed record ContextMenuItem(string Label, string Action);
+    sealed record ScopeEntry(string Pattern, string ScopeType);
+
+    sealed class ProgramMenuState
+    {
+        public bool Visible;
+        public double X, Y;
+        public ProgramItem? Program;
+    }
+
+    sealed class AssetMenuState
+    {
+        public bool Visible;
+        public double X, Y;
+        public AssetItem? Asset;
+        public List<ContextMenuItem> Items = [];
+    }
+
+    static readonly Dictionary<string, (string TaskType, string WorkerCapability)> ActionMap = new()
+    {
+        ["enum-sub"]  = ("DomainDiscovery", "Subfinder"),
+        ["spider"]    = ("HtmlSpider",      "HtmlDomSpider"),
+        ["spider-hl"] = ("HeadlessSpider",  "HeadlessSpider"),
+    };
+
+    // ── State ────────────────────────────────────────────────────────────────────
+
+    List<ProgramItem> _programs = [];
+    List<AssetItem>   _assets   = [];
+    List<LogEntry>    _log      = [];
+    HashSet<Guid>     _flashingIds = [];
+
+    Guid? _selectedProgramId;
+    Guid? _selectedAssetId;
+    bool  _loadingPrograms;
+    bool  _loadingAssets;
+    bool  _polling = true;
+
+    ProgramMenuState _programMenu = new();
+    AssetMenuState   _assetMenu   = new();
+
+    PeriodicTimer?         _timer;
+    CancellationTokenSource? _cts;
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProgramsAsync();
+        StartPolling();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_cts is not null) { await _cts.CancelAsync(); _cts.Dispose(); }
+        _timer?.Dispose();
+    }
+
+    // ── Data loading ─────────────────────────────────────────────────────────────
+
+    async Task LoadProgramsAsync()
+    {
+        _loadingPrograms = true;
+        try
+        {
+            using var resp = await Http.GetAsync("/ui/programs");
+            if (!resp.IsSuccessStatusCode) return;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            _programs = doc.RootElement.EnumerateArray()
+                .Select(e => new ProgramItem(
+                    e.TryGetProperty("programId", out var id) ? id.GetGuid() : Guid.Empty,
+                    e.TryGetProperty("name",      out var n)  ? n.GetString() ?? "" : "",
+                    e.TryGetProperty("scopes",    out var sc) ? sc.GetArrayLength() : 0))
+                .Where(p => p.ProgramId != Guid.Empty)
+                .ToList();
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Load programs failed"); }
+        finally { _loadingPrograms = false; }
+    }
+
+    async Task LoadAssetsAsync()
+    {
+        if (!_selectedProgramId.HasValue) return;
+        _loadingAssets = true;
+        try
+        {
+            var url = $"/ui/ops/assets?programId={_selectedProgramId}&take=500";
+            using var resp = await Http.GetAsync(url);
+            if (!resp.IsSuccessStatusCode) return;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().ToList()
+                : root.TryGetProperty("items", out var items)
+                    ? items.EnumerateArray().ToList()
+                    : [];
+
+            var prev = _assets.Select(a => a.AssetId).ToHashSet();
+            _assets = arr.Select(ParseAsset).Where(a => a is not null).Cast<AssetItem>().ToList();
+
+            var newIds = _assets.Select(a => a.AssetId).ToHashSet();
+            newIds.ExceptWith(prev);
+            if (newIds.Count > 0)
+            {
+                _flashingIds.UnionWith(newIds);
+                _ = Task.Delay(2500).ContinueWith(_ =>
+                {
+                    _flashingIds.ExceptWith(newIds);
+                    InvokeAsync(StateHasChanged);
+                });
+            }
+        }
+        catch (Exception ex) { Logger.LogDebug(ex, "Load assets failed"); }
+        finally { _loadingAssets = false; }
+    }
+
+    static AssetItem? ParseAsset(JsonElement e)
+    {
+        if (!e.TryGetProperty("assetId", out var idEl)) return null;
+        return new AssetItem(
+            AssetId:    idEl.GetGuid(),
+            Type:       e.TryGetProperty("type",             out var t)  ? t.GetString()  ?? "" : "",
+            Value:      e.TryGetProperty("value",            out var v)  ? v.GetString()  ?? "" : "",
+            Status:     e.TryGetProperty("status",           out var s)  ? s.GetString()  ?? "" : "",
+            RiskScore:  e.TryGetProperty("riskScore",        out var rs) && rs.ValueKind != JsonValueKind.Null ? rs.GetDouble() : null,
+            FirstSeenAt: e.TryGetProperty("firstSeenAt",     out var fs) && fs.ValueKind != JsonValueKind.Null ? fs.GetDateTimeOffset() : null,
+            LastSeenAt:  e.TryGetProperty("lastSeenAt",      out var ls) && ls.ValueKind != JsonValueKind.Null ? ls.GetDateTimeOffset() : null);
+    }
+
+    // ── Polling ──────────────────────────────────────────────────────────────────
+
+    void StartPolling()
+    {
+        _cts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        _ = PollLoopAsync(_cts.Token);
+    }
+
+    async Task PollLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _timer is not null)
+        {
+            try
+            {
+                if (!await _timer.WaitForNextTickAsync(ct)) break;
+                if (_polling && _selectedProgramId.HasValue)
+                {
+                    await LoadAssetsAsync();
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch { }
+        }
+    }
+
+    void TogglePolling() => _polling = !_polling;
+
+    // ── Interaction ──────────────────────────────────────────────────────────────
+
+    async Task SelectProgram(ProgramItem p)
+    {
+        _selectedProgramId = p.ProgramId;
+        _assets.Clear();
+        await LoadAssetsAsync();
+    }
+
+    void SelectAsset(AssetItem a) => _selectedAssetId = a.AssetId;
+
+    void ShowProgramMenu(MouseEventArgs e, ProgramItem p)
+    {
+        CloseMenus();
+        _programMenu = new ProgramMenuState { Visible = true, X = e.ClientX, Y = e.ClientY, Program = p };
+    }
+
+    void ShowAssetMenu(MouseEventArgs e, AssetItem a)
+    {
+        CloseMenus();
+        var items = BuildAssetMenuItems(a);
+        if (items.Count == 0) return;
+        _assetMenu = new AssetMenuState { Visible = true, X = e.ClientX, Y = e.ClientY, Asset = a, Items = items };
+    }
+
+    static List<ContextMenuItem> BuildAssetMenuItems(AssetItem a)
+    {
+        var t = a.Type.ToLowerInvariant();
+        var items = new List<ContextMenuItem>();
+        if (t.Contains("domain") && !t.Contains("sub"))
+            items.Add(new("Enumerate Subdomains", "enum-sub"));
+        if (t.Contains("subdomain") || t.Contains("url"))
+        {
+            items.Add(new("Spider (HTML)", "spider"));
+            items.Add(new("Spider (Headless)", "spider-hl"));
+        }
+        return items;
+    }
+
+    void CloseMenus()
+    {
+        _programMenu.Visible = false;
+        _assetMenu.Visible   = false;
+    }
+
+    // ── Task dispatch ─────────────────────────────────────────────────────────────
+
+    async Task RunProgramAction(string action)
+    {
+        CloseMenus();
+        if (_programMenu.Program is not { } prog) return;
+
+        // Get domain assets for this program to enumerate or spider
+        var targets = _assets.Where(a =>
+        {
+            var t = a.Type.ToLowerInvariant();
+            return action == "enum-sub"
+                ? t.Contains("domain") && !t.Contains("sub")
+                : t.Contains("subdomain") || t.Contains("url");
+        }).ToList();
+
+        if (targets.Count == 0)
+        {
+            AddLog($"No eligible assets in {prog.Name} for this action.", error: true);
+            return;
+        }
+
+        await EnqueueAsync(targets.Select(a => a.AssetId).ToList(), action, prog.ProgramId);
+    }
+
+    async Task RunAssetAction(string action)
+    {
+        CloseMenus();
+        if (_assetMenu.Asset is not { } asset || !_selectedProgramId.HasValue) return;
+        await EnqueueAsync([asset.AssetId], action, _selectedProgramId.Value);
+    }
+
+    async Task EnqueueAsync(List<Guid> assetIds, string action, Guid programId)
+    {
+        if (!ActionMap.TryGetValue(action, out var mapping))
+        {
+            AddLog($"Unknown action: {action}", error: true);
+            return;
+        }
+
+        var payload = new JsonObject
+        {
+            ["assetIds"]          = new JsonArray(assetIds.Select(id => JsonValue.Create(id)).ToArray()),
+            ["taskType"]          = mapping.TaskType,
+            ["workerCapability"]  = mapping.WorkerCapability,
+            ["programId"]         = programId,
+        };
+
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/ui/assets/bulk/enqueue", payload);
+            if (resp.IsSuccessStatusCode)
+                AddLog($"Queued {action} for {assetIds.Count} asset(s).");
+            else
+                AddLog($"Enqueue failed ({(int)resp.StatusCode})", error: true);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Enqueue error: {ex.Message}", error: true);
+        }
+    }
+
+    void AddLog(string msg, bool error = false)
+    {
+        _log.Insert(0, new LogEntry(msg, error));
+        if (_log.Count > 100) _log.RemoveAt(_log.Count - 1);
+    }
+
+    // ── New program form ──────────────────────────────────────────────────────────
+
+    bool   _showNewProgramForm;
+    string _newName        = "";
+    string _newSource      = "";
+    string _newExternalUrl = "";
+    List<ScopeEntry> _newScopes = [];
+    string _newProgramError  = "";
+    bool   _newProgramSaving;
+
+    void OpenNewProgramForm()
+    {
+        _newName = _newSource = _newExternalUrl = _newProgramError = "";
+        _newScopes = [new ScopeEntry("", "Domain")];
+        _newProgramSaving = false;
+        _showNewProgramForm = true;
+    }
+
+    void CancelNewProgram() => _showNewProgramForm = false;
+
+    void AddNewScope() => _newScopes.Add(new ScopeEntry("", "Domain"));
+
+    void RemoveNewScope(int index)
+    {
+        if (_newScopes.Count <= 1 || index < 0 || index >= _newScopes.Count) return;
+        _newScopes.RemoveAt(index);
+    }
+
+    void UpdateNewScopePattern(int index, string? value)
+    {
+        if (index < 0 || index >= _newScopes.Count) return;
+        _newScopes[index] = _newScopes[index] with { Pattern = value ?? "" };
+    }
+
+    void UpdateNewScopeType(int index, string? value)
+    {
+        if (index < 0 || index >= _newScopes.Count) return;
+        _newScopes[index] = _newScopes[index] with { ScopeType = string.IsNullOrWhiteSpace(value) ? "Domain" : value };
+    }
+
+    async Task CreateProgramAsync()
+    {
+        _newProgramError = "";
+        var validScopes = _newScopes.Where(s => !string.IsNullOrWhiteSpace(s.Pattern)).ToList();
+        if (string.IsNullOrWhiteSpace(_newName))   { _newProgramError = "Name is required.";               return; }
+        if (string.IsNullOrWhiteSpace(_newSource)) { _newProgramError = "Source is required.";             return; }
+        if (validScopes.Count == 0)                { _newProgramError = "Add at least one domain scope."; return; }
+
+        _newProgramSaving = true;
+        try
+        {
+            var createBody = new JsonObject
+            {
+                ["name"]        = _newName.Trim(),
+                ["source"]      = _newSource.Trim(),
+                ["externalUrl"] = string.IsNullOrWhiteSpace(_newExternalUrl) ? null : _newExternalUrl.Trim()
+            };
+
+            using var programResp = await Http.PostAsJsonAsync("/ui/programs", createBody);
+            if (!programResp.IsSuccessStatusCode)
+            {
+                _newProgramError = $"Failed to create program ({(int)programResp.StatusCode}).";
+                return;
+            }
+
+            var programBody = await programResp.Content.ReadAsStringAsync();
+            using var programDoc = JsonDocument.Parse(programBody);
+            if (!programDoc.RootElement.TryGetProperty("programId", out var pidEl))
+            {
+                _newProgramError = "Server response missing programId.";
+                return;
+            }
+            var programId = pidEl.GetGuid();
+
+            var scopeErrors = 0;
+            foreach (var scope in validScopes)
+            {
+                var scopeBody = new JsonObject
+                {
+                    ["scopeType"] = scope.ScopeType,
+                    ["pattern"]   = scope.Pattern.Trim(),
+                    ["action"]    = "Include",
+                    ["notes"]     = null
+                };
+                using var scopeResp = await Http.PostAsJsonAsync($"/ui/programs/{programId}/scopes", scopeBody);
+                if (!scopeResp.IsSuccessStatusCode) scopeErrors++;
+            }
+
+            _showNewProgramForm = false;
+            await LoadProgramsAsync();
+
+            var created = _programs.FirstOrDefault(p => p.ProgramId == programId);
+            if (created is not null) await SelectProgram(created);
+
+            var msg = scopeErrors == 0
+                ? $"Program '{_newName}' created with {validScopes.Count} scope(s)."
+                : $"Program '{_newName}' created; {scopeErrors} scope(s) failed to save.";
+            AddLog(msg, error: scopeErrors > 0);
+        }
+        catch (Exception ex)
+        {
+            _newProgramError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _newProgramSaving = false;
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    static string FmtAgo(DateTimeOffset? dt)
+    {
+        if (dt is null) return "—";
+        var ago = DateTimeOffset.UtcNow - dt.Value;
+        if (ago.TotalMinutes < 1)  return "just now";
+        if (ago.TotalHours   < 1)  return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalDays    < 1)  return $"{(int)ago.TotalHours}h ago";
+        return $"{(int)ago.TotalDays}d ago";
+    }
+}

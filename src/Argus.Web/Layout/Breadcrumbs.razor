@@ -1,0 +1,52 @@
+@inject NavigationManager Nav
+
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  @foreach (var (segment, index) in Segments.Select((s, i) => (s, i)))
+  {
+    @if (index > 0)
+    {
+      <span class="breadcrumb-separator">/</span>
+    }
+    <span class="breadcrumb-item @(index == Segments.Length - 1 ? "last" : "")">
+      @if (index == Segments.Length - 1)
+      {
+        @segment
+      }
+      else
+      {
+        <a href="@BuildPath(index)">@segment</a>
+      }
+    </span>
+  }
+</nav>
+
+@code {
+  private string[] Segments { get; set; } = [];
+  
+  protected override void OnInitialized()
+  {
+    var relativePath = Nav.ToBaseRelativePath(Nav.Uri);
+    if (string.IsNullOrEmpty(relativePath))
+    {
+      Segments = ["Home"];
+    }
+    else
+    {
+      Segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                             .Select(CapitalizeFirst)
+                             .ToArray();
+    }
+  }
+  
+  private string CapitalizeFirst(string s)
+  {
+    if (string.IsNullOrEmpty(s)) return s;
+    return char.ToUpper(s[0]) + s[1..];
+  }
+  
+  private string BuildPath(int index)
+  {
+    var path = "/" + string.Join("/", Segments.Take(index + 1).Select(s => s.ToLower()));
+    return path;
+  }
+}

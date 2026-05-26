@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -25,6 +26,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
     private readonly ChannelReader<TaskNotification> _channelReader;
     private readonly SemaphoreSlim _concurrencyLimiter;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
 
     public ArgusEventDrivenWorkerService(
         IReconWorker worker,
@@ -72,8 +74,73 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
+    }
 
-        await _concurrencyLimiter.WaitAsync(stoppingToken);
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Event-driven worker {WorkerType} ({WorkerId}) stopping, initiating graceful drain (timeout: {DrainTimeout})",
+            _worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout);
+
+        var baseStopTask = base.StopAsync(cancellationToken);
+
+        using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        drainCts.CancelAfter(_options.DrainTimeout);
+
+        var acquiredDrainSlots = 0;
+
+        try
+        {
+            for (var i = 0; i < _worker.Capability.MaxConcurrency; i++)
+            {
+                await _concurrencyLimiter.WaitAsync(drainCts.Token);
+                acquiredDrainSlots++;
+            }
+
+            _logger.LogInformation("Event-driven worker {WorkerType} ({WorkerId}) drain complete, all in-flight tasks finished",
+                _worker.Capability.WorkerType, _options.WorkerId);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Event-driven worker {WorkerType} ({WorkerId}) drain timeout expired ({DrainTimeout}), forcing shutdown of remaining tasks",
+                _worker.Capability.WorkerType, _options.WorkerId, _options.DrainTimeout);
+
+            if (_options.SaveCheckpointOnShutdown)
+            {
+                await FailRemainingTasksWithCheckpointAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (acquiredDrainSlots > 0)
+            {
+                _concurrencyLimiter.Release(acquiredDrainSlots);
+            }
+        }
+
+        try
+        {
+            await baseStopTask;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task FailRemainingTasksWithCheckpointAsync(CancellationToken cancellationToken)
+    {
+        foreach (var (taskId, checkpointJson) in _taskCheckpoints.ToArray())
+        {
+            try
+            {
+                _logger.LogInformation("Failing task {TaskId} with checkpoint due to worker shutdown", taskId);
+                var shutdownEx = new OperationCanceledException("Worker shutting down");
+                await FailTaskAsync(taskId, shutdownEx, cancellationToken, checkpointJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to record shutdown checkpoint for task {TaskId}", taskId);
+            }
+        }
     }
 
     private async Task ProcessTaskWithReleaseAsync(TaskNotification notification, CancellationToken stoppingToken)
@@ -88,13 +155,64 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         }
     }
 
+    private async Task<ScopeSnapshot?> FetchAndValidateSnapshotAsync(Guid programId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
+        {
+            _logger.LogWarning("SnapshotSecretKey not configured, cannot fetch signed snapshot");
+            return null;
+        }
+
+        var client = _httpClientFactory.CreateClient();
+        client.BaseAddress = _options.ScopeServiceBaseAddress;
+        using var response = await client.GetAsync($"/programs/{programId:N}/snapshot", cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning("No snapshot found for program {ProgramId}", programId);
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var snapshotJson = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
+        if (snapshot is null)
+        {
+            _logger.LogError("Failed to deserialize scope snapshot for program {ProgramId}", programId);
+            return null;
+        }
+
+        if (!SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey))
+        {
+            _logger.LogError("Scope snapshot signature verification failed for program {ProgramId}", programId);
+            return null;
+        }
+
+        _logger.LogDebug("Scope snapshot verified for program {ProgramId}", programId);
+        return snapshot;
+    }
+
     private async Task ProcessTaskAsync(TaskNotification notification, CancellationToken cancellationToken)
     {
         var task = notification.Task;
         var stopwatch = Stopwatch.StartNew();
+        _taskCheckpoints[task.TaskId] = task.CheckpointJson;
 
         _logger.LogInformation("Event-driven worker {WorkerId} processing task {TaskId} ({TaskType})",
             _options.WorkerId, task.TaskId, task.TaskType);
+
+        if (!string.IsNullOrEmpty(_options.SnapshotSecretKey))
+        {
+            var snapshot = await FetchAndValidateSnapshotAsync(task.ProgramId, cancellationToken);
+            if (snapshot is null)
+            {
+                _logger.LogError("Task {TaskId} failed to fetch or validate scope snapshot", task.TaskId);
+                await FailTaskAsync(task.TaskId, new InvalidOperationException("Scope snapshot fetch/validation failed"), cancellationToken);
+                return;
+            }
+            _logger.LogDebug("Task {TaskId} fetched and validated scope snapshot {SnapshotId}", task.TaskId, snapshot.SnapshotId);
+        }
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeatTask = StartHeartbeatTimerAsync(heartbeatCts.Token);
@@ -127,26 +245,27 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
                     if (createdAsset is not null)
                     {
                         await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
-                        _metrics.RecordAssetProduced(_worker.Capability.WorkerType, asset.AssetType);
+                        _metrics.RecordAssetProduced(task.ProgramId, _worker.Capability.WorkerType, asset.AssetType);
                     }
                 }
             }
 
-            _metrics.RecordTaskProcessed(_worker.Capability.WorkerType, result.PartiallySucceeded);
-            _metrics.RecordTaskDuration(_worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.RecordTaskProcessed(task.ProgramId, _worker.Capability.WorkerType, result.PartiallySucceeded);
+            _metrics.RecordTaskDuration(task.ProgramId, _worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
 
             await CompleteTaskAsync(task.TaskId, result, heartbeatCts.Token);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            _metrics.RecordTaskFailed(_worker.Capability.WorkerType, ex.GetType().Name);
-            _metrics.RecordTaskDuration(_worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.RecordTaskFailed(task.ProgramId, _worker.Capability.WorkerType, ex.GetType().Name);
+            _metrics.RecordTaskDuration(task.ProgramId, _worker.Capability.WorkerType, stopwatch.Elapsed.TotalMilliseconds);
             _logger.LogError(ex, "Task {TaskId} failed in event-driven worker {WorkerId}", task.TaskId, _options.WorkerId);
             await FailTaskAsync(task.TaskId, ex, heartbeatCts.Token);
         }
         finally
         {
+            _taskCheckpoints.TryRemove(task.TaskId, out _);
             heartbeatCts.Cancel();
             await heartbeatTask;
             notification.CompletionCts.Cancel();
@@ -176,6 +295,10 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             {
                 break;
             }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Heartbeat failed for event-driven worker {WorkerType} ({WorkerId})", _worker.Capability.WorkerType, _options.WorkerId);
+            }
         }
     }
 
@@ -204,6 +327,11 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
 
     private async Task ReportProgressAsync(Guid taskId, int percent, string message, string? checkpointJson, CancellationToken cancellationToken)
     {
+        if (checkpointJson is not null)
+        {
+            _taskCheckpoints[taskId] = checkpointJson;
+        }
+
         var request = new UpdateReconTaskProgressRequest(percent, message, checkpointJson);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = _options.TaskServiceBaseAddress;
@@ -257,6 +385,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             assetType,
             asset.Value,
             asset.Subtype,
+            asset.Confidence,
             task.TaskId.ToString(),
             asset.Metadata,
             asset.Tags);
@@ -325,9 +454,20 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
 
     private static string? ExtractScopeTarget(WorkerProducedAsset asset)
     {
+        if (string.Equals(asset.AssetType, "Observation", StringComparison.OrdinalIgnoreCase)
+            && asset.Metadata?.TryGetValue("url", out var observationUrl) == true)
+        {
+            return Uri.TryCreate(observationUrl.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)
+                ? uri.Host
+                : observationUrl;
+        }
+
         if (string.Equals(asset.AssetType, "Url", StringComparison.OrdinalIgnoreCase)
             || string.Equals(asset.AssetType, "ApiEndpoint", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(asset.AssetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(asset.AssetType, "JavaScriptFile", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "HtmlPage", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "JsonDocument", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(asset.AssetType, "HttpResponse", StringComparison.OrdinalIgnoreCase))
         {
             return Uri.TryCreate(asset.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], UriKind.Absolute, out var uri)
                 ? uri.Host : asset.Value;
@@ -350,9 +490,10 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken)
+    private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: null);
+        var checkpoint = checkpointJson ?? (_taskCheckpoints.TryGetValue(taskId, out var saved) ? saved : null);
+        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: checkpoint);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = _options.TaskServiceBaseAddress;
 

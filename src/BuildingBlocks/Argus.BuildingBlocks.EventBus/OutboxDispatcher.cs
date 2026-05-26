@@ -15,7 +15,7 @@ public sealed class OutboxDispatcher(
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan LockDuration = TimeSpan.FromSeconds(30);
     private readonly string _lockOwner = $"{Environment.MachineName}:{Guid.NewGuid():N}";
-    private readonly RabbitMqIntegrationEventPublisher? _rabbitMqPublisher = rabbitMqPublishers.SingleOrDefault();
+    private readonly RabbitMqIntegrationEventPublisher? _rabbitMqPublisher = rabbitMqPublishers.FirstOrDefault();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

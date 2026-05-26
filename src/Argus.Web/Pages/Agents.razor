@@ -1,0 +1,707 @@
+@page "/agents"
+@page "/development/agents"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Argus.Contracts.Agents
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DevelopmentRealtimeClient Realtime
+
+<PageHeader Title="Agent Configuration" Subtitle="@($"{_agents.Count:N0} agent configuration{(_agents.Count == 1 ? "" : "s")}")" />
+
+<div class="page-body dev-page agent-config-page">
+    <div class="dev-main">
+        <div class="page-tabs">
+            <a class="page-tab active" href="/agents">Agents <span class="tab-count">@_agents.Count</span></a>
+            <a class="page-tab" href="/agent-tasks">Agent Tasks</a>
+            <a class="page-tab" href="/agent-schedules">Schedules</a>
+            <a class="page-tab" href="/provider-usage">Provider Usage</a>
+            <div class="page-tab-spacer"></div>
+            <div class="page-tab-actions">
+                <button class="btn primary tiny" @onclick="OpenCreateModal">+ New Config</button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="dev-alert">@_error</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_notice))
+        {
+            <div class="dev-alert" style="background: var(--green-bg); color: var(--green);">@_notice</div>
+        }
+
+        <div class="dev-stats-strip">
+            <DevStat Label="Total Configurations" Value="@_agents.Count.ToString()" Sub="defined agent configs" />
+            <DevStat Label="Available" Value="@_agents.Count(IsActive).ToString()" Tone="green" Sub="enabled configurations" />
+            <DevStat Label="CLI Count" Value="@_agents.Select(a => NormalizeTool(a.Tool)).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString()" Sub='@string.Join(", ", _agents.Select(a => NormalizeTool(a.Tool)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3))' />
+            <DevStat Label="Provider Count" Value="@_agents.Select(ProviderLabel).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString()" Sub='@string.Join(", ", _agents.Select(ProviderLabel).Distinct(StringComparer.OrdinalIgnoreCase).Take(3))' />
+        </div>
+
+        @if (_loading)
+        {
+            <div class="dev-empty">
+                <div>
+                    <div class="app-loading-spinner" style="margin: 0 auto 12px;"></div>
+                    <div>// loading agent configurations</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="dev-two-pane">
+                <div class="ac-pane">
+                    <div class="ac-filter-bar">
+                        <input class="ac-filter-input" type="text" placeholder="filter…" @bind="_filterText" @bind:event="oninput" />
+                        <span class="ac-filter-count">@SortedFilteredAgents.Count OF @_agents.Count</span>
+                    </div>
+                    <div class="ac-table-wrap">
+                        <table class="ac-table">
+                            <thead>
+                                <tr>
+                                    <th class="ac-col-enabled @SortClass("enabled")" @onclick='() => SortBy("enabled")'>@SortIcon("enabled")</th>
+                                    <th class="@SortClass("name")" @onclick='() => SortBy("name")'>Name@SortIcon("name")</th>
+                                    <th class="ac-col-role @SortClass("role")" @onclick='() => SortBy("role")'>Role@SortIcon("role")</th>
+                                    <th class="ac-col-tool @SortClass("tool")" @onclick='() => SortBy("tool")'>CLI@SortIcon("tool")</th>
+                                    <th class="ac-col-provider @SortClass("provider")" @onclick='() => SortBy("provider")'>Provider@SortIcon("provider")</th>
+                                    <th class="ac-col-model @SortClass("model")" @onclick='() => SortBy("model")'>Model@SortIcon("model")</th>
+                                    <th class="ac-col-command @SortClass("command")" @onclick='() => SortBy("command")'>Command@SortIcon("command")</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var agent in SortedFilteredAgents)
+                                {
+                                    <tr class="@(_selectedAgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "ac-disabled" : "")"
+                                        @onclick="() => SelectAgent(agent)">
+                                        <td class="ac-col-enabled">
+                                            <span class="dot @(IsActive(agent) ? "green" : "")"></span>
+                                        </td>
+                                        <td>@agent.Name</td>
+                                        <td class="ac-col-role">
+                                            <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
+                                        </td>
+                                        <td class="ac-col-tool">
+                                            <span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span>
+                                        </td>
+                                        <td class="ac-col-provider">
+                                            <span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span>
+                                        </td>
+                                        <td class="ac-col-model mono">@agent.Model</td>
+                                        <td class="ac-col-command mono">@AgentCommand(agent)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (SortedFilteredAgents.Count == 0 && _agents.Count > 0)
+                        {
+                            <div class="dev-empty" style="padding: 24px 16px;">// no configurations match this filter</div>
+                        }
+                        @if (_agents.Count == 0)
+                        {
+                            <div class="dev-empty" style="padding: 24px 16px;">// no agent configurations yet</div>
+                        }
+                    </div>
+                </div>
+
+                <div class="dev-inspector">
+                    @if (_selectedAgentId is null || _agents.All(a => a.AgentId != _selectedAgentId))
+                    {
+                        <div class="dev-empty">// select a configuration</div>
+                    }
+                    else
+                    {
+                        var agent = _agents.First(a => a.AgentId == _selectedAgentId);
+                        <div class="dev-inspector-head">
+                            <div class="type-row">
+                                <span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span>
+                                <span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span>
+                                <span class="asset-id">@ShortId(agent.AgentId)</span>
+                            </div>
+                            <div class="value-big">@agent.Name</div>
+                            <div class="submeta">
+                                <span><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span> · <b>@agent.Model</b></span>
+                                <span class="mono">@AgentCommand(agent)</span>
+                            </div>
+                        </div>
+                        <div class="dev-inspector-body">
+                            <div class="section-label">CONFIGURATION</div>
+                            <table class="kv-table">
+                                <tbody>
+                                    <tr><td>Agent ID</td><td class="mono">@agent.AgentId</td></tr>
+                                    <tr><td>Status</td><td><span class="dev-pill @(IsActive(agent) ? "green" : "dim")">@(IsActive(agent) ? "enabled" : "disabled")</span></td></tr>
+                                    <tr><td>Role</td><td><span class="dev-pill @RoleTone(agent.Role)">@RoleLabel(agent.Role)</span></td></tr>
+                                    <tr><td>CLI Tool</td><td><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span></td></tr>
+                                    <tr><td>Provider</td><td><span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span></td></tr>
+                                    <tr><td>Model</td><td class="mono">@agent.Model</td></tr>
+                                    <tr><td>Command</td><td class="mono">@AgentCommand(agent)</td></tr>
+                                    <tr><td>Sort Order</td><td>@agent.SortOrder</td></tr>
+                                </tbody>
+                            </table>
+
+                            @if (!string.IsNullOrWhiteSpace(agent.RoleDescription))
+                            {
+                                <div class="section-label">ROLE DESCRIPTION</div>
+                                <div class="dev-note">@agent.RoleDescription</div>
+                            }
+
+                            <div class="section-label">RESPONSIBILITIES</div>
+                            <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
+                                @if (agent.Responsibilities.Length == 0)
+                                {
+                                    <span class="dev-chip">// none configured</span>
+                                }
+                                else
+                                {
+                                    @foreach (var item in agent.Responsibilities)
+                                    {
+                                        <span class="dev-chip">@item</span>
+                                    }
+                                }
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(agent.LastError))
+                            {
+                                <div class="section-label">LAST ERROR</div>
+                                <div class="dev-note warn">@agent.LastError</div>
+                            }
+
+                            <div class="section-label">CONTROLS</div>
+                            <div class="dev-action-row">
+                                @if (IsActive(agent))
+                                {
+                                    <button class="btn primary tiny" @onclick="() => PauseAgent(agent.AgentId)">Disable</button>
+                                }
+                                else
+                                {
+                                    <button class="btn primary tiny" @onclick="() => ResumeAgent(agent.AgentId)">Enable</button>
+                                }
+                                <button class="btn ghost tiny" @onclick="() => OpenEditModal(agent)">Edit Config</button>
+                                <button class="btn danger tiny" @onclick="() => DeleteAgent(agent.AgentId)">Remove</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (_showAgentModal)
+{
+    <div class="dev-page">
+        <div class="dev-modal-overlay" @onclick="CloseAgentModal">
+            <div class="dev-modal" @onclick:stopPropagation="true">
+                <div class="dev-modal-head">
+                    <span class="dot amber"></span>
+                    @(_editingAgentId is null ? "New Agent Configuration" : "Edit Agent Configuration")
+                    <button class="dev-icon-btn" @onclick="CloseAgentModal">×</button>
+                </div>
+                <div class="dev-modal-body">
+                    <div class="dev-form-grid">
+                        <div class="dev-form-field">
+                            <label>Name</label>
+                            <input class="dev-input" @bind="_agentForm.Name" @bind:event="oninput" placeholder="Agent name" />
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Role</label>
+                            <select class="dev-input" @bind="_agentForm.Role">
+                                <option value="junior_developer">Junior Developer</option>
+                                <option value="developer">Developer</option>
+                                <option value="senior_developer">Senior Developer</option>
+                                <option value="junior_system_architect">Junior System Architect</option>
+                                <option value="senior_system_architect">Senior System Architect</option>
+                                <option value="junior_devops">Junior DevOps</option>
+                                <option value="senior_devops">Senior DevOps</option>
+                                <option value="devops_architect">DevOps Architect</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>CLI</label>
+                            <select class="dev-input" @bind="_agentForm.Tool">
+                                <option value="claude">Claude</option>
+                                <option value="codex">Codex</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="opencode">Opencode</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Provider</label>
+                            <select class="dev-input" @bind="_agentForm.Provider">
+                                <option value="">(auto-detect)</option>
+                                <option value="Anthropic">Anthropic</option>
+                                <option value="Claude">Claude</option>
+                                <option value="Fireworks">Fireworks</option>
+                                <option value="Gemini">Gemini</option>
+                                <option value="NVIDIA">NVIDIA</option>
+                                <option value="OpenAI">OpenAI</option>
+                                <option value="OpenRouter">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Model</label>
+                            <input class="dev-input" @bind="_agentForm.Model" @bind:event="oninput" placeholder="claude-sonnet-4-6" />
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Priority order</label>
+                            <input class="dev-input" type="number" min="0" @bind="_agentForm.SortOrder" />
+                        </div>
+                        <div class="dev-form-field full">
+                            <label>Role description</label>
+                            <textarea class="dev-input" rows="3" @bind="_agentForm.RoleDescription" @bind:event="oninput" placeholder="Describe what this agent is responsible for."></textarea>
+                        </div>
+                        <div class="dev-form-field full">
+                            <label>Responsibilities</label>
+                            <textarea class="dev-input" rows="5" @bind="_agentForm.ResponsibilitiesText" @bind:event="oninput" placeholder="implementation, tests, code review"></textarea>
+                        </div>
+                        <div class="dev-form-field full">
+                            <label>Command</label>
+                            <div class="dev-note" style="margin: 0;">@ToolCommand(_agentForm.Tool) @_agentForm.Model</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dev-modal-foot">
+                    <button class="btn ghost" @onclick="CloseAgentModal">Cancel</button>
+                    <button class="btn primary" @onclick="SaveAgent" disabled="@(!CanSaveAgent)">Save Configuration</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private List<AgentDto> _agents = new();
+    private bool _loading = true;
+    private string _filterText = "";
+    private string _sortColumn = "enabled";
+    private bool _sortAsc = false;
+    private string? _error;
+    private string? _notice;
+    private Guid? _selectedAgentId;
+
+    private bool _showAgentModal;
+    private Guid? _editingAgentId;
+    private AgentForm _agentForm = new();
+
+    private IReadOnlyList<AgentDto> SortedFilteredAgents
+    {
+        get
+        {
+            IEnumerable<AgentDto> list = string.IsNullOrWhiteSpace(_filterText)
+                ? _agents
+                : _agents.Where(a =>
+                    a.Name.Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || RoleLabel(a.Role).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || NormalizeTool(a.Tool).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || ProviderLabel(a).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || a.Model.Contains(_filterText, StringComparison.OrdinalIgnoreCase));
+
+            var ordered = _sortColumn switch
+            {
+                "name"     => _sortAsc ? list.OrderBy(a => a.Name)             : list.OrderByDescending(a => a.Name),
+                "role"     => _sortAsc ? list.OrderBy(a => RoleLabel(a.Role))  : list.OrderByDescending(a => RoleLabel(a.Role)),
+                "tool"     => _sortAsc ? list.OrderBy(a => NormalizeTool(a.Tool)) : list.OrderByDescending(a => NormalizeTool(a.Tool)),
+                "provider" => _sortAsc ? list.OrderBy(ProviderLabel)           : list.OrderByDescending(ProviderLabel),
+                "model"    => _sortAsc ? list.OrderBy(a => a.Model)            : list.OrderByDescending(a => a.Model),
+                "command"  => _sortAsc ? list.OrderBy(AgentCommand)            : list.OrderByDescending(AgentCommand),
+                _          => _sortAsc ? list.OrderBy(IsActive)                : list.OrderByDescending(IsActive),
+            };
+
+            return _sortColumn == "enabled"
+                ? ordered.ThenBy(a => RoleLabel(a.Role)).ThenBy(a => a.Name).ToList()
+                : ordered.ThenByDescending(IsActive).ThenBy(a => a.Name).ToList();
+        }
+    }
+
+    private bool CanSaveAgent =>
+        !string.IsNullOrWhiteSpace(_agentForm.Name)
+        && !string.IsNullOrWhiteSpace(_agentForm.Role)
+        && !string.IsNullOrWhiteSpace(_agentForm.Tool)
+        && !string.IsNullOrWhiteSpace(_agentForm.Model);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Realtime.Changed += OnDevelopmentDataChanged;
+        await Realtime.StartAsync();
+        await LoadData();
+    }
+
+    private async Task LoadData(bool showLoading = true)
+    {
+        _loading = showLoading && _agents.Count == 0;
+        _error = null;
+        _notice = null;
+
+        try
+        {
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to load agent configurations: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadAgentsAsync()
+    {
+        var response = await Http.GetAsync(Ui("/ui/agents"));
+        _agents = await ReadItemsAsync<AgentDto>(response);
+        StateHasChanged();
+    }
+
+    private Task OnDevelopmentDataChanged(DevelopmentDataChangedEvent change)
+    {
+        if (change.Area is "agents")
+        {
+            return InvokeAsync(() => LoadData(showLoading: false));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Realtime.Changed -= OnDevelopmentDataChanged;
+        return ValueTask.CompletedTask;
+    }
+
+    private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
+
+    private async Task<List<T>> ReadItemsAsync<T>(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            _error = $"Backend returned {(int)response.StatusCode}: {body}";
+            return new List<T>();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var document = await JsonDocument.ParseAsync(stream);
+
+        if (document.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            return JsonSerializer.Deserialize<List<T>>(document.RootElement.GetRawText(), _jsonOptions) ?? new List<T>();
+        }
+
+        if (document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty("items", out var items)
+            && items.ValueKind == JsonValueKind.Array)
+        {
+            return JsonSerializer.Deserialize<List<T>>(items.GetRawText(), _jsonOptions) ?? new List<T>();
+        }
+
+        return new List<T>();
+    }
+
+    private void SelectAgent(AgentDto agent)
+    {
+        _selectedAgentId = agent.AgentId;
+    }
+
+    private void SortBy(string col)
+    {
+        if (_sortColumn == col)
+        {
+            _sortAsc = !_sortAsc;
+        }
+        else
+        {
+            _sortColumn = col;
+            _sortAsc = col != "enabled";
+        }
+    }
+
+    private string SortIcon(string col) => _sortColumn == col ? (_sortAsc ? " ▲" : " ▼") : "";
+    private string SortClass(string col) => _sortColumn == col ? "ac-sorted" : "";
+
+    private void OpenCreateModal()
+    {
+        _editingAgentId = null;
+        _agentForm = new AgentForm
+        {
+            Name = $"Agent {_agents.Count + 1}",
+            Role = "developer",
+            Tool = "claude",
+            Model = "claude-sonnet-4-6",
+            SortOrder = 10,
+            ResponsibilitiesText = "implementation, tests, code review"
+        };
+        _showAgentModal = true;
+    }
+
+    private void OpenEditModal(AgentDto agent)
+    {
+        _editingAgentId = agent.AgentId;
+        _agentForm = new AgentForm
+        {
+            Name = agent.Name,
+            Role = agent.Role,
+            RoleDescription = agent.RoleDescription ?? "",
+            SortOrder = agent.SortOrder,
+            Tool = agent.Tool,
+            Model = agent.Model,
+            Provider = agent.Provider ?? "",
+            ResponsibilitiesText = string.Join(", ", agent.Responsibilities)
+        };
+        _showAgentModal = true;
+    }
+
+    private void CloseAgentModal()
+    {
+        _showAgentModal = false;
+        _editingAgentId = null;
+    }
+
+    private async Task SaveAgent()
+    {
+        if (!CanSaveAgent) return;
+
+        _error = null;
+        _notice = null;
+        var responsibilities = SplitResponsibilities(_agentForm.ResponsibilitiesText);
+
+        try
+        {
+            HttpResponseMessage response;
+            var wasEdit = _editingAgentId is not null;
+
+            var providerValue = string.IsNullOrWhiteSpace(_agentForm.Provider) ? null : _agentForm.Provider.Trim();
+
+            if (_editingAgentId is Guid id)
+            {
+                var request = new UpdateAgentRequest(
+                    Name: _agentForm.Name.Trim(),
+                    Role: _agentForm.Role.Trim(),
+                    RoleDescription: string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
+                    SortOrder: _agentForm.SortOrder,
+                    Responsibilities: responsibilities,
+                    Tool: _agentForm.Tool.Trim(),
+                    Model: _agentForm.Model.Trim(),
+                    Provider: providerValue,
+                    ClearProvider: providerValue is null);
+
+                response = await Http.PutAsJsonAsync(Ui($"/ui/agents/{id}"), request);
+            }
+            else
+            {
+                var request = new CreateAgentRequest(
+                    _agentForm.Name.Trim(),
+                    _agentForm.Role.Trim(),
+                    responsibilities,
+                    _agentForm.Tool.Trim(),
+                    _agentForm.Model.Trim(),
+                    string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
+                    _agentForm.SortOrder,
+                    providerValue);
+
+                response = await Http.PostAsJsonAsync(Ui("/ui/agents"), request);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Save failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
+
+            CloseAgentModal();
+            await LoadData();
+            _notice = wasEdit ? "Configuration updated." : "Configuration saved.";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to save agent configuration: {ex.Message}";
+        }
+    }
+
+    private async Task PauseAgent(Guid agentId) => await PatchAgent(agentId, "pause");
+    private async Task ResumeAgent(Guid agentId) => await PatchAgent(agentId, "resume");
+
+    private async Task PatchAgent(Guid agentId, string operation)
+    {
+        _error = null;
+        try
+        {
+            var response = await Http.PatchAsync(Ui($"/ui/agents/{agentId}/{operation}"), null);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"{operation} failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+            }
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to {operation} agent: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteAgent(Guid agentId)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Remove this agent configuration?"))
+        {
+            return;
+        }
+
+        _error = null;
+        try
+        {
+            var response = await Http.DeleteAsync(Ui($"/ui/agents/{agentId}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Delete failed with status {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}";
+            }
+            if (_selectedAgentId == agentId)
+            {
+                _selectedAgentId = null;
+            }
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to delete agent configuration: {ex.Message}";
+        }
+    }
+
+    private static string[] SplitResponsibilities(string value) =>
+        value.Split([',', '\n', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static bool IsActive(AgentDto agent) =>
+        agent.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
+        || agent.Status.Equals("enabled", StringComparison.OrdinalIgnoreCase)
+        || string.IsNullOrWhiteSpace(agent.Status);
+
+    private static string NormalizeRole(string role) =>
+        string.IsNullOrWhiteSpace(role) ? "developer" : role.Trim().ToLowerInvariant();
+
+    private static string NormalizeTool(string tool) =>
+        string.IsNullOrWhiteSpace(tool) ? "cli" : tool.Trim().ToLowerInvariant();
+
+    private static string RoleLabel(string role) => NormalizeRole(role) switch
+    {
+        "junior_developer"        => "Junior Developer",
+        "developer"               => "Developer",
+        "senior_developer"        => "Senior Developer",
+        "junior_system_architect" => "Jr. System Architect",
+        "senior_system_architect" => "Sr. System Architect",
+        "junior_devops"           => "Junior DevOps",
+        "senior_devops"           => "Senior DevOps",
+        "devops_architect"        => "DevOps Architect",
+        _                         => role
+    };
+
+    private static string RoleTone(string role) => NormalizeRole(role) switch
+    {
+        "junior_developer"                       => "amber",
+        "developer"                              => "amber",
+        "senior_developer"                       => "magenta",
+        "junior_system_architect"                => "cyan",
+        "senior_system_architect"                => "red",
+        "junior_devops"                          => "green",
+        "senior_devops"                          => "green",
+        "devops_architect"                       => "violet",
+        _                                        => "dim"
+    };
+
+    private static string ToolLabel(string tool) => NormalizeTool(tool) switch
+    {
+        "claude"   => "Claude",
+        "codex"    => "Codex",
+        "gemini"   => "Gemini",
+        "openai"   => "OpenAI",
+        "opencode" => "Opencode",
+        _          => string.IsNullOrWhiteSpace(tool) ? "CLI" : tool
+    };
+
+    private static string ToolTone(string tool) => NormalizeTool(tool) switch
+    {
+        "claude"   => "violet",
+        "codex"    => "green",
+        "gemini"   => "cyan",
+        "openai"   => "green",
+        "opencode" => "cyan",
+        _          => "amber"
+    };
+
+    private static string ToolCommand(string tool) => NormalizeTool(tool) switch
+    {
+        "claude"   => "claude --model",
+        "codex"    => "codex -m",
+        "gemini"   => "gemini --model",
+        "opencode" => "opencode run --model",
+        _          => $"{NormalizeTool(tool)} --model"
+    };
+
+    private static string ProviderLabel(AgentDto agent)
+    {
+        if (!string.IsNullOrWhiteSpace(agent.Provider))
+            return agent.Provider.Trim();
+
+        return NormalizeTool(agent.Tool) switch
+        {
+            "claude"            => "Claude",
+            "gemini"            => "Gemini",
+            "codex" or "openai" => "OpenAI",
+            "opencode"          => DeriveOpenCodeProvider(agent.Model),
+            _                   => "Unknown"
+        };
+    }
+
+    private static string DeriveOpenCodeProvider(string model)
+    {
+        var m = (model ?? string.Empty).ToLowerInvariant();
+        if (m.StartsWith("nvidia/") || m.Contains("nvidia")) return "NVIDIA";
+        if (m.StartsWith("openai/") || m.StartsWith("gpt-") || m.StartsWith("o1-") || m.StartsWith("o3-") || m.Contains("/gpt-")) return "OpenAI";
+        if (m.StartsWith("anthropic/") || m.StartsWith("claude-") || m.Contains("/claude-")) return "Claude";
+        if (m.StartsWith("google/") || m.StartsWith("gemini-") || m.Contains("/gemini-")) return "Gemini";
+        return "OpenRouter";
+    }
+
+    private static string ProviderTone(string provider) => provider switch
+    {
+        "Anthropic"  => "violet",
+        "Claude"     => "violet",
+        "Fireworks"  => "magenta",
+        "Gemini"     => "cyan",
+        "NVIDIA"     => "green",
+        "OpenAI"     => "green",
+        "OpenRouter" => "amber",
+        _            => "dim"
+    };
+
+    private static string AgentCommand(AgentDto agent) => NormalizeTool(agent.Tool) switch
+    {
+        "claude"   => $"claude --model {agent.Model}",
+        "opencode" => $"opencode run --model {agent.Model}",
+        "codex"    => $"codex -m {agent.Model}",
+        "gemini"   => $"gemini --model {agent.Model}",
+        _          => $"{NormalizeTool(agent.Tool)} --model {agent.Model}"
+    };
+
+    private static string ShortId(Guid id) => id.ToString("N")[..8];
+
+    private sealed class AgentForm
+    {
+        public string Name { get; set; } = "";
+        public string Role { get; set; } = "developer";
+        public string RoleDescription { get; set; } = "";
+        public int SortOrder { get; set; }
+        public string Tool { get; set; } = "claude";
+        public string Model { get; set; } = "claude-sonnet-4-6";
+        public string Provider { get; set; } = "";
+        public string ResponsibilitiesText { get; set; } = "";
+    }
+}
