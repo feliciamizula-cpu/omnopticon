@@ -72,7 +72,8 @@ public sealed class InMemoryAgentStore : IAgentStore
             ResponsibilitiesJson = JsonSerializer.Serialize(request.Responsibilities),
             Tool = request.Tool,
             Model = request.Model,
-            Provider = string.IsNullOrWhiteSpace(request.Provider) ? null : request.Provider.Trim()
+            Provider = string.IsNullOrWhiteSpace(request.Provider) ? null : request.Provider.Trim(),
+            Priority = request.Priority
         };
 
         _agents.TryAdd(id, record);
@@ -112,6 +113,8 @@ public sealed class InMemoryAgentStore : IAgentStore
             record.Provider = null;
         else if (!string.IsNullOrWhiteSpace(request.Provider))
             record.Provider = request.Provider.Trim();
+        if (!string.IsNullOrWhiteSpace(request.Priority))
+            record.Priority = request.Priority;
 
         record.UpdatedAt = DateTimeOffset.UtcNow;
         return Task.FromResult<AgentDto?>(record.ToDto());

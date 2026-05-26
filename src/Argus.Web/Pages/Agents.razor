@@ -68,6 +68,7 @@
                                     <th class="ac-col-tool @SortClass("tool")" @onclick='() => SortBy("tool")'>CLI@SortIcon("tool")</th>
                                     <th class="ac-col-provider @SortClass("provider")" @onclick='() => SortBy("provider")'>Provider@SortIcon("provider")</th>
                                     <th class="ac-col-model @SortClass("model")" @onclick='() => SortBy("model")'>Model@SortIcon("model")</th>
+                                    <th class="@SortClass("priority")" @onclick='() => SortBy("priority")'>Priority@SortIcon("priority")</th>
                                     <th class="ac-col-command @SortClass("command")" @onclick='() => SortBy("command")'>Command@SortIcon("command")</th>
                                 </tr>
                             </thead>
@@ -90,6 +91,7 @@
                                             <span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span>
                                         </td>
                                         <td class="ac-col-model mono">@agent.Model</td>
+                                        <td><span class="dev-pill @AgentPriorityTone(agent.Priority)">@AgentPriorityLabel(agent.Priority)</span></td>
                                         <td class="ac-col-command mono">@AgentCommand(agent)</td>
                                     </tr>
                                 }
@@ -136,6 +138,7 @@
                                     <tr><td>CLI Tool</td><td><span class="tone-@ToolTone(agent.Tool)">@ToolLabel(agent.Tool)</span></td></tr>
                                     <tr><td>Provider</td><td><span class="tone-@ProviderTone(ProviderLabel(agent))">@ProviderLabel(agent)</span></td></tr>
                                     <tr><td>Model</td><td class="mono">@agent.Model</td></tr>
+                                    <tr><td>Priority</td><td><span class="dev-pill @AgentPriorityTone(agent.Priority)">@AgentPriorityLabel(agent.Priority)</span></td></tr>
                                     <tr><td>Command</td><td class="mono">@AgentCommand(agent)</td></tr>
                                     <tr><td>Sort Order</td><td>@agent.SortOrder</td></tr>
                                 </tbody>
@@ -249,6 +252,14 @@
                             <label>Priority order</label>
                             <input class="dev-input" type="number" min="0" @bind="_agentForm.SortOrder" />
                         </div>
+                        <div class="dev-form-field">
+                            <label>Priority</label>
+                            <select class="dev-input" @bind="_agentForm.Priority">
+                                <option value="low">Low</option>
+                                <option value="standard">Standard</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </div>
                         <div class="dev-form-field full">
                             <label>Role description</label>
                             <textarea class="dev-input" rows="3" @bind="_agentForm.RoleDescription" @bind:event="oninput" placeholder="Describe what this agent is responsible for."></textarea>
@@ -302,7 +313,8 @@
                     || RoleLabel(a.Role).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
                     || NormalizeTool(a.Tool).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
                     || ProviderLabel(a).Contains(_filterText, StringComparison.OrdinalIgnoreCase)
-                    || a.Model.Contains(_filterText, StringComparison.OrdinalIgnoreCase));
+                    || a.Model.Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+                    || a.Priority.Contains(_filterText, StringComparison.OrdinalIgnoreCase));
 
             var ordered = _sortColumn switch
             {
@@ -311,6 +323,7 @@
                 "tool"     => _sortAsc ? list.OrderBy(a => NormalizeTool(a.Tool)) : list.OrderByDescending(a => NormalizeTool(a.Tool)),
                 "provider" => _sortAsc ? list.OrderBy(ProviderLabel)           : list.OrderByDescending(ProviderLabel),
                 "model"    => _sortAsc ? list.OrderBy(a => a.Model)            : list.OrderByDescending(a => a.Model),
+                "priority" => _sortAsc ? list.OrderBy(a => a.Priority)        : list.OrderByDescending(a => a.Priority),
                 "command"  => _sortAsc ? list.OrderBy(AgentCommand)            : list.OrderByDescending(AgentCommand),
                 _          => _sortAsc ? list.OrderBy(IsActive)                : list.OrderByDescending(IsActive),
             };
@@ -437,6 +450,7 @@
             Tool = "claude",
             Model = "claude-sonnet-4-6",
             SortOrder = 10,
+            Priority = "standard",
             ResponsibilitiesText = "implementation, tests, code review"
         };
         _showAgentModal = true;
@@ -454,6 +468,7 @@
             Tool = agent.Tool,
             Model = agent.Model,
             Provider = agent.Provider ?? "",
+            Priority = agent.Priority,
             ResponsibilitiesText = string.Join(", ", agent.Responsibilities)
         };
         _showAgentModal = true;
@@ -491,7 +506,8 @@
                     Tool: _agentForm.Tool.Trim(),
                     Model: _agentForm.Model.Trim(),
                     Provider: providerValue,
-                    ClearProvider: providerValue is null);
+                    ClearProvider: providerValue is null,
+                    Priority: _agentForm.Priority);
 
                 response = await Http.PutAsJsonAsync(Ui($"/ui/agents/{id}"), request);
             }
@@ -505,7 +521,8 @@
                     _agentForm.Model.Trim(),
                     string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
                     _agentForm.SortOrder,
-                    providerValue);
+                    providerValue,
+                    _agentForm.Priority);
 
                 response = await Http.PostAsJsonAsync(Ui("/ui/agents"), request);
             }
@@ -691,6 +708,24 @@
         _          => $"{NormalizeTool(agent.Tool)} --model {agent.Model}"
     };
 
+    private static string AgentPriorityLabel(string priority)
+    {
+        if (string.IsNullOrWhiteSpace(priority)) return "standard";
+        return priority.ToLowerInvariant() switch
+        {
+            "critical" => "critical",
+            "low" => "low",
+            _ => "standard"
+        };
+    }
+
+    private static string AgentPriorityTone(string priority) => AgentPriorityLabel(priority) switch
+    {
+        "critical" => "red",
+        "low" => "dim",
+        _ => "cyan"
+    };
+
     private static string ShortId(Guid id) => id.ToString("N")[..8];
 
     private sealed class AgentForm
@@ -702,6 +737,7 @@
         public string Tool { get; set; } = "claude";
         public string Model { get; set; } = "claude-sonnet-4-6";
         public string Provider { get; set; } = "";
+        public string Priority { get; set; } = "standard";
         public string ResponsibilitiesText { get; set; } = "";
     }
 }

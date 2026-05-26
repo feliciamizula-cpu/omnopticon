@@ -20,6 +20,7 @@ public sealed class AgentRecord
     public string Tool { get; set; } = "opencode";
     public string Model { get; set; } = "claude-sonnet-4-6";
     public string? Provider { get; set; }
+    public string Priority { get; set; } = "standard";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
@@ -28,6 +29,6 @@ public sealed class AgentRecord
         var responsibilities = System.Text.Json.JsonSerializer.Deserialize<string[]>(ResponsibilitiesJson) ?? [];
         return new AgentDto(
             AgentId, Name, Role, RoleDescription, SortOrder, Status, responsibilities, CurrentTaskId, WorkStatus,
-            LastHeartbeatAt, LastError, Tool, Model, Provider, CreatedAt, UpdatedAt);
+            LastHeartbeatAt, LastError, Tool, Model, Provider, Priority, CreatedAt, UpdatedAt);
     }
 }

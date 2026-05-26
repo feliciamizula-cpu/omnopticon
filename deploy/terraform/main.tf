@@ -48,6 +48,11 @@ resource "google_container_cluster" "argus" {
 
   ip_allocation_policy {}
 
+  node_config {
+    disk_size_gb = 20
+    disk_type    = "pd-standard"
+  }
+
   addons_config {
     horizontal_pod_autoscaling {
       disabled = false
@@ -79,6 +84,8 @@ resource "google_container_node_pool" "primary" {
 
   node_config {
     machine_type    = var.machine_type
+    disk_size_gb    = 30
+    disk_type       = "pd-standard"
     service_account = google_service_account.gke_nodes.email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
 
