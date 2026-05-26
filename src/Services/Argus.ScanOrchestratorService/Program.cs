@@ -14,24 +14,10 @@ builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<TaskSeeder>();
-
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
-{
-    builder.Services.AddDbContext<ScanOrchestratorDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
-    builder.Services.AddScoped<IScanPlanStore, EfScanPlanStore>();
-    builder.Services.AddScoped<IScanSchedulerStore, EfScanSchedulerStore>();
-    builder.Services.AddHostedService<ScanSchedulerBackgroundService>();
-}
-else
-{
-    builder.Services.AddSingleton<IScanPlanStore, InMemoryScanPlanStore>();
-    builder.Services.AddSingleton<IScanSchedulerStore, InMemoryScanSchedulerStore>();
-}
+builder.Services.AddSingleton<IScanPlanStore, InMemoryScanPlanStore>();
+builder.Services.AddSingleton<IScanSchedulerStore, InMemoryScanSchedulerStore>();
 
 var app = builder.Build();
-
-await app.InitializeScanPlanStoreAsync();
 app.MapDefaultEndpoints();
 
 app.MapGet("/scan-plans", (IScanPlanStore store, CancellationToken cancellationToken) =>
