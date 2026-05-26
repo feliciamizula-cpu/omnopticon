@@ -496,3 +496,4 @@ $RECYCLE.BIN/
 .azure
 
 tools/.agent-supervisor.pid
+.ssh/key
