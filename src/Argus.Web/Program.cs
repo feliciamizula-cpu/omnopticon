@@ -61,7 +61,52 @@ app.MapPost("/ui/programs", async (
 {
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    return await gateway.PostJsonAsync(endpoints.ProgramScope, "/programs", payload, cancellationToken);
+
+    var programResponse = await gateway.PostJsonAsync(endpoints.ProgramScope, "/programs", payload, cancellationToken);
+
+    if (!programResponse.StatusCode.IsSuccessStatusCode())
+    {
+        return programResponse;
+    }
+
+    var body = await programResponse.Content.ReadAsStringAsync(cancellationToken);
+    var program = JsonNode.Parse(body);
+
+    if (program?["programId"]?.GetValue<string>() is string programId &&
+        payload["source"]?.GetValue<string>() is string source &&
+        source != "custom")
+    {
+        var createScopePayload = new JsonObject
+        {
+            ["programId"] = programId,
+            ["scopeType"] = "domain",
+            ["action"] = "Include",
+            ["pattern"] = source,
+            ["notes"] = "Auto-created from program source"
+        };
+
+        var scopeResponse = await gateway.PostJsonAsync(endpoints.ProgramScope, $"/programs/{programId}/scopes", createScopePayload, cancellationToken);
+
+        if (scopeResponse.StatusCode.IsSuccessStatusCode())
+        {
+            var scopeBody = await scopeResponse.Content.ReadAsStringAsync(cancellationToken);
+            var scope = JsonNode.Parse(scopeBody);
+
+            if (scope?["scopeId"]?.GetValue<string>() is string scopeId)
+            {
+                var discoverPayload = new JsonObject
+                {
+                    ["programId"] = programId,
+                    ["scopeId"] = scopeId,
+                    ["domain"] = source
+                };
+
+                await gateway.PostJsonAsync(endpoints.ScanOrchestrator, "/scan-plans/domain-discovery", discoverPayload, cancellationToken);
+            }
+        }
+    }
+
+    return programResponse;
 });
 
 app.MapPost("/ui/programs/{programId:guid}/scopes", async (

@@ -15,29 +15,13 @@ builder.AddBasicServiceDefaults();
 
 var JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
-{
-    builder.Services.AddDbContext<AssetDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
-    builder.Services.AddArgusEfCoreOutbox<AssetDbContext>();
-    builder.Services.AddArgusInboxConsumer<AssetDbContext>();
-    builder.Services.AddHealthChecks()
-        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
-    builder.Services.AddScoped<IAssetStore, EfAssetStore>();
-    builder.Services.AddScoped<TaskCompletedConsumer>();
-}
-else
-{
-    builder.Services.AddSingleton<IAssetStore, InMemoryAssetStore>();
-}
-
+builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
+builder.Services.AddSingleton<IAssetStore, InMemoryAssetStore>();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.AssetService");
 builder.Services.AddHttpClient();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-
-await app.InitializeAssetStoreAsync();
 app.MapDefaultEndpoints();
 
 app.MapGet("/assets", (

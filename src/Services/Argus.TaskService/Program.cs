@@ -12,28 +12,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddBasicServiceDefaults();
 
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
-{
-    builder.Services.AddDbContext<TaskDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
-    builder.Services.AddArgusEfCoreOutbox<TaskDbContext>();
-    builder.Services.AddArgusInboxConsumer<TaskDbContext>();
-    builder.Services.AddHealthChecks()
-        .AddNpgSql(builder.Configuration.GetConnectionString("argusdb")!, name: "argusdb", tags: ["db", "sql", "postgres"]);
-    builder.Services.AddScoped<ITaskStore, EfTaskStore>();
-    builder.Services.AddHostedService<TaskMaintenanceService>();
-}
-else
-{
-    builder.Services.AddSingleton<ITaskStore, InMemoryTaskStore>();
-}
-
+builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
+builder.Services.AddSingleton<ITaskStore, InMemoryTaskStore>();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-
-await app.InitializeTaskStoreAsync();
 app.MapDefaultEndpoints();
 
 app.MapGet("/tasks", (

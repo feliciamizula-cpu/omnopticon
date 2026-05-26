@@ -1,0 +1,61 @@
+# Omnopticon - AI Development Guide
+
+## 🚀 Quick Start
+This document contains critical information for any AI assisting with this project. Follow these guidelines to ensure smooth collaboration.
+
+---
+
+## 🔑 **Golden Rules**
+1. **Every Change Must Be Deployed to Staging**
+   - After implementing a feature or fixing a bug:
+     - **Commit** the changes.
+     - **Push** to the repository.
+     - **Deploy** to staging.
+   - Staging is the **source of truth** for this project.
+
+2. **Staging Environment**
+   - URL: **[Argus Web Staging](https://argus-web-staging-kei4oluqua-uc.a.run.app/)**
+   - This is **NOT** a production environment. Development settings (e.g., verbose logging, debug mode) are safe to use here.
+
+3. **Aspire Dashboard**
+   - URL: **[http://localhost:18888](http://localhost:18888)** (local)
+   - **Logs, traces, and metrics** are available here during local development.
+   - Ensure the dashboard is running when testing changes locally.
+
+4. **OpenTelemetry Exporter**
+   - Logs and telemetry are exported via OTLP to the Aspire dashboard.
+   - Endpoint: `http://localhost:18889` (configured in `appsettings.json`).
+
+---
+
+## 📂 Project Structure
+- **`/src/Argus.ServiceDefaults`**: OpenTelemetry and service defaults configuration.
+- **`/src/BuildingBlocks`**: Shared libraries and utilities (e.g., event bus, workers).
+- **`appsettings.json`**: Log levels, OTLP endpoint, and environment-specific settings.
+
+---
+
+## 🛠 Development Workflow
+1. **Implement Changes**: Update code, add features, or fix bugs.
+2. **Test Locally**: Run the application and verify changes in the Aspire dashboard.
+3. **Commit**: Write clear, concise commit messages.
+4. **Push**: Push changes to the `main` branch.
+5. **Deploy**: Deploy to **[staging](https://argus-web-staging-kei4oluqua-uc.a.run.app/)** immediately.
+
+---
+
+## 🔐 Deployment Guidelines
+1. **Branch**: Always deploy to staging from the `main` branch.
+
+2. **Environment Variables**:
+   - Staging requires environment variables for:
+     - API keys.
+     - Authentication (e.g., CLI login for usage data).
+     - Database connections.
+   - You **must** identify these variables yourself (check `appsettings.json`, `.env`, or deployment scripts).
+
+3. **Deployment Automation**:
+   - No need to notify anyone. Deployments to staging are **automated** after pushing to `main`.
+
+4. **Additional URLs**:
+   - None for now. Add any important URLs here if discovered during development.
