@@ -250,6 +250,14 @@ services:
         PROJECT_PATH: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
         ASSEMBLY_NAME: Argus.Workers.AssetScoring
 
+  storage-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.StorageService/Argus.StorageService.csproj
+        ASSEMBLY_NAME: Argus.StorageService
+
 volumes:
   postgres-data:
   redis-data:
