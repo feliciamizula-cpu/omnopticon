@@ -5,6 +5,8 @@ ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
 ARG PROJECT_PATH=src/Argus.Web/Argus.Web.csproj
 ARG ASSEMBLY_NAME=Argus.Web
+ARG AMASS_VERSION=4.2.0
+ARG AMASS_LINUX_AMD64_SHA256=abef624f84b21fb45d4b9d39693863c6bf4e9ddb94830f797c129d03937a7f03
 
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
@@ -40,9 +42,19 @@ WORKDIR /app
 ARG GIT_SHA
 ARG BUILD_DATE
 ARG ASSEMBLY_NAME=Argus.Web
+ARG AMASS_VERSION
+ARG AMASS_LINUX_AMD64_SHA256
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libgssapi-krb5-2 python3 \
+    && if [ "$ASSEMBLY_NAME" = "Argus.Workers.Amass" ]; then \
+        apt-get install -y --no-install-recommends curl unzip \
+        && curl -fsSL -o /tmp/amass.zip "https://github.com/owasp-amass/amass/releases/download/v${AMASS_VERSION}/amass_Linux_amd64.zip" \
+        && echo "${AMASS_LINUX_AMD64_SHA256}  /tmp/amass.zip" | sha256sum -c - \
+        && unzip -q /tmp/amass.zip -d /tmp/amass \
+        && install -m 0755 "/tmp/amass/amass_Linux_amd64/amass" /usr/local/bin/amass \
+        && rm -rf /tmp/amass /tmp/amass.zip; \
+    fi \
     && if [ "$ASSEMBLY_NAME" = "Argus.AgentService" ]; then apt-get install -y --no-install-recommends nodejs npm && npm install -g @openai/codex@0.133.0; fi \
     && rm -rf /var/lib/apt/lists/*
 

@@ -7,6 +7,23 @@
 .env
 deploy/argus.env
 
+# Terraform local state/cache
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+!**/.terraform.lock.hcl
+
+# Aspirate generated deployment output
+src/Argus.AppHost/manifest.json
+src/Argus.AppHost/aspirate-state.json
+src/Argus.AppHost/aspirate-output/
+
 # User-specific files
 *.rsuser
 *.suo
