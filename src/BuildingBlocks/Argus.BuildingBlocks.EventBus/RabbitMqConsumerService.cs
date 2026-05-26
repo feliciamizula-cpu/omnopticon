@@ -62,7 +62,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
             var eventTypes = new[] {
-                "AssetDiscovered", "AssetConfirmed", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
+                "AssetDiscovered", "AssetCreated", "AssetConfirmed", "AssetUpdated", "AssetPropertyChanged", "AssetRelationshipDiscovered",
                 "TaskRequested", "TaskLeased", "TaskStarted", "TaskProgressed", "TaskCompleted", "TaskFailed",
                 "ProgramCreated", "ScopeCreated", "RateLimitTokenGranted", "RateLimitDelayed",
                 "WorkerHeartbeat", "ProgramScopeChanged"
@@ -219,6 +219,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         ["ProgramCreated"] = (typeof(IIntegrationEventConsumer<ProgramCreated>), typeof(ProgramCreated)),
         ["ScopeCreated"] = (typeof(IIntegrationEventConsumer<ScopeCreated>), typeof(ScopeCreated)),
         ["AssetDiscovered"] = (typeof(IIntegrationEventConsumer<AssetDiscovered>), typeof(AssetDiscovered)),
+        ["AssetCreated"] = (typeof(IIntegrationEventConsumer<AssetCreated>), typeof(AssetCreated)),
         ["AssetConfirmed"] = (typeof(IIntegrationEventConsumer<AssetConfirmed>), typeof(AssetConfirmed)),
         ["AssetUpdated"] = (typeof(IIntegrationEventConsumer<AssetUpdated>), typeof(AssetUpdated)),
         ["AssetPropertyChanged"] = (typeof(IIntegrationEventConsumer<AssetPropertyChanged>), typeof(AssetPropertyChanged)),
@@ -241,7 +242,7 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
         var dict = new Dictionary<(Type, string), MethodInfo>();
         var iface = typeof(IIntegrationEventConsumer<>);
         var eventTypes = new[] {
-            typeof(ProgramCreated), typeof(ScopeCreated), typeof(AssetDiscovered), typeof(AssetConfirmed), typeof(AssetUpdated),
+            typeof(ProgramCreated), typeof(ScopeCreated), typeof(AssetDiscovered), typeof(AssetCreated), typeof(AssetConfirmed), typeof(AssetUpdated),
             typeof(AssetPropertyChanged), typeof(AssetRelationshipDiscovered), typeof(TaskRequested), typeof(TaskLeased), typeof(TaskStarted),
             typeof(TaskProgressed), typeof(TaskCompleted), typeof(TaskFailed), typeof(WorkerHeartbeat),
             typeof(RateLimitTokenGranted), typeof(RateLimitDelayed)

@@ -65,6 +65,12 @@ app.MapPost("/assets", async (
             eventType,
             "Argus.AssetService",
             cancellationToken: cancellationToken);
+
+        await events.PublishAsync(
+            new AssetCreated(asset.AssetId, asset.ProgramId, asset.Type.ToString(), asset.Value, request.DiscoveredByTaskId),
+            nameof(AssetCreated),
+            "Argus.AssetService",
+            cancellationToken: cancellationToken);
     }
     else
     {

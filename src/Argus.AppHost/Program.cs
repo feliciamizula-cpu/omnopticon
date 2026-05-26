@@ -163,6 +163,20 @@ builder.AddProject<Projects.Argus_Workers_AssetScoring>("asset-scoring-worker")
     .WaitFor(asset)
     .WaitFor(realtime);
 
+builder.AddProject<Projects.Argus_Workers_Http>("http-worker")
+    .WithReference(asset)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(asset)
+    .WaitFor(rateLimit)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_AssetStorage>("asset-storage-worker")
+    .WithReference(asset)
+    .WithReference(realtime)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
 builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithExternalHttpEndpoints()
     .WithReference(programScope)

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.EventDrivenWorkers\Argus.BuildingBlocks.EventDrivenWorkers.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.RateLimiting\Argus.BuildingBlocks.RateLimiting.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.WorkerDistribution\Argus.BuildingBlocks.WorkerDistribution.csproj" />
+    <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />
+    <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>
