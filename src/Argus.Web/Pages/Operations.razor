@@ -51,8 +51,8 @@
                    OnRowClick="SelectAsset"
                    OnRowContextMenu="ShowAssetMenu"
                    ItemKey="a => a.AssetId"
-                   RowClass="a => _flashingIds.Contains(a.AssetId) ? \"row-new\" : \"\""
-                   EmptyMessage="@(_selectedProgramId.HasValue ? \"No assets for this program\" : \"Select a program\")"
+                    RowClass="RowClassFn"
+                    EmptyMessage="@(_selectedProgram != null ? "No assets for this program" : "Select a program")"
                    style="flex:1;">
         </ArgusGrid>
     </div>
@@ -216,8 +216,6 @@
 
     ProgramItem? _selectedProgram;
     AssetItem? _selectedAsset;
-    bool  _loadingPrograms;
-    bool  _loadingAssets;
     bool  _polling = true;
 
     ProgramMenuState _programMenu = new();
@@ -307,7 +305,6 @@
 
     async Task LoadProgramsAsync()
     {
-        _loadingPrograms = true;
         try
         {
             using var resp = await Http.GetAsync("/ui/programs");
@@ -322,13 +319,11 @@
                 .ToList();
         }
         catch (Exception ex) { Logger.LogDebug(ex, "Load programs failed"); }
-        finally { _loadingPrograms = false; }
     }
 
     async Task LoadAssetsAsync()
     {
         if (_selectedProgram?.ProgramId is not { } programId) return;
-        _loadingAssets = true;
         try
         {
             var url = $"/ui/ops/assets?programId={programId}&take=500";
@@ -359,7 +354,6 @@
             }
         }
         catch (Exception ex) { Logger.LogDebug(ex, "Load assets failed"); }
-        finally { _loadingAssets = false; }
     }
 
     static AssetItem? ParseAsset(JsonElement e)
@@ -627,6 +621,8 @@
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    string RowClassFn(AssetItem a) => _flashingIds.Contains(a.AssetId) ? "row-new" : "";
 
     static string FmtAgo(DateTimeOffset? dt)
     {

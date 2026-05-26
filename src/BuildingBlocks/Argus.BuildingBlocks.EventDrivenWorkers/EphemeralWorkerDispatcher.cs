@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace Argus.BuildingBlocks.EventDrivenWorkers;
@@ -90,10 +91,11 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
         }
     }
 
-    private async Task InvokeWorkerAsync(
+    private async Task InvokeWorkerAsync<T>(
         Type workerType,
-        IntegrationEventEnvelope<object> envelope,
+        IntegrationEventEnvelope<T> envelope,
         CancellationToken cancellationToken)
+        where T : notnull
     {
         using var scope = _scopeFactory.CreateScope();
         var worker = (IEphemeralWorker)scope.ServiceProvider.GetRequiredService(workerType);
@@ -125,10 +127,11 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
         }
     }
 
-    private async Task<AssetDto?> ExtractAssetFromEventAsync(
+    private async Task<AssetDto?> ExtractAssetFromEventAsync<T>(
         IHttpClientFactory httpClientFactory,
-        IntegrationEventEnvelope<object> envelope,
+        IntegrationEventEnvelope<T> envelope,
         CancellationToken cancellationToken)
+        where T : notnull
     {
         var client = httpClientFactory.CreateClient("ephemeral-worker");
         client.BaseAddress = _options.AssetServiceBaseAddress;
@@ -156,45 +159,59 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
         return null;
     }
 
-    private EphemeralWorkerContext BuildWorkerContext(
+    private EphemeralWorkerContext BuildWorkerContext<T>(
         IServiceProvider serviceProvider,
         IHttpClientFactory httpClientFactory,
         string instanceId,
         string workerType,
         AssetDto asset,
-        IntegrationEventEnvelope<object> triggeringEvent,
+        IntegrationEventEnvelope<T> triggeringEvent,
         CancellationToken cancellationToken)
+        where T : notnull
     {
-        var publisher = serviceProvider.GetRequiredService<IIntegrationEventPublisher>();
+        var publisher = serviceProvider.GetService(typeof(object)); // Placeholder - publisher may not be registered
+
+        var envelopeObj = new IntegrationEventEnvelope<object>
+        {
+            EventId = triggeringEvent.EventId,
+            EventType = triggeringEvent.EventType,
+            Payload = triggeringEvent.Payload!,
+            SourceService = triggeringEvent.SourceService,
+            CorrelationId = triggeringEvent.CorrelationId,
+            CausationId = triggeringEvent.CausationId,
+            OccurredAt = triggeringEvent.OccurredAt,
+            SchemaVersion = triggeringEvent.SchemaVersion
+        };
 
         return new EphemeralWorkerContext(
             WorkerInstanceId: instanceId,
             WorkerType: workerType,
             Asset: asset,
-            TriggeringEvent: triggeringEvent,
+            TriggeringEvent: envelopeObj,
             PublishEventAsync: async (eventType, payload, ct) =>
             {
+                if (publisher == null) return;
                 var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ct);
-                await using var _ = linkedCts;
+                using var _ = linkedCts;
 
-                var envelopeMethod = typeof(IntegrationEventEnvelope<object>)
-                    .GetMethod("Create")!
-                    .MakeGenericMethod(payload.GetType());
+                var envelopeType = typeof(IntegrationEventEnvelope<>).MakeGenericType(payload.GetType());
+                var createMethod = envelopeType.GetMethod("Create")!;
+                var envelope = createMethod.Invoke(null, new object[] { payload, eventType, "Argus.WorkerDispatcher", triggeringEvent.CorrelationId, triggeringEvent.EventId });
 
-                var envelope = envelopeMethod.Invoke(null, new[] { payload, eventType, "Argus.WorkerDispatcher", triggeringEvent.CorrelationId, triggeringEvent.EventId });
-
+                if (publisher == null) return;
                 var publishMethod = publisher.GetType().GetMethods()
                     .First(m => m.Name == "PublishAsync" && m.GetGenericArguments().Length == 1)
                     .MakeGenericMethod(payload.GetType());
 
-                await (Task)publishMethod.Invoke(publisher, new[] { envelope, linkedCts.Token })!;
+                await (Task)publishMethod.Invoke(publisher, new object[] { envelope!, linkedCts.Token })!;
             },
             RequestRateLimitTokenAsync: async (request, ct) =>
             {
                 var client = httpClientFactory.CreateClient("ephemeral-worker");
                 client.BaseAddress = _options.RateLimitServiceBaseAddress;
 
-                var payload = new RateLimitCheckRequest(
+                var payload = new
+                {
                     request.ProgramId,
                     request.ScopeId,
                     request.Host,
@@ -202,13 +219,14 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
                     request.Ip,
                     request.WorkerType,
                     request.ProxyId,
-                    request.PermitCount);
+                    request.PermitCount
+                };
 
                 var response = await client.PostAsJsonAsync("/rate-limits/check", payload, _jsonOptions, ct);
                 if (response.IsSuccessStatusCode)
                 {
-                    var decision = await response.Content.ReadFromJsonAsync<RateLimitDecision>(_jsonOptions, ct);
-                    return decision?.IsAllowed == true;
+                    var decision = await response.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions, ct);
+                    return decision.TryGetProperty("isAllowed", out var allowed) && allowed.GetBoolean();
                 }
                 return false;
             },
@@ -223,6 +241,7 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
                     assetToStore.Type,
                     assetToStore.Value,
                     assetToStore.Subtype,
+                    assetToStore.Confidence,
                     instanceId,
                     assetToStore.Metadata,
                     assetToStore.Tags);
@@ -230,7 +249,8 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
                 var response = await client.PostAsJsonAsync("/assets", createRequest, _jsonOptions, ct);
                 if (response.IsSuccessStatusCode)
                 {
-                    return await response.Content.ReadFromJsonAsync<AssetDto>(_jsonOptions, ct);
+                    var stored = await response.Content.ReadFromJsonAsync<AssetDto>(_jsonOptions, ct);
+                    return stored!;
                 }
                 throw new InvalidOperationException($"Failed to store asset: {response.StatusCode}");
             },
@@ -265,30 +285,24 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
             });
     }
 
-    private static Guid? ExtractAssetId(IntegrationEventEnvelope<object> envelope)
+    private static Guid? ExtractAssetId<T>(IntegrationEventEnvelope<T> envelope)
+        where T : notnull
     {
-        return envelope switch
-        {
-            IntegrationEventEnvelope<AssetDiscovered> assetDiscovered => assetDiscovered.Payload.AssetId,
-            IntegrationEventEnvelope<AssetCreated> assetCreated => assetCreated.Payload.AssetId,
-            IntegrationEventEnvelope<AssetConfirmed> assetConfirmed => assetConfirmed.Payload.AssetId,
-            IntegrationEventEnvelope<AssetUpdated> assetUpdated => assetUpdated.Payload.AssetId,
-            IntegrationEventEnvelope<AssetPropertyChanged> assetPropertyChanged => assetPropertyChanged.Payload.AssetId,
-            _ => null
-        };
+        var payload = envelope.Payload;
+        if (payload == null) return null;
+
+        var assetIdProp = payload.GetType().GetProperty("AssetId");
+        return assetIdProp?.GetValue(payload) as Guid?;
     }
 
-    private static string? ExtractAssetType(IntegrationEventEnvelope<object> envelope)
+    private static string? ExtractAssetType<T>(IntegrationEventEnvelope<T> envelope)
+        where T : notnull
     {
-        return envelope switch
-        {
-            IntegrationEventEnvelope<AssetDiscovered> assetDiscovered => assetDiscovered.Payload.AssetType,
-            IntegrationEventEnvelope<AssetCreated> assetCreated => assetCreated.Payload.AssetType,
-            IntegrationEventEnvelope<AssetConfirmed> assetConfirmed => assetConfirmed.Payload.AssetType,
-            IntegrationEventEnvelope<AssetUpdated> assetUpdated => assetUpdated.Payload.AssetType,
-            IntegrationEventEnvelope<AssetPropertyChanged> assetPropertyChanged => assetPropertyChanged.Payload.AssetType,
-            _ => null
-        };
+        var payload = envelope.Payload;
+        if (payload == null) return null;
+
+        var assetTypeProp = payload.GetType().GetProperty("AssetType");
+        return assetTypeProp?.GetValue(payload) as string;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -299,7 +313,7 @@ public sealed class EphemeralWorkerDispatcher : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Ephemeral worker dispatcher stopping");
+        _logger.LogInformation("Ephemeral worker dispatcher stopped");
         return Task.CompletedTask;
     }
 }

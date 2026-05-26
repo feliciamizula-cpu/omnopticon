@@ -41,13 +41,13 @@ public sealed class EphemeralWorkerRegistry
         var key = $"{eventType}:{assetType}";
         if (_registrations.TryGetValue(key, out var registration))
         {
-            return registration.WorkerTypes;
+            return registration.EffectiveWorkerTypes;
         }
 
         var wildcardKey = $"{eventType}:*";
         if (_registrations.TryGetValue(wildcardKey, out var wildcardRegistration))
         {
-            return wildcardRegistration.WorkerTypes;
+            return wildcardRegistration.EffectiveWorkerTypes;
         }
 
         return [];
@@ -64,18 +64,18 @@ public sealed class EphemeralWorkerRegistry
     public sealed record WorkerRegistration(
         Type WorkerType,
         EphemeralWorkerDescriptor Descriptor,
-        IReadOnlyCollection<Type>? WorkerTypes = null)
+        IReadOnlyCollection<Type>? AdditionalWorkerTypes = null)
     {
-        public IReadOnlyCollection<Type> WorkerTypes => WorkerTypes ?? new[] { WorkerType };
+        public IReadOnlyCollection<Type> EffectiveWorkerTypes => AdditionalWorkerTypes ?? new[] { WorkerType };
 
         public WorkerRegistration WithWorkerType(Type newWorkerType)
         {
-            var existingTypes = WorkerTypes.ToList();
+            var existingTypes = EffectiveWorkerTypes.ToList();
             if (!existingTypes.Contains(newWorkerType))
             {
                 existingTypes.Add(newWorkerType);
             }
-            return this with { WorkerTypes = existingTypes };
+            return this with { AdditionalWorkerTypes = existingTypes };
         }
     }
 }

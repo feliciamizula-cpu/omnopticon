@@ -86,7 +86,7 @@ public sealed class TokenBucketRateLimiter
         if (_buckets.TryGetValue(bucketKey, out var bucket))
         {
             bucket.Refill();
-            return new BucketStatus(bucketKey, bucket.Remaining, bucket.Capacity, bucket.RefillRate);
+            return new BucketStatus(bucketKey, (int)bucket.Tokens, bucket.Capacity, bucket.RefillRate);
         }
 
         var defaultBucket = new TokenBucket(_defaultOptions);

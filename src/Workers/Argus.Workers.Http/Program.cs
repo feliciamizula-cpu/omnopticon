@@ -1,7 +1,10 @@
 using Argus.BuildingBlocks.EventDrivenWorkers;
 using Argus.BuildingBlocks.RateLimiting;
 using Argus.BuildingBlocks.WorkerDistribution;
+using Argus.ServiceDefaults;
 using Argus.Workers.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
