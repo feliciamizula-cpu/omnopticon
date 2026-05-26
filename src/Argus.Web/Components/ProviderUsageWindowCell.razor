@@ -4,8 +4,8 @@
 <div class="pu-window-cell @ToneClass @DisabledClass @TriggeredClass">
     <div class="pu-window-label">@Label</div>
     <div class="pu-window-value-line">
-        <span class="pu-window-value">@PercentText</span>
-        @if (HasData && Enabled)
+        <span class="pu-window-value">@RemainingText</span>
+        @if (HasData && Enabled && !IsUnlimited)
         {
             <span class="pu-window-rem">rem.</span>
         }
@@ -49,7 +49,10 @@
     [Parameter, EditorRequired] public string AlertKey { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
     [Parameter] public decimal? RemainingPercent { get; set; }
+    [Parameter] public decimal? Remaining { get; set; }
+    [Parameter] public decimal? Limit { get; set; }
     [Parameter] public DateTimeOffset? ResetsAt { get; set; }
+    [Parameter] public string? Source { get; set; }
     [Parameter] public bool Enabled { get; set; } = true;
     [Parameter] public ProviderUsageAlertRule? Rule { get; set; }
     [Parameter] public bool IsOpen { get; set; }
@@ -61,11 +64,31 @@
     private string _rstWithinText = string.Empty;
     private string? _initializedForKey;
 
-    private bool HasData => RemainingPercent.HasValue;
+    private bool IsUnlimited => string.Equals(Source, "unlimited", StringComparison.OrdinalIgnoreCase);
 
-    private string PercentText => HasData
+    private bool HasData => IsUnlimited || RemainingPercent.HasValue || Remaining.HasValue;
+
+    private string RemainingText
+    {
+        get
+        {
+            if (IsUnlimited)
+            {
+                return "Unlimited";
+            }
+
+            if (Remaining.HasValue && Limit.HasValue && Limit.Value > 0)
+            {
+                return $"{FormatNumber(Remaining.Value)}/{FormatNumber(Limit.Value)}";
+            }
+
+            return PercentText;
+        }
+    }
+
+    private string PercentText => RemainingPercent.HasValue
         ? $"{RemainingPercent.Value.ToString(RemainingPercent.Value % 1 == 0 ? "0" : "0.#", CultureInfo.InvariantCulture)}%"
-        : "—";
+        : Remaining.HasValue ? FormatNumber(Remaining.Value) : "—";
 
     private string ProgressWidth => $"{Math.Clamp((double)(RemainingPercent ?? 0), 0, 100).ToString("0.#", CultureInfo.InvariantCulture)}%";
 
@@ -156,6 +179,9 @@
 
         return Math.Clamp(parsed, min, max);
     }
+
+    private static string FormatNumber(decimal value) =>
+        value.ToString(value % 1 == 0 ? "0" : "0.#", CultureInfo.InvariantCulture);
 
     private static string FormatRelativeReset(DateTimeOffset? value)
     {

@@ -464,6 +464,21 @@ app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
 app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
+app.MapGet("/ui/development-environment", async (IConfiguration configuration, CancellationToken ct) =>
+{
+    var summary = await DevelopmentEnvironmentApi.GetSummaryAsync(configuration, ct);
+    return Results.Json(summary);
+});
+app.MapPost("/ui/development-environment/{action}", async (
+    string action,
+    IConfiguration configuration,
+    DevelopmentRealtimeNotifier notifier,
+    CancellationToken ct) =>
+{
+    var result = await DevelopmentEnvironmentApi.RunActionAsync(action, configuration, ct);
+    await notifier.NotifyAsync("development-environment", action, ct);
+    return Results.Json(result, statusCode: result.Success ? StatusCodes.Status200OK : StatusCodes.Status409Conflict);
+});
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
@@ -891,6 +906,360 @@ static bool IsPrivateOrLoopback(IPAddress address)
 
     return false;
 }
+
+internal static class DevelopmentEnvironmentApi
+{
+    public static async Task<DevelopmentEnvironmentSummary> GetSummaryAsync(IConfiguration configuration, CancellationToken cancellationToken)
+    {
+        var settings = DevelopmentEnvironmentSettings.From(configuration);
+        var describe = await RunGcloudAsync(DescribeArgs(settings), cancellationToken);
+        var node = TryParseJson(describe.Output);
+        var status = node?["status"]?.GetValue<string>() ?? "unknown";
+        var creationTimestamp = ReadDate(node, "creationTimestamp");
+        var latestDeployment = BuildDeployment(node, configuration);
+        var cost = BuildCost(settings, status, creationTimestamp, latestDeployment.DeployedAtValue, configuration);
+        var externalIp = node?["networkInterfaces"]?.AsArray().FirstOrDefault()?["accessConfigs"]?.AsArray().FirstOrDefault()?["natIP"]?.GetValue<string>();
+
+        return new DevelopmentEnvironmentSummary(
+            settings.EnvironmentName,
+            settings.ProjectId,
+            settings.Zone,
+            settings.VmName,
+            settings.MachineType,
+            settings.DiskGb,
+            settings.DiskPolicy,
+            NormalizeStatus(status, describe),
+            settings.MutationsEnabled,
+            cost,
+            latestDeployment.Display,
+            BuildComponents(settings, describe, status, cost),
+            BuildServices(configuration, externalIp));
+    }
+
+    public static async Task<DevelopmentEnvironmentActionResult> RunActionAsync(string action, IConfiguration configuration, CancellationToken cancellationToken)
+    {
+        var settings = DevelopmentEnvironmentSettings.From(configuration);
+        action = action.Trim().ToLowerInvariant();
+        if (!new[] { "create", "start", "stop", "restart", "delete" }.Contains(action))
+        {
+            return new(false, action, "Unsupported environment action.", string.Empty);
+        }
+
+        if ((action is "create" or "start" or "restart") && settings.EstimatedHourlyUsd > settings.HourlyCapUsd)
+        {
+            return new(false, action, $"Refused: estimated ${settings.EstimatedHourlyUsd:0.00}/hour exceeds the ${settings.HourlyCapUsd:0.00}/hour cap.", BuildCommand(ActionArgs(action, settings)));
+        }
+
+        var args = ActionArgs(action, settings);
+        var command = BuildCommand(args);
+        if (!settings.MutationsEnabled)
+        {
+            return new(false, action, "Dry run only. Set ARGUS_DEVELOPMENT_ENVIRONMENT_ENABLE_MUTATIONS=true in the web runtime to permit GCP changes.", command);
+        }
+
+        var result = await RunGcloudAsync(args, cancellationToken);
+        var message = result.ExitCode == 0
+            ? $"{action} completed."
+            : $"{action} failed: {TrimCommandOutput(result.Error)}";
+
+        return new(result.ExitCode == 0, action, message, command);
+    }
+
+    private static string[] DescribeArgs(DevelopmentEnvironmentSettings settings) =>
+    [
+        "compute", "instances", "describe", settings.VmName,
+        "--project", settings.ProjectId,
+        "--zone", settings.Zone,
+        "--format=json"
+    ];
+
+    private static string[] ActionArgs(string action, DevelopmentEnvironmentSettings settings) => action switch
+    {
+        "create" =>
+        [
+            "compute", "instances", "create", settings.VmName,
+            "--project", settings.ProjectId,
+            "--zone", settings.Zone,
+            "--machine-type", settings.MachineType,
+            "--boot-disk-size", $"{settings.DiskGb}GB",
+            "--boot-disk-type", settings.DiskType,
+            "--image-family", "debian-12",
+            "--image-project", "debian-cloud",
+            "--tags", "argus-development",
+            "--labels", $"argus-environment=development,argus-hourly-cap={settings.HourlyCapUsd:0-00}",
+            "--metadata", $"startup-script={StartupScript()}"
+        ],
+        "start" =>
+        [
+            "compute", "instances", "start", settings.VmName,
+            "--project", settings.ProjectId,
+            "--zone", settings.Zone
+        ],
+        "stop" =>
+        [
+            "compute", "instances", "stop", settings.VmName,
+            "--project", settings.ProjectId,
+            "--zone", settings.Zone,
+            "--quiet"
+        ],
+        "restart" =>
+        [
+            "compute", "instances", "reset", settings.VmName,
+            "--project", settings.ProjectId,
+            "--zone", settings.Zone,
+            "--quiet"
+        ],
+        "delete" =>
+        [
+            "compute", "instances", "delete", settings.VmName,
+            "--project", settings.ProjectId,
+            "--zone", settings.Zone,
+            "--quiet"
+        ],
+        _ => []
+    };
+
+    private static DevelopmentEnvironmentCost BuildCost(
+        DevelopmentEnvironmentSettings settings,
+        string status,
+        DateTimeOffset? createdAt,
+        DateTimeOffset? deployedAt,
+        IConfiguration configuration)
+    {
+        var runningHours = status.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) && createdAt.HasValue
+            ? Math.Max(0, (DateTimeOffset.UtcNow - createdAt.Value).TotalHours)
+            : 0;
+        var deploymentHours = status.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) && deployedAt.HasValue
+            ? Math.Max(0, (DateTimeOffset.UtcNow - deployedAt.Value).TotalHours)
+            : 0;
+        var explicitDeploymentSpend = ReadDecimal(configuration["ARGUS_DEVELOPMENT_DEPLOYMENT_SPEND_USD"]);
+        var runningEstimate = (decimal)runningHours * settings.EstimatedHourlyUsd;
+        var deploymentEstimate = explicitDeploymentSpend ?? (decimal)deploymentHours * settings.EstimatedHourlyUsd;
+        var isOverCap = settings.EstimatedHourlyUsd > settings.HourlyCapUsd;
+
+        return new DevelopmentEnvironmentCost(
+            FormatUsd(settings.EstimatedHourlyUsd),
+            FormatUsd(settings.HourlyCapUsd),
+            FormatUsd(runningEstimate),
+            FormatUsd(deploymentEstimate),
+            isOverCap ? "over cap" : "within cap",
+            explicitDeploymentSpend.HasValue ? "configured spend ledger" : "estimated from VM runtime",
+            isOverCap);
+    }
+
+    private static (DevelopmentEnvironmentDeployment Display, DateTimeOffset? DeployedAtValue) BuildDeployment(JsonNode? node, IConfiguration configuration)
+    {
+        var metadata = node?["metadata"]?["items"]?.AsArray();
+        var sha = configuration["ARGUS_DEVELOPMENT_DEPLOYMENT_SHA"] ?? MetadataValue(metadata, "argus-deploy-sha") ?? "unknown";
+        var branch = configuration["ARGUS_DEVELOPMENT_DEPLOYMENT_BRANCH"] ?? MetadataValue(metadata, "argus-deploy-branch") ?? "unknown";
+        var workflow = configuration["ARGUS_DEVELOPMENT_DEPLOYMENT_WORKFLOW"] ?? MetadataValue(metadata, "argus-deploy-workflow") ?? "cd-gcp-development";
+        var deployedAtRaw = configuration["ARGUS_DEVELOPMENT_DEPLOYMENT_AT"] ?? MetadataValue(metadata, "argus-deploy-at");
+        DateTimeOffset? deployedAt = DateTimeOffset.TryParse(deployedAtRaw, out var parsed) ? parsed : null;
+        return (new DevelopmentEnvironmentDeployment(ShortSha(sha), branch, workflow, deployedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "unknown"), deployedAt);
+    }
+
+    private static DevelopmentEnvironmentComponent[] BuildComponents(
+        DevelopmentEnvironmentSettings settings,
+        GcloudResult describe,
+        string status,
+        DevelopmentEnvironmentCost cost) =>
+    [
+        new("GCP VM", status.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) ? "running" : NormalizeStatus(status, describe), describe.ExitCode == 0 ? settings.VmName : TrimCommandOutput(describe.Error)),
+        new("Cost guard", cost.IsOverCap ? "warning" : "healthy", $"{cost.EstimatedHourlyUsd} / {cost.HourlyCapUsd}"),
+        new("Deploy workflow", "unknown", "Status comes from the latest development deployment metadata."),
+        new("Agent stack", status.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) ? "unknown" : "stopped", "Health probes will report here once the VM exposes service URLs.")
+    ];
+
+    private static DevelopmentEnvironmentService[] BuildServices(IConfiguration configuration, string? externalIp)
+    {
+        var configured = configuration["ARGUS_DEVELOPMENT_SERVICE_URLS"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(value => value.Split('=', 2, StringSplitOptions.TrimEntries))
+                .Where(parts => parts.Length == 2)
+                .Select(parts => new DevelopmentEnvironmentService(parts[0], parts[1], "configured"))
+                .ToArray();
+        }
+
+        if (!string.IsNullOrWhiteSpace(externalIp))
+        {
+            return
+            [
+                new("Argus Web", $"http://{externalIp}:8080", "unverified"),
+                new("Aspire Dashboard", $"http://{externalIp}:18888", "unverified")
+            ];
+        }
+
+        return [new("Argus Web", "pending", "VM external IP unavailable")];
+    }
+
+    private static async Task<GcloudResult> RunGcloudAsync(string[] args, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "gcloud",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            foreach (var arg in args)
+            {
+                process.StartInfo.ArgumentList.Add(arg);
+            }
+
+            if (!process.Start())
+            {
+                return new(1, string.Empty, "Unable to start gcloud.");
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            return new(process.ExitCode, await outputTask, await errorTask);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new(1, string.Empty, ex.Message);
+        }
+    }
+
+    private static JsonNode? TryParseJson(string value)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : JsonNode.Parse(value);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static DateTimeOffset? ReadDate(JsonNode? node, string propertyName) =>
+        DateTimeOffset.TryParse(node?[propertyName]?.GetValue<string>(), out var value) ? value : null;
+
+    private static string? MetadataValue(JsonArray? metadata, string key) =>
+        metadata?.FirstOrDefault(item => item?["key"]?.GetValue<string>().Equals(key, StringComparison.OrdinalIgnoreCase) == true)?["value"]?.GetValue<string>();
+
+    private static decimal? ReadDecimal(string? value) =>
+        decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+
+    private static string NormalizeStatus(string status, GcloudResult describe)
+    {
+        if (describe.ExitCode != 0)
+        {
+            return "unknown";
+        }
+
+        return string.IsNullOrWhiteSpace(status) ? "unknown" : status.ToLowerInvariant();
+    }
+
+    private static string FormatUsd(decimal value) =>
+        value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+
+    private static string ShortSha(string value) =>
+        value.Length > 7 ? value[..7] : value;
+
+    private static string TrimCommandOutput(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "No details.";
+        }
+
+        value = value.ReplaceLineEndings(" ").Trim();
+        return value.Length > 240 ? value[..240] + "..." : value;
+    }
+
+    private static string BuildCommand(string[] args) =>
+        "gcloud " + string.Join(' ', args.Select(arg => arg.Contains(' ') ? $"\"{arg.Replace("\"", "\\\"")}\"" : arg));
+
+    private static string StartupScript() =>
+        "#!/usr/bin/env bash\nset -euo pipefail\napt-get update\napt-get install -y git docker.io docker-compose-plugin\nsystemctl enable --now docker\nmkdir -p /opt/argus\n";
+}
+
+internal sealed record DevelopmentEnvironmentSettings(
+    string EnvironmentName,
+    string ProjectId,
+    string Zone,
+    string VmName,
+    string MachineType,
+    int DiskGb,
+    string DiskType,
+    string DiskPolicy,
+    decimal EstimatedHourlyUsd,
+    decimal HourlyCapUsd,
+    bool MutationsEnabled)
+{
+    public static DevelopmentEnvironmentSettings From(IConfiguration configuration)
+    {
+        var spendEnabled = !bool.TryParse(configuration["ARGUS_DEVELOPMENT_SPEND_ENABLED"], out var spend) || spend;
+        var diskGb = int.TryParse(configuration["ARGUS_DEVELOPMENT_DISK_GB"], out var disk)
+            ? Math.Max(30, disk)
+            : spendEnabled ? 1024 : 30;
+        var machineType = configuration["ARGUS_DEVELOPMENT_MACHINE_TYPE"] ?? (spendEnabled ? "e2-standard-8" : "e2-micro");
+        var hourlyCap = decimal.TryParse(configuration["ARGUS_DEVELOPMENT_HOURLY_CAP_USD"], System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cap)
+            ? cap
+            : 2.00m;
+        var estimatedHourly = decimal.TryParse(configuration["ARGUS_DEVELOPMENT_ESTIMATED_HOURLY_USD"], System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var estimate)
+            ? estimate
+            : spendEnabled ? 0.40m : 0.00m;
+        var diskPolicy = spendEnabled
+            ? "spend enabled; budget guard active"
+            : "free-tier-safe default";
+
+        return new(
+            configuration["ARGUS_DEVELOPMENT_ENVIRONMENT_NAME"] ?? "development",
+            configuration["ARGUS_DEVELOPMENT_PROJECT_ID"] ?? configuration["GCP_PROJECT_ID"] ?? "project-30b3b95e-ed2b-4573-98a",
+            configuration["ARGUS_DEVELOPMENT_ZONE"] ?? "us-central1-a",
+            configuration["ARGUS_DEVELOPMENT_VM_NAME"] ?? "argus-development-agents",
+            machineType,
+            diskGb,
+            configuration["ARGUS_DEVELOPMENT_DISK_TYPE"] ?? "pd-standard",
+            diskPolicy,
+            estimatedHourly,
+            hourlyCap,
+            bool.TryParse(configuration["ARGUS_DEVELOPMENT_ENVIRONMENT_ENABLE_MUTATIONS"], out var enabled) && enabled);
+    }
+}
+
+internal sealed record DevelopmentEnvironmentSummary(
+    string EnvironmentName,
+    string ProjectId,
+    string Zone,
+    string VmName,
+    string MachineType,
+    int DiskGb,
+    string DiskPolicy,
+    string Status,
+    bool MutationsEnabled,
+    DevelopmentEnvironmentCost Cost,
+    DevelopmentEnvironmentDeployment LatestDeployment,
+    DevelopmentEnvironmentComponent[] Components,
+    DevelopmentEnvironmentService[] Services);
+
+internal sealed record DevelopmentEnvironmentCost(
+    string EstimatedHourlyUsd,
+    string HourlyCapUsd,
+    string RunningSessionUsd,
+    string DeploymentSpendUsd,
+    string CapStatus,
+    string Source,
+    bool IsOverCap);
+
+internal sealed record DevelopmentEnvironmentDeployment(string Sha, string Branch, string Workflow, string DeployedAt);
+internal sealed record DevelopmentEnvironmentComponent(string Name, string Status, string Detail);
+internal sealed record DevelopmentEnvironmentService(string Name, string Url, string Health);
+internal sealed record DevelopmentEnvironmentActionResult(bool Success, string Action, string Message, string Command);
+internal sealed record GcloudResult(int ExitCode, string Output, string Error);
 
 
 internal static class ProviderUsageDefaults

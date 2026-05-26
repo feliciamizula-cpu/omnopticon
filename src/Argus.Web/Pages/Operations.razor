@@ -2,6 +2,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using System.Text.Json.Nodes
+@using Argus.Web.Components
 @inject HttpClient Http
 @inject ILogger<Operations> Logger
 @implements IAsyncDisposable
@@ -17,30 +18,16 @@
             <span class="ops-panel-count">@_programs.Count</span>
             <button class="btn btn-sm" style="margin-left:auto;" @onclick="OpenNewProgramForm">+ New</button>
         </div>
-        <div class="table-wrapper" style="flex:1;overflow:auto;">
-            <table class="data-table">
-                <thead>
-                    <tr><th>Name</th><th>Scope</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var p in _programs)
-                    {
-                        var prog = p;
-                        <tr class="@(prog.ProgramId == _selectedProgramId ? "selected" : "")"
-                            @onclick="() => SelectProgram(prog)"
-                            @oncontextmenu="(e) => ShowProgramMenu(e, prog)"
-                            @oncontextmenu:preventDefault="true">
-                            <td>@prog.Name</td>
-                            <td style="color:var(--fg-3);font-size:11px;">@prog.ScopeCount scope(s)</td>
-                        </tr>
-                    }
-                    @if (_programs.Count == 0 && !_loadingPrograms)
-                    {
-                        <tr><td colspan="2" style="text-align:center;color:var(--fg-3);padding:24px;">No programs</td></tr>
-                    }
-                </tbody>
-            </table>
-        </div>
+        <ArgusGrid TItem="ProgramItem"
+                   Items="_programs"
+                   Columns="_programColumns"
+                   SelectedItem="_selectedProgram"
+                   OnRowClick="SelectProgram"
+                   OnRowContextMenu="ShowProgramMenu"
+                   ItemKey="p => p.ProgramId"
+                   EmptyMessage="No programs"
+                   style="flex:1;">
+        </ArgusGrid>
     </div>
 
     @* ── Assets panel ── *@
@@ -57,36 +44,17 @@
                 @(_polling ? "Stop" : "Start Live")
             </button>
         </div>
-        <div class="table-wrapper" style="flex:1;overflow:auto;">
-            <table class="data-table">
-                <thead>
-                    <tr><th>Type</th><th>Value</th><th>Status</th><th>Risk</th><th>First Seen</th><th>Last Seen</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var a in _assets)
-                    {
-                        var asset = a;
-                        <tr class="@(asset.AssetId == _selectedAssetId ? "selected" : "") @(_flashingIds.Contains(asset.AssetId) ? "row-new" : "")"
-                            @onclick="() => SelectAsset(asset)"
-                            @oncontextmenu="(e) => ShowAssetMenu(e, asset)"
-                            @oncontextmenu:preventDefault="true">
-                            <td style="color:var(--fg-3);font-size:11px;">@asset.Type</td>
-                            <td class="ag-primary">@asset.Value</td>
-                            <td>@asset.Status</td>
-                            <td>@(asset.RiskScore.HasValue ? asset.RiskScore.Value.ToString("F1") : "—")</td>
-                            <td style="color:var(--fg-3);font-size:11px;">@FmtAgo(asset.FirstSeenAt)</td>
-                            <td style="color:var(--fg-3);font-size:11px;">@FmtAgo(asset.LastSeenAt)</td>
-                        </tr>
-                    }
-                    @if (_assets.Count == 0 && !_loadingAssets)
-                    {
-                        <tr><td colspan="6" style="text-align:center;color:var(--fg-3);padding:24px;">
-                            @(_selectedProgramId.HasValue ? "No assets for this program" : "Select a program")
-                        </td></tr>
-                    }
-                </tbody>
-            </table>
-        </div>
+        <ArgusGrid TItem="AssetItem"
+                   Items="_assets"
+                   Columns="_assetColumns"
+                   SelectedItem="_selectedAsset"
+                   OnRowClick="SelectAsset"
+                   OnRowContextMenu="ShowAssetMenu"
+                   ItemKey="a => a.AssetId"
+                   RowClass="a => _flashingIds.Contains(a.AssetId) ? \"row-new\" : \"\""
+                   EmptyMessage="@(_selectedProgramId.HasValue ? \"No assets for this program\" : \"Select a program\")"
+                   style="flex:1;">
+        </ArgusGrid>
     </div>
 
     @* ── Activity feed ── *@
@@ -246,8 +214,8 @@
     List<LogEntry>    _log      = [];
     HashSet<Guid>     _flashingIds = [];
 
-    Guid? _selectedProgramId;
-    Guid? _selectedAssetId;
+    ProgramItem? _selectedProgram;
+    AssetItem? _selectedAsset;
     bool  _loadingPrograms;
     bool  _loadingAssets;
     bool  _polling = true;
@@ -258,10 +226,73 @@
     PeriodicTimer?         _timer;
     CancellationTokenSource? _cts;
 
+    // Grid columns
+    List<GridColumn<ProgramItem>> _programColumns = [];
+    List<GridColumn<AssetItem>> _assetColumns = [];
+
     // ── Lifecycle ────────────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
+        _programColumns = new()
+        {
+            new GridColumn<ProgramItem>
+            {
+                Header = "Name",
+                Value = p => p.Name,
+                Primary = true,
+                Width = "1fr"
+            },
+            new GridColumn<ProgramItem>
+            {
+                Header = "Scopes",
+                Value = p => p.ScopeCount.ToString(),
+                Sortable = true,
+                Width = "100px"
+            }
+        };
+
+        _assetColumns = new()
+        {
+            new GridColumn<AssetItem>
+            {
+                Header = "Type",
+                Value = a => a.Type,
+                Width = "100px"
+            },
+            new GridColumn<AssetItem>
+            {
+                Header = "Value",
+                Value = a => a.Value,
+                Primary = true,
+                Width = "2fr"
+            },
+            new GridColumn<AssetItem>
+            {
+                Header = "Status",
+                Value = a => a.Status,
+                Width = "100px"
+            },
+            new GridColumn<AssetItem>
+            {
+                Header = "Risk",
+                Value = a => a.RiskScore.HasValue ? a.RiskScore.Value.ToString("F1") : "—",
+                Width = "80px"
+            },
+            new GridColumn<AssetItem>
+            {
+                Header = "First Seen",
+                Value = a => FmtAgo(a.FirstSeenAt),
+                Width = "120px"
+            },
+            new GridColumn<AssetItem>
+            {
+                Header = "Last Seen",
+                Value = a => FmtAgo(a.LastSeenAt),
+                Width = "120px"
+            }
+        };
+
         await LoadProgramsAsync();
         StartPolling();
     }

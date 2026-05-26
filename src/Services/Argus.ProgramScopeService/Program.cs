@@ -10,12 +10,6 @@ using Argus.ProgramScopeService;
 using Argus.ProgramScopeService.Providers;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
-<<<<<<< HEAD
-using System.Collections.Concurrent;
-using System.Net.Http.Json;
-using System.Text.Json;
-=======
->>>>>>> 0877696314ffa86963c7ca31e842b6e53ad31f15
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -1574,11 +1568,7 @@ internal static class ProgramScopeStoreInitialization
 
         if (dbContext is not null)
         {
-<<<<<<< HEAD
             await dbContext.Database.EnsureCreatedAsync();
-            await dbContext.Database.ExecuteSqlRawAsync("""
-=======
-            // EnsureCreatedAsync is a no-op when the DB already exists (e.g. created by another service).
             // Create all tables explicitly with IF NOT EXISTS so initialization is idempotent.
             await dbContext.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE IF NOT EXISTS programs (
@@ -1638,8 +1628,6 @@ internal static class ProgramScopeStoreInitialization
                 );
                 CREATE INDEX IF NOT EXISTS "IX_rate_limit_policies_ProgramId_ScopeId"
                     ON rate_limit_policies ("ProgramId", "ScopeId");
-
->>>>>>> 0877696314ffa86963c7ca31e842b6e53ad31f15
                 CREATE TABLE IF NOT EXISTS targets (
                     "TargetId" uuid PRIMARY KEY,
                     "ProgramId" uuid NOT NULL REFERENCES programs("ProgramId") ON DELETE CASCADE,

@@ -22,6 +22,7 @@ internal sealed class AgentProviderOptions
     public string UsageArguments { get; set; } = string.Empty;
     public string DisplayModelHint { get; set; } = string.Empty;
     public string LoginInstructions { get; set; } = string.Empty;
+    public decimal ApiCreditsUsd { get; set; } = 0;
     public AgentUsageWindowOptions FiveHour { get; set; } = new() { WindowId = "fiveHour", Label = "5 hour" };
     public AgentUsageWindowOptions TwentyFourHour { get; set; } = new() { WindowId = "twentyFourHour", Label = "24 hour" };
     public AgentUsageWindowOptions Weekly { get; set; } = new() { WindowId = "weekly", Label = "weekly" };
@@ -37,4 +38,5 @@ internal sealed class AgentUsageWindowOptions
     public decimal? Remaining { get; set; }
     public DateTimeOffset? ResetsAt { get; set; }
     public string Source { get; set; } = "configuration";
+    public bool Unlimited { get; set; }
 }

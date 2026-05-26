@@ -44,14 +44,15 @@ public sealed class ArgusWorkerBackgroundService(
             {
                 await _concurrencyLimiter.WaitAsync(stoppingToken);
                 var task = RunTaskWithReleaseAsync(stoppingToken);
-                _runningTasks.TryAdd(Guid.NewGuid(), task);
+                var taskKey = Guid.NewGuid();
+                _runningTasks.TryAdd(taskKey, task);
                 _ = task.ContinueWith(t =>
                 {
                     if (t.Exception != null)
                     {
                         logger.LogError(t.Exception, "Worker task failed for {WorkerType}", worker.Capability.WorkerType);
                     }
-                    _runningTasks.TryRemove(t.Id, out _);
+                    _runningTasks.TryRemove(taskKey, out _);
                 }, TaskContinuationOptions.OnlyOnFaulted);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

@@ -228,7 +228,7 @@ internal sealed class AgentProviderUsageService(
             usageWindows.TwentyFourHour,
             usageWindows.Weekly,
             usageWindows.Monthly,
-            usageWindows.Details,
+            WithProviderDetails(definition, usageWindows.Details),
             routingScore,
             routingStatus,
             checkedAt,
@@ -240,6 +240,11 @@ internal sealed class AgentProviderUsageService(
 
     private async Task<CliToolStatusDto> CheckToolStatusAsync(AgentProviderOptions definition, DateTimeOffset checkedAt, CancellationToken cancellationToken)
     {
+        if (definition.Id.Equals("nvidia", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CliToolStatusDto(definition.ToolId, definition.Executable, true, "unlimited", "unlimited", null, checkedAt);
+        }
+
         try
         {
             var result = await RunCommandAsync(definition.Executable, definition.VersionArguments, CommandTimeout(definition), cancellationToken);
@@ -281,6 +286,11 @@ internal sealed class AgentProviderUsageService(
             return (true, $"Credential present in {credentialVariable}", null);
         }
 
+        if (definition.Id.Equals("nvidia", StringComparison.OrdinalIgnoreCase))
+        {
+            return (true, "Unlimited provider", null);
+        }
+
         if (!toolStatus.IsAvailable)
         {
             return (false, "CLI missing", null);
@@ -292,13 +302,13 @@ internal sealed class AgentProviderUsageService(
             return (true, geminiStatus, null);
         }
 
-        if (definition.Id.Equals("claude", StringComparison.OrdinalIgnoreCase)
+        if (definition.ToolId.Equals("claude", StringComparison.OrdinalIgnoreCase)
             && TryGetClaudeCliCredentialStatus(out var claudeStatus))
         {
             return (true, claudeStatus, null);
         }
 
-        if (definition.Id.Equals("opencode", StringComparison.OrdinalIgnoreCase)
+        if (definition.ToolId.Equals("opencode", StringComparison.OrdinalIgnoreCase)
             && TryGetOpenCodeCredentialStatus(out var openCodeStatus))
         {
             return (true, openCodeStatus, null);
@@ -311,7 +321,7 @@ internal sealed class AgentProviderUsageService(
                 return (true, "Gemini CLI available; this CLI version does not expose a non-interactive auth status command.", null);
             }
 
-            if (definition.Id.Equals("claude", StringComparison.OrdinalIgnoreCase))
+            if (definition.ToolId.Equals("claude", StringComparison.OrdinalIgnoreCase))
             {
                 return (false, "No Claude Code credentials found", null);
             }
@@ -567,7 +577,8 @@ internal sealed class AgentProviderUsageService(
             Used = used,
             Remaining = remaining,
             ResetsAt = resetsAt,
-            Source = source
+            Source = source,
+            Unlimited = fallback.Unlimited || string.Equals(source, "unlimited", StringComparison.OrdinalIgnoreCase)
         };
 
         return BuildWindow(merged, resetLead);
@@ -575,6 +586,20 @@ internal sealed class AgentProviderUsageService(
 
     private static ProviderUsageWindowDto BuildWindow(AgentUsageWindowOptions option, TimeSpan resetLead)
     {
+        if (option.Unlimited || string.Equals(option.Source, "unlimited", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ProviderUsageWindowDto(
+                string.IsNullOrWhiteSpace(option.WindowId) ? "window" : option.WindowId,
+                string.IsNullOrWhiteSpace(option.Label) ? option.WindowId : option.Label,
+                0,
+                0,
+                0,
+                100,
+                null,
+                true,
+                "unlimited");
+        }
+
         var limit = option.Limit ?? 0;
         var used = option.Used;
         var remaining = option.Remaining;
@@ -611,6 +636,23 @@ internal sealed class AgentProviderUsageService(
             isKnown ? option.Source : "not-configured");
     }
 
+    private static ProviderUsageDetailDto[] WithProviderDetails(
+        AgentProviderOptions definition,
+        IReadOnlyList<ProviderUsageDetailDto> details)
+    {
+        var output = new List<ProviderUsageDetailDto>(details)
+        {
+            new(
+                "apiCreditsUsd",
+                "API credits",
+                definition.ApiCreditsUsd.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-US")),
+                "configuration",
+                null)
+        };
+
+        return output.ToArray();
+    }
+
     private static decimal ComputeRoutingScore(CliToolStatusDto toolStatus, bool isAuthenticated, UsageWindows windows)
     {
         if (!toolStatus.IsAvailable || !isAuthenticated)
@@ -619,12 +661,17 @@ internal sealed class AgentProviderUsageService(
         }
 
         var known = new[] { windows.FiveHour, windows.TwentyFourHour, windows.Weekly, windows.Monthly }
-            .Where(window => window.IsKnown && !string.Equals(window.Source, "subscription", StringComparison.OrdinalIgnoreCase))
+            .Where(window => window.IsKnown
+                && !string.Equals(window.Source, "subscription", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(window.Source, "unlimited", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         if (known.Length == 0)
         {
-            return 1;
+            return new[] { windows.FiveHour, windows.TwentyFourHour, windows.Weekly, windows.Monthly }
+                .Any(window => string.Equals(window.Source, "unlimited", StringComparison.OrdinalIgnoreCase))
+                ? 100
+                : 1;
         }
 
         if (known.Any(window => window.Remaining <= 0 || window.RemainingPercent <= 0))
@@ -684,6 +731,7 @@ internal sealed class AgentProviderUsageService(
             UsageArguments = ValueOrDefault(configured.UsageArguments, fallback.UsageArguments),
             DisplayModelHint = ValueOrDefault(configured.DisplayModelHint, fallback.DisplayModelHint),
             LoginInstructions = ValueOrDefault(configured.LoginInstructions, fallback.LoginInstructions),
+            ApiCreditsUsd = configured.ApiCreditsUsd != 0 ? configured.ApiCreditsUsd : fallback.ApiCreditsUsd,
             FiveHour = MergeWindow(fallback.FiveHour, configured.FiveHour),
             TwentyFourHour = MergeWindow(fallback.TwentyFourHour, configured.TwentyFourHour),
             Weekly = MergeWindow(fallback.Weekly, configured.Weekly),
@@ -701,7 +749,8 @@ internal sealed class AgentProviderUsageService(
             Used = configured.Used ?? fallback.Used,
             Remaining = configured.Remaining ?? fallback.Remaining,
             ResetsAt = configured.ResetsAt ?? fallback.ResetsAt,
-            Source = ValueOrDefault(configured.Source, fallback.Source)
+            Source = ValueOrDefault(configured.Source, fallback.Source),
+            Unlimited = configured.Unlimited || fallback.Unlimited
         };
     }
 
@@ -714,71 +763,8 @@ internal sealed class AgentProviderUsageService(
     [
         new()
         {
-            Id = "opencode",
-            Name = "Opencode",
-            ToolId = "opencode",
-            ToolAliases = ["opencode"],
-            Executable = "opencode",
-            VersionArguments = "--version",
-            LoginArguments = "auth login",
-            AuthCheckArguments = "auth status",
-            AuthEnvironmentVariables = ["OPENCODE_API_KEY", "OPENCODE_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENAI_API_KEY"],
-            UsageExecutable = "python3",
-            UsageArguments = ScriptPath("opencode-usage.py"),
-            DisplayModelHint = "OpenCode Go / provider models",
-            LoginInstructions = "Run the OpenCode auth flow for the account that owns your Go quota.",
-            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
-            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
-            Weekly = new() { WindowId = "weekly", Label = "weekly" },
-            Monthly = new() { WindowId = "monthly", Label = "monthly" }
-        },
-        new()
-        {
-            Id = "gemini",
-            Name = "Gemini",
-            ToolId = "gemini",
-            ToolAliases = ["gemini", "google"],
-            Executable = "gemini",
-            VersionArguments = "--version",
-            LoginArguments = "auth login",
-            // Gemini CLI has no auth subcommand — "gemini auth ..." passes the text as a prompt.
-            // Auth is detected via environment variables only.
-            AuthCheckArguments = "",
-            AuthEnvironmentVariables = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"],
-            UsageExecutable = "python3",
-            UsageArguments = ScriptPath("gemini-usage.py"),
-            DisplayModelHint = "Gemini Flash / Pro",
-            LoginInstructions = "Run the Gemini CLI auth flow for the Google account used by the agent team.",
-            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
-            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "daily" },
-            Weekly = new() { WindowId = "weekly", Label = "weekly" },
-            Monthly = new() { WindowId = "monthly", Label = "monthly" }
-        },
-        new()
-        {
-            Id = "claude",
-            Name = "Claude",
-            ToolId = "claude",
-            ToolAliases = ["claude", "anthropic"],
-            Executable = "claude",
-            VersionArguments = "--version",
-            LoginArguments = "login",
-            // claude whoami takes 12+ seconds (network call); use file-based credential check instead
-            AuthCheckArguments = "",
-            AuthEnvironmentVariables = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
-            UsageExecutable = "python3",
-            UsageArguments = ScriptPath("claude-usage.py"),
-            DisplayModelHint = "Haiku / Sonnet",
-            LoginInstructions = "Run the Claude CLI login flow for the Anthropic account that owns your Claude usage.",
-            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
-            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
-            Weekly = new() { WindowId = "weekly", Label = "weekly" },
-            Monthly = new() { WindowId = "monthly", Label = "monthly" }
-        },
-        new()
-        {
             Id = "openai",
-            Name = "OpenAI",
+            Name = "OpenAI (Codex CLI)",
             ToolId = "codex",
             ToolAliases = ["codex", "openai"],
             Executable = "codex",
@@ -788,12 +774,109 @@ internal sealed class AgentProviderUsageService(
             AuthEnvironmentVariables = ["OPENAI_API_KEY", "CODEX_HOME"],
             UsageExecutable = "python3",
             UsageArguments = ScriptPath("codex-usage.py"),
-            DisplayModelHint = "Codex / ChatGPT",
+            DisplayModelHint = "Codex CLI subscription",
             LoginInstructions = "Run the Codex/OpenAI CLI login flow for the account that owns your OpenAI usage.",
             FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
             TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
             Weekly = new() { WindowId = "weekly", Label = "weekly" },
             Monthly = new() { WindowId = "monthly", Label = "monthly" }
+        },
+        new()
+        {
+            Id = "gemini",
+            Name = "Gemini CLI",
+            ToolId = "gemini",
+            ToolAliases = ["gemini", "google"],
+            Executable = "gemini",
+            VersionArguments = "--version",
+            LoginArguments = "auth login",
+            AuthCheckArguments = "",
+            AuthEnvironmentVariables = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"],
+            UsageExecutable = "python3",
+            UsageArguments = ScriptPath("gemini-usage.py"),
+            DisplayModelHint = "Gemini Pro / Flash allotments",
+            LoginInstructions = "Run the Gemini CLI auth flow for the Google account used by the agent team.",
+            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "daily" },
+            Weekly = new() { WindowId = "weekly", Label = "weekly" },
+            Monthly = new() { WindowId = "monthly", Label = "monthly" }
+        },
+        new()
+        {
+            Id = "claude_code",
+            Name = "Claude Code",
+            ToolId = "claude",
+            ToolAliases = ["claude", "anthropic"],
+            Executable = "claude",
+            VersionArguments = "--version",
+            LoginArguments = "login",
+            AuthCheckArguments = "",
+            AuthEnvironmentVariables = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+            UsageExecutable = "python3",
+            UsageArguments = ScriptPath("claude-usage.py"),
+            DisplayModelHint = "Claude CLI subscription",
+            LoginInstructions = "Run the Claude CLI login flow for the Anthropic account that owns your Claude usage.",
+            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
+            Weekly = new() { WindowId = "weekly", Label = "weekly" },
+            Monthly = new() { WindowId = "monthly", Label = "monthly" }
+        },
+        new()
+        {
+            Id = "claude_design",
+            Name = "Claude Design",
+            ToolId = "claude",
+            ToolAliases = ["claude", "anthropic", "claude-design"],
+            Executable = "claude",
+            VersionArguments = "--version",
+            LoginArguments = "login",
+            AuthCheckArguments = "",
+            AuthEnvironmentVariables = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+            UsageExecutable = "python3",
+            UsageArguments = ScriptPath("claude-usage.py"),
+            DisplayModelHint = "Claude web app usage pool",
+            LoginInstructions = "Claude Design uses the same Claude account usage pool as Claude Code.",
+            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
+            Weekly = new() { WindowId = "weekly", Label = "weekly" },
+            Monthly = new() { WindowId = "monthly", Label = "monthly" }
+        },
+        new()
+        {
+            Id = "opencode_go",
+            Name = "OpenCode Go",
+            ToolId = "opencode",
+            ToolAliases = ["opencode"],
+            Executable = "opencode",
+            VersionArguments = "--version",
+            LoginArguments = "auth login",
+            AuthCheckArguments = "auth status",
+            AuthEnvironmentVariables = ["OPENCODE_API_KEY", "OPENCODE_AUTH_TOKEN", "OPENROUTER_API_KEY", "OPENAI_API_KEY"],
+            UsageExecutable = "python3",
+            UsageArguments = ScriptPath("opencode-usage.py"),
+            DisplayModelHint = "OpenCode Go subscription",
+            LoginInstructions = "Run the OpenCode auth flow for the account that owns your Go quota.",
+            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour" },
+            Weekly = new() { WindowId = "weekly", Label = "weekly" },
+            Monthly = new() { WindowId = "monthly", Label = "monthly" }
+        },
+        new()
+        {
+            Id = "nvidia",
+            Name = "NVIDIA",
+            ToolId = "opencode",
+            ToolAliases = ["opencode", "nvidia"],
+            Executable = "opencode",
+            VersionArguments = "--version",
+            AuthCheckArguments = "",
+            AuthEnvironmentVariables = ["NVIDIA_API_KEY"],
+            DisplayModelHint = "Unlimited NVIDIA-hosted models",
+            LoginInstructions = "NVIDIA usage is treated as unlimited for routing and display.",
+            FiveHour = new() { WindowId = "fiveHour", Label = "5 hour", Unlimited = true, Source = "unlimited" },
+            TwentyFourHour = new() { WindowId = "twentyFourHour", Label = "24 hour", Unlimited = true, Source = "unlimited" },
+            Weekly = new() { WindowId = "weekly", Label = "weekly", Unlimited = true, Source = "unlimited" },
+            Monthly = new() { WindowId = "monthly", Label = "monthly", Unlimited = true, Source = "unlimited" }
         }
     ];
 

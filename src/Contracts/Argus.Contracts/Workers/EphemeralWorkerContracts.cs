@@ -3,6 +3,20 @@ using Argus.Contracts.Events;
 
 namespace Argus.Contracts.Workers;
 
+public sealed record WorkerProducedAsset(
+    string AssetType,
+    string Value,
+    string? Subtype = null,
+    decimal? Confidence = null,
+    IReadOnlyDictionary<string, string>? Metadata = null,
+    IReadOnlyCollection<string>? Tags = null,
+    IReadOnlyCollection<ArtifactReference>? ArtifactReferences = null);
+
+public sealed record ArtifactReference(
+    string ArtifactType,
+    string Name,
+    string Hash);
+
 public sealed record EphemeralWorkerDescriptor(
     string WorkerType,
     IReadOnlyCollection<string> SubscribedEvents,

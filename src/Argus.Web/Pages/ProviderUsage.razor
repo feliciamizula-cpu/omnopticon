@@ -46,8 +46,9 @@
 
         <div class="pu-column-header">
             <div>PROVIDER <span>↓ avg remaining</span></div>
-            <div>SHORT WINDOW</div>
+            <div>5 HOUR</div>
             <div>WEEKLY</div>
+            <div>API CREDITS</div>
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_error))
@@ -82,7 +83,7 @@
                                                                Subtitle="@provider.DisplayModelHint"
                                                                Enabled="@enabled"
                                                                OnToggleProvider="ToggleProviderAsync" />
-                                <div class="pu-model-breakdown">MODEL BREAKDOWN</div>
+                                <div class="pu-model-breakdown">GEMINI PRO / FLASH ALLOTMENTS</div>
                             </div>
                             @foreach (var row in modelRows)
                             {
@@ -91,7 +92,10 @@
                                     <ProviderUsageWindowCell AlertKey="@row.ShortWindow.AlertKey"
                                                              Label="@row.ShortWindow.Label"
                                                              RemainingPercent="@row.ShortWindow.RemainingPercent"
+                                                             Remaining="@row.ShortWindow.Remaining"
+                                                             Limit="@row.ShortWindow.Limit"
                                                              ResetsAt="@row.ShortWindow.ResetsAt"
+                                                             Source="@row.ShortWindow.Source"
                                                              Enabled="@enabled"
                                                              Rule="@GetAlertRule(row.ShortWindow.AlertKey)"
                                                              IsOpen="@IsAlertOpen(row.ShortWindow.AlertKey)"
@@ -101,13 +105,20 @@
                                     <ProviderUsageWindowCell AlertKey="@row.WeeklyWindow.AlertKey"
                                                              Label="@row.WeeklyWindow.Label"
                                                              RemainingPercent="@row.WeeklyWindow.RemainingPercent"
+                                                             Remaining="@row.WeeklyWindow.Remaining"
+                                                             Limit="@row.WeeklyWindow.Limit"
                                                              ResetsAt="@row.WeeklyWindow.ResetsAt"
+                                                             Source="@row.WeeklyWindow.Source"
                                                              Enabled="@enabled"
                                                              Rule="@GetAlertRule(row.WeeklyWindow.AlertKey)"
                                                              IsOpen="@IsAlertOpen(row.WeeklyWindow.AlertKey)"
                                                              OnToggleAlert="OpenAlert"
                                                              OnSaveAlert="SaveAlertAsync"
                                                              OnCloseAlert="CloseAlert" />
+                                    <div class="pu-credits-cell">
+                                        <div class="pu-credits-label">API CREDITS</div>
+                                        <div class="pu-credits-value">@ApiCredits(provider)</div>
+                                    </div>
                                 </div>
                             }
                         </section>
@@ -126,7 +137,10 @@
                                 <ProviderUsageWindowCell AlertKey="@shortWindow.AlertKey"
                                                          Label="@shortWindow.Label"
                                                          RemainingPercent="@shortWindow.RemainingPercent"
+                                                         Remaining="@shortWindow.Remaining"
+                                                         Limit="@shortWindow.Limit"
                                                          ResetsAt="@shortWindow.ResetsAt"
+                                                         Source="@shortWindow.Source"
                                                          Enabled="@enabled"
                                                          Rule="@GetAlertRule(shortWindow.AlertKey)"
                                                          IsOpen="@IsAlertOpen(shortWindow.AlertKey)"
@@ -136,13 +150,20 @@
                                 <ProviderUsageWindowCell AlertKey="@weeklyWindow.AlertKey"
                                                          Label="@weeklyWindow.Label"
                                                          RemainingPercent="@weeklyWindow.RemainingPercent"
+                                                         Remaining="@weeklyWindow.Remaining"
+                                                         Limit="@weeklyWindow.Limit"
                                                          ResetsAt="@weeklyWindow.ResetsAt"
+                                                         Source="@weeklyWindow.Source"
                                                          Enabled="@enabled"
                                                          Rule="@GetAlertRule(weeklyWindow.AlertKey)"
                                                          IsOpen="@IsAlertOpen(weeklyWindow.AlertKey)"
                                                          OnToggleAlert="OpenAlert"
                                                          OnSaveAlert="SaveAlertAsync"
                                                          OnCloseAlert="CloseAlert" />
+                                <div class="pu-credits-cell">
+                                    <div class="pu-credits-label">API CREDITS</div>
+                                    <div class="pu-credits-value">@ApiCredits(provider)</div>
+                                </div>
                             </div>
                         </section>
                     }
@@ -267,7 +288,7 @@
         [
             new GeminiModelRow(
                 "aggregate usage",
-                BuildWindow(provider, provider.TwentyFourHour, "DAY", "DAILY", $"{provider.ProviderId}|aggregate|DAY"),
+                BuildWindow(provider, provider.FiveHour, "5H", "5 HOUR", $"{provider.ProviderId}|aggregate|5H"),
                 BuildWindow(provider, provider.Weekly, "WEEK", "WEEKLY", $"{provider.ProviderId}|aggregate|WEEK"))
         ];
     }
@@ -281,16 +302,19 @@
         }
 
         var remaining = ParsePercent(detail.Value);
-        var dailyWindow = new ProviderUsageWindowView(
-            "DAY",
-            "DAILY",
+        var fiveHourWindow = new ProviderUsageWindowView(
+            "5H",
+            "5 HOUR",
             remaining,
+            null,
+            null,
             detail.ResetsAt,
-            $"{provider.ProviderId}|{modelName}|DAY");
+            "gemini-model",
+            $"{provider.ProviderId}|{modelName}|5H");
 
         return new GeminiModelRow(
             modelName,
-            dailyWindow,
+            fiveHourWindow,
             BuildWindow(provider, provider.Weekly, "WEEK", "WEEKLY", $"{provider.ProviderId}|{modelName}|WEEK"));
     }
 
@@ -326,7 +350,10 @@
             period,
             label,
             window.IsKnown ? window.RemainingPercent : null,
+            window.IsKnown ? window.Remaining : null,
+            window.IsKnown ? window.Limit : null,
             window.IsKnown ? window.ResetsAt : null,
+            window.Source,
             alertKey);
     }
 
@@ -503,6 +530,10 @@
         provider.ProviderId.Equals("gemini", StringComparison.OrdinalIgnoreCase)
         || provider.ProviderName.Equals("Gemini", StringComparison.OrdinalIgnoreCase);
 
+    private static string ApiCredits(ProviderUsageDto provider) =>
+        provider.Details.FirstOrDefault(detail => detail.Key.Equals("apiCreditsUsd", StringComparison.OrdinalIgnoreCase))?.Value
+        ?? "$0.00";
+
     private static decimal? ParsePercent(string value)
     {
         var match = Regex.Match(value, @"(?<pct>\d+(?:\.\d+)?)\s*%\s*remaining", RegexOptions.IgnoreCase);
@@ -525,7 +556,10 @@
         string Period,
         string Label,
         decimal? RemainingPercent,
+        decimal? Remaining,
+        decimal? Limit,
         DateTimeOffset? ResetsAt,
+        string? Source,
         string AlertKey);
 
     private sealed record GeminiModelRow(

@@ -1,0 +1,13 @@
+{
+  "name": "agent-log-viewer",
+  "version": "1.0.0",
+  "description": "Real-time agent log monitor for Omnopticon",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "fs": "^0.0.1-security"
+  }
+}

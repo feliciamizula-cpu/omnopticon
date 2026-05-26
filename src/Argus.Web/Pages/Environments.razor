@@ -1,0 +1,237 @@
+@page "/development/environments"
+@page "/environments"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject DevelopmentRealtimeClient Realtime
+
+<ErrorBoundary>
+    <div class="page-body environments-page">
+        <div class="env-header">
+            <div>
+                <h1>Environments</h1>
+                <p>Development VM control, health, services, deployment state, and cost tracking</p>
+            </div>
+            <button type="button" @onclick="RefreshAsync" disabled="@_loading">Refresh</button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="env-alert">@_error</div>
+        }
+
+        @if (_loading && _summary is null)
+        {
+            <div class="env-empty">Loading environment status...</div>
+        }
+        else if (_summary is null)
+        {
+            <div class="env-empty">No development environment status is available.</div>
+        }
+        else
+        {
+            <section class="env-control-strip">
+                <div>
+                    <span>VM</span>
+                    <strong>@_summary.VmName</strong>
+                    <em>@_summary.Status</em>
+                </div>
+                <div>
+                    <span>Shape</span>
+                    <strong>@_summary.MachineType</strong>
+                    <em>@_summary.Zone</em>
+                </div>
+                <div>
+                    <span>Disk</span>
+                    <strong>@_summary.DiskGb GB</strong>
+                    <em>@_summary.DiskPolicy</em>
+                </div>
+                <div>
+                    <span>Mutation Mode</span>
+                    <strong>@(_summary.MutationsEnabled ? "Enabled" : "Dry run")</strong>
+                    <em>@_summary.ProjectId</em>
+                </div>
+            </section>
+
+            <section class="env-actions">
+                @foreach (var action in Actions)
+                {
+                    <button type="button" class="@ActionClass(action)" disabled="@_actionBusy" @onclick="() => RunActionAsync(action)">
+                        @ActionLabel(action)
+                    </button>
+                }
+            </section>
+
+            <section class="env-grid">
+                <article class="env-panel">
+                    <h2>Cost Tracking</h2>
+                    <div class="env-cost-meter @CostClass">
+                        <span>@_summary.Cost.EstimatedHourlyUsd</span>
+                        <em>estimated hourly</em>
+                    </div>
+                    <dl class="env-kv">
+                        <div><dt>Hourly cap</dt><dd>@_summary.Cost.HourlyCapUsd</dd></div>
+                        <div><dt>Cap status</dt><dd>@_summary.Cost.CapStatus</dd></div>
+                        <div><dt>Running estimate</dt><dd>@_summary.Cost.RunningSessionUsd</dd></div>
+                        <div><dt>Deployment spend</dt><dd>@_summary.Cost.DeploymentSpendUsd</dd></div>
+                        <div><dt>Source</dt><dd>@_summary.Cost.Source</dd></div>
+                    </dl>
+                </article>
+
+                <article class="env-panel">
+                    <h2>Latest Deployment</h2>
+                    <dl class="env-kv">
+                        <div><dt>SHA</dt><dd>@_summary.LatestDeployment.Sha</dd></div>
+                        <div><dt>Branch</dt><dd>@_summary.LatestDeployment.Branch</dd></div>
+                        <div><dt>Workflow</dt><dd>@_summary.LatestDeployment.Workflow</dd></div>
+                        <div><dt>Observed</dt><dd>@_summary.LatestDeployment.DeployedAt</dd></div>
+                    </dl>
+                </article>
+            </section>
+
+            <section class="env-grid">
+                <article class="env-panel">
+                    <h2>Component Health</h2>
+                    <div class="env-table">
+                        @foreach (var component in _summary.Components)
+                        {
+                            <div class="env-row">
+                                <span>@component.Name</span>
+                                <strong class="@StatusClass(component.Status)">@component.Status</strong>
+                                <em>@component.Detail</em>
+                            </div>
+                        }
+                    </div>
+                </article>
+
+                <article class="env-panel">
+                    <h2>Service URLs</h2>
+                    <div class="env-table">
+                        @foreach (var service in _summary.Services)
+                        {
+                            <div class="env-row">
+                                <span>@service.Name</span>
+                                <a href="@service.Url" target="_blank">@service.Url</a>
+                                <em>@service.Health</em>
+                            </div>
+                        }
+                    </div>
+                </article>
+            </section>
+
+            @if (_lastAction is not null)
+            {
+                <section class="env-panel env-command-panel">
+                    <h2>Last Command</h2>
+                    <pre>@_lastAction.Command</pre>
+                    <p>@_lastAction.Message</p>
+                </section>
+            }
+        }
+    </div>
+</ErrorBoundary>
+
+@code {
+    private static readonly string[] Actions = ["create", "start", "stop", "restart", "delete"];
+    private EnvironmentSummary? _summary;
+    private EnvironmentActionResult? _lastAction;
+    private bool _loading;
+    private bool _actionBusy;
+    private string? _error;
+
+    private string CostClass => _summary?.Cost.IsOverCap == true ? "is-over" : "is-under";
+
+    protected override Task OnInitializedAsync()
+    {
+        Realtime.Changed += OnDevelopmentDataChanged;
+        _ = Realtime.StartAsync();
+        _ = RefreshAsync();
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _summary = await Http.GetFromJsonAsync<EnvironmentSummary>(Ui("/ui/development-environment"));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to load environment status: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RunActionAsync(string action)
+    {
+        _actionBusy = true;
+        _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Ui($"/ui/development-environment/{action}"), new { });
+            _lastAction = await response.Content.ReadFromJsonAsync<EnvironmentActionResult>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to run {action}: {ex.Message}";
+        }
+        finally
+        {
+            _actionBusy = false;
+        }
+    }
+
+    private Task OnDevelopmentDataChanged(DevelopmentDataChangedEvent change) =>
+        change.Area is "development-environment"
+            ? InvokeAsync(RefreshAsync)
+            : Task.CompletedTask;
+
+    public ValueTask DisposeAsync()
+    {
+        Realtime.Changed -= OnDevelopmentDataChanged;
+        return ValueTask.CompletedTask;
+    }
+
+    private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
+    private static string ActionLabel(string action) => action.ToUpperInvariant();
+    private static string ActionClass(string action) => action.Equals("delete", StringComparison.OrdinalIgnoreCase) ? "is-danger" : string.Empty;
+    private static string StatusClass(string status) => status.Equals("healthy", StringComparison.OrdinalIgnoreCase) || status.Equals("running", StringComparison.OrdinalIgnoreCase) ? "is-good" : status.Equals("unknown", StringComparison.OrdinalIgnoreCase) ? "is-muted" : "is-warn";
+
+    private sealed record EnvironmentSummary(
+        string EnvironmentName,
+        string ProjectId,
+        string Zone,
+        string VmName,
+        string MachineType,
+        int DiskGb,
+        string DiskPolicy,
+        string Status,
+        bool MutationsEnabled,
+        EnvironmentCost Cost,
+        EnvironmentDeployment LatestDeployment,
+        EnvironmentComponent[] Components,
+        EnvironmentService[] Services);
+
+    private sealed record EnvironmentCost(
+        string EstimatedHourlyUsd,
+        string HourlyCapUsd,
+        string RunningSessionUsd,
+        string DeploymentSpendUsd,
+        string CapStatus,
+        string Source,
+        bool IsOverCap);
+
+    private sealed record EnvironmentDeployment(string Sha, string Branch, string Workflow, string DeployedAt);
+    private sealed record EnvironmentComponent(string Name, string Status, string Detail);
+    private sealed record EnvironmentService(string Name, string Url, string Health);
+    private sealed record EnvironmentActionResult(bool Success, string Action, string Message, string Command);
+}

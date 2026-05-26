@@ -1,0 +1,81 @@
+name: CD - Deploy to GCP Development
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: false
+        default: main
+
+jobs:
+  deploy-development-vm:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: project-30b3b95e-ed2b-4573-98a
+      ZONE: us-central1-a
+      VM_NAME: argus-development-agents
+      REPO_URL: https://github.com/${{ github.repository }}.git
+      DEPLOY_REF: ${{ inputs.ref || github.ref_name }}
+      HOURLY_CAP_USD: "2.00"
+      ESTIMATED_HOURLY_USD: "0.40"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Verify hourly budget guard
+        run: |
+          python3 - <<'PY'
+          from decimal import Decimal
+          estimate = Decimal("${{ env.ESTIMATED_HOURLY_USD }}")
+          cap = Decimal("${{ env.HOURLY_CAP_USD }}")
+          if estimate > cap:
+              raise SystemExit(f"Estimated hourly cost ${estimate} exceeds cap ${cap}")
+          print(f"Estimated hourly cost ${estimate} is within cap ${cap}")
+          PY
+
+      - name: Deploy latest repo to development VM
+        run: |
+          set -euo pipefail
+          deployed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          deployment_json="{\"sha\":\"${GITHUB_SHA}\",\"branch\":\"${DEPLOY_REF}\",\"workflow\":\"cd-gcp-development\",\"deployedAt\":\"${deployed_at}\",\"estimatedHourlyUsd\":\"${ESTIMATED_HOURLY_USD}\",\"hourlyCapUsd\":\"${HOURLY_CAP_USD}\"}"
+
+          gcloud compute ssh "${VM_NAME}" \
+            --project "${PROJECT_ID}" \
+            --zone "${ZONE}" \
+            --command "set -euo pipefail
+              sudo mkdir -p /opt/argus
+              sudo chown \$(id -u):\$(id -g) /opt/argus
+              if [ ! -d /opt/argus/omnopticon/.git ]; then
+                git clone '${REPO_URL}' /opt/argus/omnopticon
+              fi
+              cd /opt/argus/omnopticon
+              git fetch origin '${DEPLOY_REF}'
+              git checkout FETCH_HEAD
+              if [ -f deploy/compose.yaml ]; then
+                docker compose --env-file deploy/argus.env -f deploy/compose.yaml up -d --build
+              elif [ -f docker-compose.yml ]; then
+                docker compose up -d --build
+              fi
+              printf '%s\n' '${deployment_json}' > /opt/argus/deployment.json"
+
+      - name: Stamp VM deployment metadata
+        run: |
+          gcloud compute instances add-metadata "${VM_NAME}" \
+            --project "${PROJECT_ID}" \
+            --zone "${ZONE}" \
+            --metadata "argus-deploy-sha=${GITHUB_SHA},argus-deploy-branch=${DEPLOY_REF},argus-deploy-workflow=cd-gcp-development,argus-deploy-at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"

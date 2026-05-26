@@ -45,15 +45,6 @@ public sealed record WorkerProcessResult(
     public static WorkerProcessResult Empty(string summary) => new(false, summary, [], null);
 }
 
-public sealed record WorkerProducedAsset(
-    string AssetType,
-    string Value,
-    string? Subtype,
-    decimal? Confidence,
-    IReadOnlyDictionary<string, string>? Metadata,
-    IReadOnlyCollection<string>? Tags,
-    IReadOnlyCollection<ArtifactReference>? ArtifactReferences = null);
-
 public sealed record WorkerProducedArtifact(
     string ArtifactType,
     string Name,
@@ -68,8 +59,3 @@ public sealed record WorkerProducedArtifact(
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }
-
-public sealed record ArtifactReference(
-    string ArtifactType,
-    string Name,
-    string Hash);
