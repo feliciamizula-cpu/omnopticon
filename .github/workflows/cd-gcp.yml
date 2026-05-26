@@ -85,6 +85,13 @@ jobs:
             ASPNETCORE_ENVIRONMENT=Staging
             ARGUS_VERSION=${{ github.sha }}
             ARGUS_BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_id }}
+            ARGUS_AGENT_SERVICE=http://34.63.95.161:8081
+            ARGUS_PROGRAM_SCOPE_SERVICE=http://34.63.95.161:8081
+            ARGUS_ASSET_SERVICE=http://34.63.95.161:8081
+            ARGUS_TASK_SERVICE=http://34.63.95.161:8081
+            ARGUS_RATE_LIMIT_SERVICE=http://34.63.95.161:8081
+            ARGUS_SCAN_ORCHESTRATOR_SERVICE=http://34.63.95.161:8081
+            ARGUS_REALTIME_SERVICE=http://34.63.95.161:8081
 
       - name: Verify staging deployment
         run: |
