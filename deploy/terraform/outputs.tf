@@ -17,3 +17,13 @@ output "artifact_registry_repository" {
 output "get_credentials_command" {
   value = "gcloud container clusters get-credentials ${google_container_cluster.argus.name} --region ${google_container_cluster.argus.location} --project ${var.project_id}"
 }
+
+output "argus_web_ip" {
+  description = "External IP of the argus-web LoadBalancer (empty until GCP assigns it)."
+  value       = var.apply_aspirate_manifests ? try(kubernetes_service.argus_web_lb[0].status[0].load_balancer[0].ingress[0].ip, "") : ""
+}
+
+output "aspire_dashboard_ip" {
+  description = "External IP of the Aspire dashboard LoadBalancer (empty until GCP assigns it)."
+  value       = var.apply_aspirate_manifests ? try(kubernetes_service.aspire_dashboard_lb[0].status[0].load_balancer[0].ingress[0].ip, "") : ""
+}

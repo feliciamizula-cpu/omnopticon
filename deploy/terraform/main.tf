@@ -1,3 +1,5 @@
+# ── GCP APIs ─────────────────────────────────────────────────────────────────
+
 resource "google_project_service" "container" {
   service            = "container.googleapis.com"
   disable_on_destroy = false
@@ -23,6 +25,8 @@ resource "google_project_service" "compute" {
   disable_on_destroy = false
 }
 
+# ── Artifact Registry ─────────────────────────────────────────────────────────
+
 resource "google_artifact_registry_repository" "argus" {
   location      = var.region
   repository_id = var.artifact_registry_repository
@@ -31,6 +35,8 @@ resource "google_artifact_registry_repository" "argus" {
 
   depends_on = [google_project_service.artifact_registry]
 }
+
+# ── Service accounts ──────────────────────────────────────────────────────────
 
 resource "google_service_account" "gke_nodes" {
   account_id   = "argus-gke-nodes"
@@ -42,6 +48,8 @@ resource "google_project_iam_member" "nodes_artifact_reader" {
   role    = "roles/artifactregistry.reader"
   member  = "serviceAccount:${google_service_account.gke_nodes.email}"
 }
+
+# ── GKE cluster ───────────────────────────────────────────────────────────────
 
 resource "google_container_cluster" "argus" {
   provider = google-beta
@@ -80,10 +88,43 @@ resource "google_container_cluster" "argus" {
   depends_on = [google_project_service.container]
 }
 
-resource "google_container_node_pool" "primary" {
+# ── Core node pool (n2-standard-16, 1 TB SSD, fixed size) ────────────────────
+# Runs: services, databases (postgres/redis/rabbitmq), API gateway, web app
+
+resource "google_container_node_pool" "core" {
   provider = google-beta
 
-  name     = "argus-primary"
+  name     = "argus-core"
+  location = var.region
+  cluster  = google_container_cluster.argus.name
+
+  node_count = 1
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+
+  node_config {
+    machine_type    = var.core_machine_type
+    disk_size_gb    = var.core_disk_size_gb
+    disk_type       = "pd-ssd"
+    service_account = google_service_account.gke_nodes.email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+
+    labels = merge(local.common_labels, {
+      argus-nodepool = "core"
+    })
+  }
+}
+
+# ── Worker node pool (e2-standard-4, autoscaling 0–10) ───────────────────────
+# Runs: all background workers (continuous, ephemeral, validation)
+
+resource "google_container_node_pool" "workers" {
+  provider = google-beta
+
+  name     = "argus-workers"
   location = var.region
   cluster  = google_container_cluster.argus.name
 
@@ -98,15 +139,19 @@ resource "google_container_node_pool" "primary" {
   }
 
   node_config {
-    machine_type    = var.machine_type
-    disk_size_gb    = 30
+    machine_type    = var.worker_machine_type
+    disk_size_gb    = 50
     disk_type       = "pd-standard"
     service_account = google_service_account.gke_nodes.email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
 
-    labels = local.common_labels
+    labels = merge(local.common_labels, {
+      argus-nodepool = "workers"
+    })
   }
 }
+
+# ── Namespace ─────────────────────────────────────────────────────────────────
 
 resource "kubernetes_namespace" "argus" {
   metadata {
@@ -114,8 +159,13 @@ resource "kubernetes_namespace" "argus" {
     labels = local.common_labels
   }
 
-  depends_on = [google_container_node_pool.primary]
+  depends_on = [
+    google_container_node_pool.core,
+    google_container_node_pool.workers,
+  ]
 }
+
+# ── KEDA ──────────────────────────────────────────────────────────────────────
 
 resource "helm_release" "keda" {
   count = var.install_keda ? 1 : 0
@@ -126,8 +176,13 @@ resource "helm_release" "keda" {
   namespace        = "keda"
   create_namespace = true
 
-  depends_on = [google_container_node_pool.primary]
+  depends_on = [
+    google_container_node_pool.core,
+    google_container_node_pool.workers,
+  ]
 }
+
+# ── Aspirate-generated workload manifests ─────────────────────────────────────
 
 data "kubectl_file_documents" "aspirate" {
   count = var.apply_aspirate_manifests ? 1 : 0
@@ -147,9 +202,11 @@ resource "kubectl_manifest" "aspirate" {
 
   depends_on = [
     kubernetes_namespace.argus,
-    helm_release.keda
+    helm_release.keda,
   ]
 }
+
+# ── Continuous-worker HPAs ────────────────────────────────────────────────────
 
 resource "kubernetes_horizontal_pod_autoscaler_v2" "continuous_workers" {
   for_each = var.apply_aspirate_manifests && var.create_worker_hpas ? local.continuous_workers : toset([])
@@ -184,6 +241,132 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "continuous_workers" {
 
   depends_on = [kubectl_manifest.aspirate]
 }
+
+# ── Public LoadBalancer: Argus web app ────────────────────────────────────────
+
+resource "kubernetes_service" "argus_web_lb" {
+  count = var.apply_aspirate_manifests ? 1 : 0
+
+  metadata {
+    name      = "argus-web-public"
+    namespace = var.namespace
+    labels    = local.common_labels
+  }
+
+  spec {
+    type = "LoadBalancer"
+
+    selector = {
+      app = "argus-web"
+    }
+
+    port {
+      name        = "http"
+      port        = 80
+      target_port = 8082
+    }
+  }
+
+  depends_on = [kubectl_manifest.aspirate]
+}
+
+# ── Aspire dashboard deployment + public LoadBalancer ─────────────────────────
+
+resource "kubernetes_deployment" "aspire_dashboard" {
+  count = var.apply_aspirate_manifests ? 1 : 0
+
+  metadata {
+    name      = "aspire-dashboard"
+    namespace = var.namespace
+    labels    = merge(local.common_labels, { app = "aspire-dashboard" })
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = { app = "aspire-dashboard" }
+    }
+
+    template {
+      metadata {
+        labels = merge(local.common_labels, { app = "aspire-dashboard" })
+      }
+
+      spec {
+        node_selector = {
+          "cloud.google.com/gke-nodepool" = "argus-core"
+        }
+
+        container {
+          name  = "aspire-dashboard"
+          image = "mcr.microsoft.com/dotnet/aspire-dashboard:9.0"
+
+          port {
+            name           = "ui"
+            container_port = 18080
+          }
+
+          port {
+            name           = "otlp-grpc"
+            container_port = 18888
+          }
+
+          port {
+            name           = "otlp-http"
+            container_port = 18889
+          }
+
+          env {
+            name  = "DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS"
+            value = "true"
+          }
+
+          resources {
+            requests = {
+              cpu    = "100m"
+              memory = "256Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "512Mi"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_namespace.argus]
+}
+
+resource "kubernetes_service" "aspire_dashboard_lb" {
+  count = var.apply_aspirate_manifests ? 1 : 0
+
+  metadata {
+    name      = "aspire-dashboard-public"
+    namespace = var.namespace
+    labels    = local.common_labels
+  }
+
+  spec {
+    type = "LoadBalancer"
+
+    selector = {
+      app = "aspire-dashboard"
+    }
+
+    port {
+      name        = "ui"
+      port        = 80
+      target_port = 18080
+    }
+  }
+
+  depends_on = [kubernetes_deployment.aspire_dashboard]
+}
+
+# ── GitHub Actions IAM grants ─────────────────────────────────────────────────
 
 resource "google_project_iam_member" "github_actions_service_usage_consumer" {
   count = var.github_actions_service_account != "" ? 1 : 0

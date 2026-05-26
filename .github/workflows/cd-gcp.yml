@@ -13,10 +13,178 @@ env:
   PROJECT_ID: project-30b3b95e-ed2b-4573-98a
   REGION: us-central1
   CLUSTER_NAME: argus-gke
-  WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+  REGISTRY: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
+
+# ── Job 1: Provision GKE infrastructure ──────────────────────────────────────
+# Creates/updates the cluster, node pools, namespace, KEDA, and Artifact Registry.
+# Does NOT deploy application workloads yet (images aren't built yet).
 
 jobs:
-  deploy-gke:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform -chdir=deploy/terraform init
+
+      - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
+        run: |
+          terraform -chdir=deploy/terraform apply -auto-approve \
+            -var="project_id=${PROJECT_ID}" \
+            -var="region=${REGION}" \
+            -var="cluster_name=${CLUSTER_NAME}" \
+            -var="apply_aspirate_manifests=false" \
+            -var="github_actions_service_account=${{ secrets.WIF_SERVICE_ACCOUNT }}"
+
+# ── Job 2: Build and push container images (parallel matrix) ─────────────────
+# Builds all 28 service/worker images in parallel and pushes to Artifact Registry.
+
+  build:
+    needs: provision
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include:
+          - name: agent-service
+            project_path: src/Services/Argus.AgentService/Argus.AgentService.csproj
+            assembly_name: Argus.AgentService
+          - name: amass-worker
+            project_path: src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj
+            assembly_name: Argus.Workers.Amass
+          - name: argus-api-gateway
+            project_path: src/Argus.ApiGateway/Argus.ApiGateway.csproj
+            assembly_name: Argus.ApiGateway
+          - name: argus-web
+            project_path: src/Argus.Web/Argus.Web.csproj
+            assembly_name: Argus.Web
+          - name: artifact-service
+            project_path: src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj
+            assembly_name: Argus.ArtifactService
+          - name: asset-scoring-worker
+            project_path: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
+            assembly_name: Argus.Workers.AssetScoring
+          - name: asset-service
+            project_path: src/Services/Argus.AssetService/Argus.AssetService.csproj
+            assembly_name: Argus.AssetService
+          - name: asset-storage-worker
+            project_path: src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj
+            assembly_name: Argus.Workers.AssetStorage
+          - name: dns-resolver-worker
+            project_path: src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj
+            assembly_name: Argus.Workers.DnsResolver
+          - name: event-router-service
+            project_path: src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj
+            assembly_name: Argus.EventRouterService
+          - name: finding-deduper-worker
+            project_path: src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj
+            assembly_name: Argus.Workers.FindingDeduper
+          - name: finding-service
+            project_path: src/Services/Argus.FindingService/Argus.FindingService.csproj
+            assembly_name: Argus.FindingService
+          - name: fingerprint-worker
+            project_path: src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj
+            assembly_name: Argus.Workers.Fingerprint
+          - name: headless-spider-worker
+            project_path: src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj
+            assembly_name: Argus.Workers.HeadlessSpider
+          - name: html-dom-spider-worker
+            project_path: src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj
+            assembly_name: Argus.Workers.HtmlDomSpider
+          - name: http-probe-worker
+            project_path: src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj
+            assembly_name: Argus.Workers.HttpProbe
+          - name: http-worker
+            project_path: src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj
+            assembly_name: Argus.Workers.Http
+          - name: js-extractor-worker
+            project_path: src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj
+            assembly_name: Argus.Workers.JsExtractor
+          - name: program-scope-service
+            project_path: src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj
+            assembly_name: Argus.ProgramScopeService
+          - name: proxy-registry-service
+            project_path: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
+            assembly_name: Argus.ProxyRegistryService
+          - name: rate-limit-service
+            project_path: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
+            assembly_name: Argus.RateLimitService
+          - name: realtime-service
+            project_path: src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj
+            assembly_name: Argus.RealtimeService
+          - name: regex-scanner-worker
+            project_path: src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj
+            assembly_name: Argus.Workers.RegexScanner
+          - name: scan-orchestrator-service
+            project_path: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
+            assembly_name: Argus.ScanOrchestratorService
+          - name: subfinder-worker
+            project_path: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
+            assembly_name: Argus.Workers.Subfinder
+          - name: task-service
+            project_path: src/Services/Argus.TaskService/Argus.TaskService.csproj
+            assembly_name: Argus.TaskService
+          - name: validation-worker
+            project_path: src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj
+            assembly_name: Argus.Workers.Validation
+          - name: wordlist-discovery-worker
+            project_path: src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj
+            assembly_name: Argus.Workers.WordlistDiscovery
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.name }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file deploy/Dockerfile.service \
+            --build-arg PROJECT_PATH=${{ matrix.project_path }} \
+            --build-arg ASSEMBLY_NAME=${{ matrix.assembly_name }} \
+            --tag ${{ env.REGISTRY }}/${{ matrix.name }}:${{ github.sha }} \
+            --push \
+            .
+
+# ── Job 3: Generate manifests and deploy workloads ────────────────────────────
+# Stamps the commit SHA into aspirate-state.json, runs aspirate generate,
+# patches node selectors, then applies everything via Terraform.
+# Waits for GCP to assign LoadBalancer IPs and writes URLs to the job summary.
+
+  deploy:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,35 +208,31 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start Docker daemon
-        run: |
-          sudo systemctl start docker || sudo service docker start || true
-          sleep 2
-          docker info || true
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
-
-      - name: Terraform init
-        run: terraform -chdir=deploy/terraform init
-
       - name: Configure kubectl
-        run: gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}" --project "${PROJECT_ID}"
+        run: |
+          gcloud container clusters get-credentials "${CLUSTER_NAME}" \
+            --region "${REGION}" --project "${PROJECT_ID}"
 
       - name: Restore deployment tools
         run: dotnet tool restore
 
-      - name: Generate and push Aspire Kubernetes manifests
+      - name: Stamp commit SHA into aspirate-state.json
+        run: |
+          jq --arg tag "${{ github.sha }}" '.containerImageTags = [$tag]' \
+            src/Argus.AppHost/aspirate-state.json > /tmp/state.json
+          mv /tmp/state.json src/Argus.AppHost/aspirate-state.json
+
+      - name: Generate Aspire Kubernetes manifests
         working-directory: src/Argus.AppHost
-        env:
-          ARGUS_CONTAINER_REGISTRY: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/argus
-          ARGUS_CONTAINER_TAG: ${{ github.sha }}
         run: aspirate generate --non-interactive --disable-secrets
 
-      - name: Apply generated manifests and worker autoscaling
+      - name: Patch node selectors (core vs workers pools)
+        run: python3 deploy/patch-node-selectors.py
+
+      - name: Terraform init
+        run: terraform -chdir=deploy/terraform init
+
+      - name: Apply workloads and public services
         run: |
           terraform -chdir=deploy/terraform apply -auto-approve \
             -var="project_id=${PROJECT_ID}" \
@@ -76,9 +240,45 @@ jobs:
             -var="cluster_name=${CLUSTER_NAME}" \
             -var="apply_aspirate_manifests=true" \
             -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output" \
-            -var="github_actions_service_account=${WIF_SERVICE_ACCOUNT}"
+            -var="github_actions_service_account=${{ secrets.WIF_SERVICE_ACCOUNT }}"
+
+      - name: Wait for LoadBalancer IPs
+        run: |
+          echo "Waiting for LoadBalancer IPs (up to 5 minutes)..."
+          WEB_IP=""
+          DASH_IP=""
+          for i in $(seq 1 30); do
+            WEB_IP=$(kubectl -n argus get svc argus-web-public \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            DASH_IP=$(kubectl -n argus get svc aspire-dashboard-public \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            if [ -n "$WEB_IP" ] && [ -n "$DASH_IP" ]; then
+              break
+            fi
+            echo "  attempt $i/30 — web=${WEB_IP:-pending} dashboard=${DASH_IP:-pending}"
+            sleep 10
+          done
+          echo "WEB_IP=${WEB_IP}" >> "$GITHUB_ENV"
+          echo "DASH_IP=${DASH_IP}" >> "$GITHUB_ENV"
 
       - name: Deployment summary
         run: |
-          kubectl -n argus get deploy
-          kubectl -n argus get hpa
+          echo "## Deployment complete — ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service            | URL |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------------------|-----|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Web app            | http://${WEB_IP:-pending} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Aspire dashboard   | http://${DASH_IP:-pending} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Workload status" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          kubectl -n argus get deploy >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### HPAs" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          kubectl -n argus get hpa >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          echo ""
+          echo "Web app:          http://${WEB_IP:-pending}"
+          echo "Aspire dashboard: http://${DASH_IP:-pending}"
