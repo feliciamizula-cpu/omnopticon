@@ -27,6 +27,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
     private readonly SemaphoreSlim _concurrencyLimiter;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
+    private readonly ConcurrentDictionary<Guid, Task> _runningTasks = new();
 
     public ArgusEventDrivenWorkerService(
         IReconWorker worker,
@@ -63,7 +64,16 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
                 try
                 {
                     await _concurrencyLimiter.WaitAsync(stoppingToken);
-                    _ = ProcessTaskWithReleaseAsync(notification, stoppingToken);
+                    var task = ProcessTaskWithReleaseAsync(notification, stoppingToken);
+                    _runningTasks.TryAdd(notification.Task.TaskId, task);
+                    _ = task.ContinueWith(t =>
+                    {
+                        if (t.Exception != null)
+                        {
+                            _logger.LogError(t.Exception, "Worker task failed for task {TaskId}", notification.Task.TaskId);
+                        }
+                        _runningTasks.TryRemove(notification.Task.TaskId, out _);
+                    }, TaskContinuationOptions.OnlyOnFaulted);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -74,6 +84,8 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
+
+        await Task.WhenAll(_runningTasks.Values);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

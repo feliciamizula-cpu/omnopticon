@@ -6,7 +6,6 @@ public sealed class TokenBucketRateLimiter
 {
     private readonly ConcurrentDictionary<string, TokenBucket> _buckets = new(StringComparer.OrdinalIgnoreCase);
     private readonly TokenBucketOptions _defaultOptions;
-    private readonly object _gate = new();
 
     public TokenBucketRateLimiter(TokenBucketOptions? defaultOptions = null)
     {
@@ -24,12 +23,7 @@ public sealed class TokenBucketRateLimiter
         CancellationToken cancellationToken = default)
     {
         var bucket = _buckets.GetOrAdd(bucketKey, _ => CreateBucket(bucketKey));
-
-        lock (_gate)
-        {
-            bucket.Refill();
-            return bucket.TryConsume(tokens);
-        }
+        return bucket.TryConsume(tokens);
     }
 
     public async Task<TimeSpan?> WaitForTokenAsync(
@@ -91,11 +85,8 @@ public sealed class TokenBucketRateLimiter
     {
         if (_buckets.TryGetValue(bucketKey, out var bucket))
         {
-            lock (_gate)
-            {
-                bucket.Refill();
-                return new BucketStatus(bucketKey, bucket.Remaining, bucket.Capacity, bucket.RefillRate);
-            }
+            bucket.Refill();
+            return new BucketStatus(bucketKey, bucket.Remaining, bucket.Capacity, bucket.RefillRate);
         }
 
         var defaultBucket = new TokenBucket(_defaultOptions);
@@ -112,6 +103,7 @@ public sealed class TokenBucket
 {
     private readonly double _refillRate;
     private readonly TimeSpan _refillInterval;
+    private readonly object _lock = new();
 
     public int Capacity { get; }
     public double Tokens { get; private set; }
@@ -129,12 +121,16 @@ public sealed class TokenBucket
 
     public bool TryConsume(int tokens = 1)
     {
-        if (Tokens >= tokens)
+        lock (_lock)
         {
-            Tokens -= tokens;
-            return true;
+            Refill();
+            if (Tokens >= tokens)
+            {
+                Tokens -= tokens;
+                return true;
+            }
+            return false;
         }
-        return false;
     }
 
     public void Refill()

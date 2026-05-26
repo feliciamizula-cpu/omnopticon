@@ -16,11 +16,11 @@ public sealed record EphemeralWorkerContext(
     string WorkerType,
     AssetDto Asset,
     IntegrationEventEnvelope<object> TriggeringEvent,
-    Func<string, object, Task> PublishEventAsync,
-    Func<RateLimitRequest, Task<bool>> RequestRateLimitTokenAsync,
-    Func<AssetDto, Task<AssetDto>> StoreAssetAsync,
-    Func<Guid, Task<AssetDto?>> GetAssetAsync,
-    Func<string, string, Task> CreateRelationshipAsync);
+    Func<string, object, CancellationToken, Task> PublishEventAsync,
+    Func<EphemeralRateLimitRequest, CancellationToken, Task<bool>> RequestRateLimitTokenAsync,
+    Func<AssetDto, CancellationToken, Task<AssetDto>> StoreAssetAsync,
+    Func<Guid, CancellationToken, Task<AssetDto?>> GetAssetAsync,
+    Func<string, string, CancellationToken, Task> CreateRelationshipAsync);
 
 public sealed record EphemeralWorkerResult(
     bool Success,
@@ -28,18 +28,11 @@ public sealed record EphemeralWorkerResult(
     IReadOnlyCollection<PublishedEvent> PublishedEvents,
     string? Error = null);
 
-public sealed record WorkerProducedAsset(
-    AssetType Type,
-    string Value,
-    string? Subtype = null,
-    IReadOnlyDictionary<string, string>? Metadata = null,
-    IReadOnlyCollection<string>? Tags = null);
-
 public sealed record PublishedEvent(
     string EventType,
     object Payload);
 
-public sealed record RateLimitRequest(
+public sealed record EphemeralRateLimitRequest(
     Guid ProgramId,
     Guid? ScopeId,
     string? Host,

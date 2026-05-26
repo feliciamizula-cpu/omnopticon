@@ -32,7 +32,7 @@ public sealed class AssetStorageWorker : IEphemeralWorker
 
         try
         {
-            var storedAsset = await context.StoreAssetAsync(asset);
+            var storedAsset = await context.StoreAssetAsync(asset, cancellationToken);
 
             _logger.LogInformation("AssetStorageWorker stored asset {AssetId}", storedAsset.AssetId);
 
@@ -50,7 +50,7 @@ public sealed class AssetStorageWorker : IEphemeralWorker
                 Success: false,
                 ProducedAssets: [],
                 PublishedEvents: [],
-                Error: ex.Message);
+                Error: "Failed to store asset");
         }
     }
 }

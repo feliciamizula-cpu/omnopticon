@@ -84,7 +84,7 @@ public sealed class HttpWorker : IEphemeralWorker
                 client.Timeout = TimeSpan.FromSeconds(15);
 
                 using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
-                request.Headers.UserAgent.ParseAdd("ArgusRecon/1.0 (bug-bounty-recon)");
+                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; ServiceHealthCheck/1.0)");
 
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 var statusCode = (int)response.StatusCode;

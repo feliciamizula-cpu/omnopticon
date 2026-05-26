@@ -21,6 +21,7 @@ public sealed class EventTypeRegistry : IEventTypeRegistry
     public EventTypeRegistry()
     {
         Register<AssetDiscovered>();
+        Register<AssetCreated>();
         Register<AssetConfirmed>();
         Register<AssetUpdated>();
         Register<AssetRelationshipDiscovered>();

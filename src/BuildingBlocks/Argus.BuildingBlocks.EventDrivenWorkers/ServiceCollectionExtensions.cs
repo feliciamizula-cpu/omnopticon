@@ -15,9 +15,6 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<TWorker>();
         builder.Services.AddSingleton<IEphemeralWorker>(provider => provider.GetRequiredService<TWorker>());
 
-        builder.Services.AddSingleton<EphemeralWorkerRegistry>(sp =>
-            sp.GetRequiredService<EphemeralWorkerRegistry>());
-
         builder.Services.Configure<EphemeralWorkerOptions>(options =>
         {
             if (Uri.TryCreate(builder.Configuration["ARGUS_ASSET_SERVICE"], UriKind.Absolute, out var assetService))
@@ -46,12 +43,21 @@ public static class ServiceCollectionExtensions
         int maxConcurrency = 50)
     {
         services.AddSingleton<EphemeralWorkerRegistry>();
-        services.AddHostedService<EphemeralWorkerDispatcher>(sp =>
+
+        services.AddHttpClient("ephemeral-worker", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
+        services.AddSingleton<EphemeralWorkerDispatcher>(sp =>
             new EphemeralWorkerDispatcher(
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<EphemeralWorkerRegistry>(),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EphemeralWorkerOptions>>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<EphemeralWorkerDispatcher>>(),
                 maxConcurrency));
+
+        services.AddHostedService(sp => sp.GetRequiredService<EphemeralWorkerDispatcher>());
 
         return services;
     }

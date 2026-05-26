@@ -17,7 +17,7 @@ public sealed class RoundRobinWorkerDistributor
         var poolKey = $"{workerType}:{domain}";
         var pool = _pools.GetOrAdd(poolKey, _ => CreateWorkerPool(workerType));
 
-        return pool.GetNextWorker(domain);
+        return pool.GetNextWorker();
     }
 
     public IReadOnlyCollection<string> GetAllWorkers(string workerType)
@@ -58,7 +58,7 @@ public sealed class WorkerPool
         _workers = workers;
     }
 
-    public string GetNextWorker(string domain)
+    public string GetNextWorker()
     {
         var index = Interlocked.Increment(ref _currentIndex);
         return _workers[index % _workers.Length];

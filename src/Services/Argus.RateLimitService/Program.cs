@@ -15,7 +15,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
 
 var programScopeServiceUri = builder.Configuration.GetValue<string>("ARGUS_PROGRAM_SCOPE_SERVICE") ?? "http://program-scope-service";
-builder.Services.AddSingleton<ProgramScopeServiceClient>(new ProgramScopeServiceClient(programScopeServiceUri));
+builder.Services.AddSingleton<ProgramScopeServiceClient>(sp => new ProgramScopeServiceClient(sp.GetRequiredService<IHttpClientFactory>(), programScopeServiceUri));
 
 if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("redis")))
 {
@@ -103,102 +103,113 @@ internal sealed class InMemoryRateLimitStore : IRateLimitStore
 {
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
     private readonly ConcurrentDictionary<string, BucketState> _buckets = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _gate = new();
 
     public Task<IReadOnlyCollection<RateLimitBucketDto>> GetBucketsAsync(CancellationToken cancellationToken)
     {
-        lock (_gate)
-        {
-            RefreshExpiredBuckets(DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        var buckets = _buckets.Values
+            .Select(b =>
+            {
+                b.Refresh(now);
+                return new RateLimitBucketDto(b.Key, b.Capacity, b.Remaining, b.ResetsAt);
+            })
+            .OrderBy(b => b.BucketKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-            IReadOnlyCollection<RateLimitBucketDto> buckets = _buckets
-                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(pair => new RateLimitBucketDto(pair.Key, pair.Value.Capacity, pair.Value.Remaining, pair.Value.ResetsAt))
-                .ToArray();
-
-            return Task.FromResult(buckets);
-        }
+        return Task.FromResult<IReadOnlyCollection<RateLimitBucketDto>>(buckets);
     }
 
     public Task<RateLimitDecision> CheckAsync(RateLimitCheckRequest request, IReadOnlyCollection<RateLimitPolicyDto>? policies, CancellationToken cancellationToken)
     {
-        lock (_gate)
+        var now = DateTimeOffset.UtcNow;
+
+        var bucketKeys = RateLimitBuckets.BuildBucketKeys(request, policies).ToArray();
+        var decisions = new List<RateLimitBucketDecision>(bucketKeys.Length);
+
+        foreach (var bucketKey in bucketKeys)
         {
-            var now = DateTimeOffset.UtcNow;
-            RefreshExpiredBuckets(now);
+            var bucket = _buckets.GetOrAdd(bucketKey, key => new BucketState(key, RateLimitBuckets.GetCapacity(key, policies), RateLimitBuckets.GetCapacity(key, policies), now.Add(Window)));
+            bucket.Refresh(now);
 
-            var bucketKeys = RateLimitBuckets.BuildBucketKeys(request, policies).ToArray();
-            var decisions = new List<RateLimitBucketDecision>(bucketKeys.Length);
-
-            foreach (var bucketKey in bucketKeys)
-            {
-                var bucket = _buckets.GetOrAdd(bucketKey, key => new BucketState(RateLimitBuckets.GetCapacity(key, policies), RateLimitBuckets.GetCapacity(key, policies), now.Add(Window)));
-                var allowed = bucket.Remaining >= request.PermitCount;
-                decisions.Add(new RateLimitBucketDecision(
-                    bucketKey,
-                    allowed,
-                    bucket.Remaining,
-                    allowed ? null : bucket.ResetsAt - now));
-            }
-
-            if (decisions.Any(decision => !decision.IsAllowed))
-            {
-                return Task.FromResult(new RateLimitDecision(
-                    false,
-                    null,
-                    null,
-                    decisions.Where(decision => !decision.IsAllowed).Max(decision => decision.RetryAfter),
-                    decisions));
-            }
-
-            foreach (var bucketKey in bucketKeys)
-            {
-                _buckets[bucketKey].Remaining -= request.PermitCount;
-            }
-
-            var tokenId = Guid.NewGuid();
-            var finalDecisions = bucketKeys.Select(bucketKey =>
-            {
-                var bucket = _buckets[bucketKey];
-                return new RateLimitBucketDecision(bucketKey, true, bucket.Remaining, null);
-            }).ToArray();
-
-            return Task.FromResult(new RateLimitDecision(true, tokenId, now.AddSeconds(30), null, finalDecisions));
+            var allowed = bucket.Remaining >= request.PermitCount;
+            decisions.Add(new RateLimitBucketDecision(
+                bucketKey,
+                allowed,
+                bucket.Remaining,
+                allowed ? null : bucket.ResetsAt - now));
         }
+
+        if (decisions.Any(decision => !decision.IsAllowed))
+        {
+            return Task.FromResult(new RateLimitDecision(
+                false,
+                null,
+                null,
+                decisions.Where(decision => !decision.IsAllowed).Max(decision => decision.RetryAfter),
+                decisions));
+        }
+
+        foreach (var bucketKey in bucketKeys)
+        {
+            _buckets[bucketKey].Consume(request.PermitCount);
+        }
+
+        var tokenId = Guid.NewGuid();
+        var finalDecisions = bucketKeys.Select(bucketKey =>
+        {
+            var bucket = _buckets[bucketKey];
+            return new RateLimitBucketDecision(bucketKey, true, bucket.Remaining, null);
+        }).ToArray();
+
+        return Task.FromResult(new RateLimitDecision(true, tokenId, now.AddSeconds(30), null, finalDecisions));
     }
 
     public void ApplyBackpressure(string bucketKey, DateTimeOffset expiry)
     {
-        lock (_gate)
+        if (_buckets.TryGetValue(bucketKey, out var bucket))
         {
-            if (_buckets.TryGetValue(bucketKey, out var bucket))
-            {
-                var newCapacity = Math.Max(1, bucket.Remaining - 1);
-                bucket.Remaining = newCapacity;
-                bucket.ResetsAt = expiry;
-            }
+            bucket.ApplyBackpressure(expiry);
         }
     }
 
-    private void RefreshExpiredBuckets(DateTimeOffset now)
+    private sealed class BucketState(string key, int capacity, int remaining, DateTimeOffset resetsAt)
     {
-        foreach (var bucket in _buckets.Values)
-        {
-            if (bucket.ResetsAt > now)
-            {
-                continue;
-            }
+        private readonly object _lock = new();
 
-            bucket.Remaining = bucket.Capacity;
-            bucket.ResetsAt = now.Add(Window);
-        }
-    }
-
-    private sealed class BucketState(int capacity, int remaining, DateTimeOffset resetsAt)
-    {
+        public string Key { get; } = key;
         public int Capacity { get; } = capacity;
-        public int Remaining { get; set; } = remaining;
-        public DateTimeOffset ResetsAt { get; set; } = resetsAt;
+        public int Remaining { get; private set; } = remaining;
+        public DateTimeOffset ResetsAt { get; private set; } = resetsAt;
+
+        public void Refresh(DateTimeOffset now)
+        {
+            lock (_lock)
+            {
+                if (ResetsAt <= now)
+                {
+                    Remaining = Capacity;
+                    ResetsAt = now.Add(Window);
+                }
+            }
+        }
+
+        public void Consume(int count)
+        {
+            lock (_lock)
+            {
+                Remaining -= count;
+            }
+        }
+
+        public void ApplyBackpressure(DateTimeOffset expiry)
+        {
+            lock (_lock)
+            {
+                var newRemaining = Math.Max(1, Remaining - 1);
+                Remaining = newRemaining;
+                ResetsAt = expiry;
+            }
+        }
     }
 }
 
@@ -446,18 +457,22 @@ internal static class RateLimitBuckets
 internal sealed class ProgramScopeServiceClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly HttpClient _httpClient = new();
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly string _baseAddress;
 
-    public ProgramScopeServiceClient(string baseAddress)
+    public ProgramScopeServiceClient(IHttpClientFactory httpClientFactory, string baseAddress)
     {
-        _httpClient.BaseAddress = new Uri(baseAddress);
+        _httpClientFactory = httpClientFactory;
+        _baseAddress = baseAddress;
     }
 
     public async Task<IReadOnlyCollection<RateLimitPolicyDto>> GetRateLimitPoliciesAsync(Guid programId, CancellationToken cancellationToken)
     {
         try
         {
-            using var response = await _httpClient.GetAsync($"/programs/{programId:N}/rate-limit-policies", cancellationToken);
+            var client = _httpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(_baseAddress);
+            using var response = await client.GetAsync($"/programs/{programId:N}/rate-limit-policies", cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var policies = await response.Content.ReadFromJsonAsync<List<RateLimitPolicyDto>>(JsonOptions, cancellationToken);

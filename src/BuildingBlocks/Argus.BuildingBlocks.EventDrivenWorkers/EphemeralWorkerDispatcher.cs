@@ -4,27 +4,33 @@ using Argus.Contracts.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace Argus.BuildingBlocks.EventDrivenWorkers;
 
-public sealed class EphemeralWorkerDispatcher : BackgroundService
+public sealed class EphemeralWorkerDispatcher : IHostedService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly EphemeralWorkerRegistry _registry;
+    private readonly EphemeralWorkerOptions _options;
     private readonly ILogger<EphemeralWorkerDispatcher> _logger;
     private readonly SemaphoreSlim _concurrencyLimiter;
+    private readonly JsonSerializerOptions _jsonOptions;
 
     public EphemeralWorkerDispatcher(
         IServiceScopeFactory scopeFactory,
         EphemeralWorkerRegistry registry,
+        IOptions<EphemeralWorkerOptions> options,
         ILogger<EphemeralWorkerDispatcher> logger,
         int maxConcurrency = 50)
     {
         _scopeFactory = scopeFactory;
         _registry = registry;
+        _options = options.Value;
         _logger = logger;
         _concurrencyLimiter = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        _jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
     }
 
     public async Task DispatchAsync<T>(
@@ -96,14 +102,15 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
         _logger.LogInformation("Ephemeral worker {InstanceId} started for {EventType}",
             instanceId, envelope.EventType);
 
-        var asset = await ExtractAssetFromEventAsync(scope.ServiceProvider, envelope, cancellationToken);
+        var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        var asset = await ExtractAssetFromEventAsync(httpClientFactory, envelope, cancellationToken);
         if (asset == null)
         {
             _logger.LogWarning("Failed to extract asset from event {EventId}", envelope.EventId);
             return;
         }
 
-        var context = BuildWorkerContext(scope.ServiceProvider, instanceId, worker.Descriptor.WorkerType, asset, envelope);
+        var context = BuildWorkerContext(scope.ServiceProvider, httpClientFactory, instanceId, worker.Descriptor.WorkerType, asset, envelope, cancellationToken);
 
         var result = await worker.ProcessAsync(context, cancellationToken);
 
@@ -118,17 +125,13 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
         }
     }
 
-    private static async Task<AssetDto?> ExtractAssetFromEventAsync(
-        IServiceProvider serviceProvider,
+    private async Task<AssetDto?> ExtractAssetFromEventAsync(
+        IHttpClientFactory httpClientFactory,
         IntegrationEventEnvelope<object> envelope,
         CancellationToken cancellationToken)
     {
-        using var scope = serviceProvider.CreateScope();
-        var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-        var client = httpClientFactory.CreateClient();
-
-        var assetServiceAddress = Environment.GetEnvironmentVariable("ARGUS_ASSET_SERVICE") ?? "http://asset-service";
-        client.BaseAddress = new Uri(assetServiceAddress);
+        var client = httpClientFactory.CreateClient("ephemeral-worker");
+        client.BaseAddress = _options.AssetServiceBaseAddress;
 
         var assetId = ExtractAssetId(envelope);
         if (!assetId.HasValue)
@@ -142,34 +145,38 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync(cancellationToken);
-                return JsonSerializer.Deserialize<AssetDto>(json, JsonOptions);
+                return JsonSerializer.Deserialize<AssetDto>(json, _jsonOptions);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Log but don't fail - worker may not need full asset
+            _logger.LogDebug(ex, "Failed to extract asset from event {EventId}", envelope.EventId);
         }
 
         return null;
     }
 
-    private static EphemeralWorkerContext BuildWorkerContext(
+    private EphemeralWorkerContext BuildWorkerContext(
         IServiceProvider serviceProvider,
+        IHttpClientFactory httpClientFactory,
         string instanceId,
         string workerType,
         AssetDto asset,
-        IntegrationEventEnvelope<object> triggeringEvent)
+        IntegrationEventEnvelope<object> triggeringEvent,
+        CancellationToken cancellationToken)
     {
         var publisher = serviceProvider.GetRequiredService<IIntegrationEventPublisher>();
-        var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
         return new EphemeralWorkerContext(
             WorkerInstanceId: instanceId,
             WorkerType: workerType,
             Asset: asset,
             TriggeringEvent: triggeringEvent,
-            PublishEventAsync: async (eventType, payload) =>
+            PublishEventAsync: async (eventType, payload, ct) =>
             {
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ct);
+                await using var _ = linkedCts;
+
                 var envelopeMethod = typeof(IntegrationEventEnvelope<object>)
                     .GetMethod("Create")!
                     .MakeGenericMethod(payload.GetType());
@@ -180,13 +187,12 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
                     .First(m => m.Name == "PublishAsync" && m.GetGenericArguments().Length == 1)
                     .MakeGenericMethod(payload.GetType());
 
-                await (Task)publishMethod.Invoke(publisher, new[] { envelope, CancellationToken.None })!;
+                await (Task)publishMethod.Invoke(publisher, new[] { envelope, linkedCts.Token })!;
             },
-            RequestRateLimitTokenAsync: async (request) =>
+            RequestRateLimitTokenAsync: async (request, ct) =>
             {
-                var client = httpClientFactory.CreateClient();
-                var rateLimitServiceAddress = Environment.GetEnvironmentVariable("ARGUS_RATE_LIMIT_SERVICE") ?? "http://rate-limit-service";
-                client.BaseAddress = new Uri(rateLimitServiceAddress);
+                var client = httpClientFactory.CreateClient("ephemeral-worker");
+                client.BaseAddress = _options.RateLimitServiceBaseAddress;
 
                 var payload = new RateLimitCheckRequest(
                     request.ProgramId,
@@ -198,19 +204,18 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
                     request.ProxyId,
                     request.PermitCount);
 
-                var response = await client.PostAsJsonAsync("/rate-limits/check", payload, JsonOptions);
+                var response = await client.PostAsJsonAsync("/rate-limits/check", payload, _jsonOptions, ct);
                 if (response.IsSuccessStatusCode)
                 {
-                    var decision = await response.Content.ReadFromJsonAsync<RateLimitDecision>(JsonOptions);
+                    var decision = await response.Content.ReadFromJsonAsync<RateLimitDecision>(_jsonOptions, ct);
                     return decision?.IsAllowed == true;
                 }
                 return false;
             },
-            StoreAssetAsync: async (assetToStore) =>
+            StoreAssetAsync: async (assetToStore, ct) =>
             {
-                var client = httpClientFactory.CreateClient();
-                var assetServiceAddress = Environment.GetEnvironmentVariable("ARGUS_ASSET_SERVICE") ?? "http://asset-service";
-                client.BaseAddress = new Uri(assetServiceAddress);
+                var client = httpClientFactory.CreateClient("ephemeral-worker");
+                client.BaseAddress = _options.AssetServiceBaseAddress;
 
                 var createRequest = new CreateAssetRequest(
                     assetToStore.ProgramId,
@@ -222,31 +227,29 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
                     assetToStore.Metadata,
                     assetToStore.Tags);
 
-                var response = await client.PostAsJsonAsync("/assets", createRequest, JsonOptions);
+                var response = await client.PostAsJsonAsync("/assets", createRequest, _jsonOptions, ct);
                 if (response.IsSuccessStatusCode)
                 {
-                    return await response.Content.ReadFromJsonAsync<AssetDto>(JsonOptions);
+                    return await response.Content.ReadFromJsonAsync<AssetDto>(_jsonOptions, ct);
                 }
                 throw new InvalidOperationException($"Failed to store asset: {response.StatusCode}");
             },
-            GetAssetAsync: async (assetId) =>
+            GetAssetAsync: async (assetId, ct) =>
             {
-                var client = httpClientFactory.CreateClient();
-                var assetServiceAddress = Environment.GetEnvironmentVariable("ARGUS_ASSET_SERVICE") ?? "http://asset-service";
-                client.BaseAddress = new Uri(assetServiceAddress);
+                var client = httpClientFactory.CreateClient("ephemeral-worker");
+                client.BaseAddress = _options.AssetServiceBaseAddress;
 
-                var response = await client.GetAsync($"/assets/{assetId}", CancellationToken.None);
+                var response = await client.GetAsync($"/assets/{assetId}", ct);
                 if (response.IsSuccessStatusCode)
                 {
-                    return await response.Content.ReadFromJsonAsync<AssetDto>(JsonOptions);
+                    return await response.Content.ReadFromJsonAsync<AssetDto>(_jsonOptions, ct);
                 }
                 return null;
             },
-            CreateRelationshipAsync: async (fromAssetId, toAssetId) =>
+            CreateRelationshipAsync: async (fromAssetId, toAssetId, ct) =>
             {
-                var client = httpClientFactory.CreateClient();
-                var assetServiceAddress = Environment.GetEnvironmentVariable("ARGUS_ASSET_SERVICE") ?? "http://asset-service";
-                client.BaseAddress = new Uri(assetServiceAddress);
+                var client = httpClientFactory.CreateClient("ephemeral-worker");
+                client.BaseAddress = _options.AssetServiceBaseAddress;
 
                 var request = new CreateAssetRelationshipRequest(
                     Guid.Parse(fromAssetId),
@@ -254,7 +257,7 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
                     "produces",
                     instanceId);
 
-                var response = await client.PostAsJsonAsync("/assets/relationships", request, JsonOptions);
+                var response = await client.PostAsJsonAsync("/assets/relationships", request, _jsonOptions, ct);
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException($"Failed to create relationship: {response.StatusCode}");
@@ -288,15 +291,15 @@ public sealed class EphemeralWorkerDispatcher : BackgroundService
         };
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Ephemeral worker dispatcher started");
+        return Task.CompletedTask;
+    }
 
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await Task.Delay(1000, stoppingToken);
-        }
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Ephemeral worker dispatcher stopping");
+        return Task.CompletedTask;
     }
 }

@@ -16,8 +16,7 @@ public sealed class EphemeralWorkerRegistry
 
     public void Register<TWorker>() where TWorker : class, IEphemeralWorker
     {
-        using var scope = _serviceProvider.CreateScope();
-        var worker = scope.ServiceProvider.GetRequiredService<TWorker>();
+        var worker = _serviceProvider.GetRequiredService<TWorker>();
         var descriptor = worker.Descriptor;
 
         var registration = new WorkerRegistration(

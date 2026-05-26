@@ -172,7 +172,10 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
                 if (_poisonStore is not null) { await _poisonStore.RecordPoisonAsync(envelope, ex ?? new Exception("Poison message detected on redelivery"), attemptCount, cancellationToken); }
             }
         }
-        catch { }
+        catch (Exception poisonEx)
+        {
+            _logger.LogError(poisonEx, "Failed to record poison message {DeliveryTag}", ea.DeliveryTag);
+        }
         await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, cancellationToken);
     }
 

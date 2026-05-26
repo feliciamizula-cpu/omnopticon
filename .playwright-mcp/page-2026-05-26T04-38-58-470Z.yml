@@ -1,0 +1,177 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - button "Collapse" [ref=e5] [cursor=pointer]:
+        - img [ref=e6]
+      - generic [ref=e8]: ArgusEngine
+    - navigation [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]: Reconnaissance
+        - link "Command Center" [ref=e12] [cursor=pointer]:
+          - /url: /command-center
+          - img [ref=e14]
+          - generic [ref=e16]: Command Center
+        - link "Targets" [ref=e17] [cursor=pointer]:
+          - /url: /targets
+          - img [ref=e19]
+          - generic [ref=e22]: Targets
+        - link "Assets" [ref=e23] [cursor=pointer]:
+          - /url: /assets
+          - img [ref=e25]
+          - generic [ref=e30]: Assets
+        - link "Asset Types" [ref=e31] [cursor=pointer]:
+          - /url: /asset-types
+          - img [ref=e33]
+          - generic [ref=e35]: Asset Types
+        - link "Operations" [ref=e36] [cursor=pointer]:
+          - /url: /operations
+          - img [ref=e38]
+          - generic [ref=e42]: Operations
+      - generic [ref=e43]:
+        - generic [ref=e44]: Workers
+        - link "Workers" [ref=e45] [cursor=pointer]:
+          - /url: /workers
+          - img [ref=e47]
+          - generic [ref=e50]: Workers
+        - link "Worker Types" [ref=e51] [cursor=pointer]:
+          - /url: /worker-types
+          - img [ref=e53]
+          - generic [ref=e55]: Worker Types
+      - generic [ref=e56]:
+        - generic [ref=e57]: Programs
+        - link "Subscriptions" [ref=e58] [cursor=pointer]:
+          - /url: /subscriptions
+          - img [ref=e60]
+          - generic [ref=e62]: Subscriptions
+        - link "Tasks / Runs" [ref=e63] [cursor=pointer]:
+          - /url: /tasks
+          - img [ref=e65]
+          - generic [ref=e68]: Tasks / Runs
+        - link "Contexts / Checkpoints" [ref=e69] [cursor=pointer]:
+          - /url: /contexts
+          - img [ref=e71]
+          - generic [ref=e74]: Contexts / Checkpoints
+      - generic [ref=e75]:
+        - generic [ref=e76]: Findings
+        - link "Findings" [ref=e77] [cursor=pointer]:
+          - /url: /findings
+          - img [ref=e79]
+          - generic [ref=e81]: Findings
+        - link "Events" [ref=e82] [cursor=pointer]:
+          - /url: /events
+          - img [ref=e84]
+          - generic [ref=e87]: Events
+      - generic [ref=e88]:
+        - generic [ref=e89]: Development
+        - link "Agent Config" [ref=e90] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e92]
+          - generic [ref=e96]: Agent Config
+        - link "Agent Tasks" [ref=e97] [cursor=pointer]:
+          - /url: /agent-tasks
+          - img [ref=e99]
+          - generic [ref=e102]: Agent Tasks
+        - link "Schedules" [ref=e103] [cursor=pointer]:
+          - /url: /agent-schedules
+          - img [ref=e105]
+          - generic [ref=e108]: Schedules
+        - link "Provider Usage" [ref=e109] [cursor=pointer]:
+          - /url: /provider-usage
+          - img [ref=e111]
+          - generic [ref=e113]: Provider Usage
+        - link "Todos" [ref=e114] [cursor=pointer]:
+          - /url: /todos
+          - img [ref=e116]
+          - generic [ref=e118]: Todos
+      - generic [ref=e119]:
+        - generic [ref=e120]: System
+        - link "Settings" [ref=e121] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e123]
+          - generic [ref=e125]: Settings
+  - generic [ref=e126]:
+    - banner [ref=e127]:
+      - generic [ref=e128]:
+        - generic [ref=e129]: ArgusEngine
+        - generic [ref=e130]: v2526c49 · 2026-05-26T04:31:34Z
+      - generic [ref=e135]: Operational
+      - combobox [ref=e138]:
+        - option "All Targets" [selected]
+      - generic [ref=e139]:
+        - button "Notifications" [ref=e140] [cursor=pointer]:
+          - img [ref=e141]
+        - button "Settings" [ref=e143] [cursor=pointer]:
+          - img [ref=e144]
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - generic [ref=e150]: Programs
+            - generic [ref=e151]: "0"
+            - button "+ New" [ref=e152] [cursor=pointer]
+          - table [ref=e154]:
+            - rowgroup [ref=e155]:
+              - row "Name Scope" [ref=e156]:
+                - columnheader "Name" [ref=e157]
+                - columnheader "Scope" [ref=e158]
+            - rowgroup [ref=e183]:
+              - row "No programs" [ref=e184]:
+                - cell "No programs" [ref=e185]
+        - generic [ref=e159]:
+          - generic [ref=e160]:
+            - generic [ref=e161]: Assets
+            - generic [ref=e162]: "0"
+            - generic [ref=e163]: LIVE
+            - button "Stop" [ref=e164] [cursor=pointer]
+          - table [ref=e166]:
+            - rowgroup [ref=e167]:
+              - row "Type Value Status Risk First Seen Last Seen" [ref=e168]:
+                - columnheader "Type" [ref=e169]
+                - columnheader "Value" [ref=e170]
+                - columnheader "Status" [ref=e171]
+                - columnheader "Risk" [ref=e172]
+                - columnheader "First Seen" [ref=e173]
+                - columnheader "Last Seen" [ref=e174]
+            - rowgroup [ref=e175]:
+              - row "Select a program" [ref=e176]:
+                - cell "Select a program" [ref=e177]
+        - generic [ref=e178]:
+          - generic [ref=e180]: Activity
+          - generic [ref=e182]: No activity yet
+      - generic [ref=e187]:
+        - generic [ref=e189]: New Program
+        - generic [ref=e190]:
+          - generic [ref=e191]:
+            - generic [ref=e192]: Name *
+            - textbox "e.g. ACME Corp Bug Bounty" [ref=e193]: Test Program
+          - generic [ref=e194]:
+            - generic [ref=e195]: Source *
+            - textbox "HackerOne / Bugcrowd / Manual" [ref=e196]: example.com
+          - generic [ref=e197]:
+            - generic [ref=e198]: External URL
+            - textbox "https://hackerone.com/program" [ref=e199]
+          - generic [ref=e200]:
+            - generic [ref=e201]: In-Scope Domains
+            - generic [ref=e202]:
+              - textbox "example.com or *.example.com" [ref=e203]: example.com
+              - combobox [ref=e204]:
+                - option "Domain" [selected]
+                - option "Wildcard Domain"
+                - option "URL"
+                - option "CIDR"
+                - option "IP Range"
+              - button "×" [ref=e205] [cursor=pointer]
+            - generic [ref=e211]:
+              - textbox "example.com or *.example.com" [ref=e212]
+              - combobox [ref=e213]:
+                - option "Domain" [selected]
+                - option "Wildcard Domain"
+                - option "URL"
+                - option "CIDR"
+                - option "IP Range"
+              - button "×" [ref=e214] [cursor=pointer]
+            - button "+ Add Domain" [active] [ref=e206] [cursor=pointer]
+          - generic [ref=e210]: Add at least one domain scope.
+        - generic [ref=e207]:
+          - button "Cancel" [ref=e208] [cursor=pointer]
+          - button "Create Program" [ref=e209] [cursor=pointer]

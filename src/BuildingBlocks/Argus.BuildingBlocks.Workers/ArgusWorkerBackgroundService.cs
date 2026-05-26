@@ -29,6 +29,7 @@ public sealed class ArgusWorkerBackgroundService(
         Converters = { new JsonStringEnumConverter() }
     };
     private readonly SemaphoreSlim _concurrencyLimiter = new(worker.Capability.MaxConcurrency, worker.Capability.MaxConcurrency);
+    private readonly ConcurrentDictionary<Guid, Task> _runningTasks = new();
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
     private int _runningTaskCount;
     private HttpClient? _artifactStore;
@@ -42,7 +43,16 @@ public sealed class ArgusWorkerBackgroundService(
             try
             {
                 await _concurrencyLimiter.WaitAsync(stoppingToken);
-                _ = RunTaskWithReleaseAsync(stoppingToken);
+                var task = RunTaskWithReleaseAsync(stoppingToken);
+                _runningTasks.TryAdd(Guid.NewGuid(), task);
+                _ = task.ContinueWith(t =>
+                {
+                    if (t.Exception != null)
+                    {
+                        logger.LogError(t.Exception, "Worker task failed for {WorkerType}", worker.Capability.WorkerType);
+                    }
+                    _runningTasks.TryRemove(t.Id, out _);
+                }, TaskContinuationOptions.OnlyOnFaulted);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -54,6 +64,8 @@ public sealed class ArgusWorkerBackgroundService(
                 await Task.Delay(_options.PollInterval, stoppingToken);
             }
         }
+
+        await Task.WhenAll(_runningTasks.Values);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -583,44 +595,6 @@ public sealed class ArgusWorkerBackgroundService(
         return snapshot;
     }
 
-    private bool VerifyScopeSnapshot(string snapshotJson)
-    {
-        if (string.IsNullOrEmpty(_options.SnapshotSecretKey))
-        {
-            logger.LogWarning("SnapshotSecretKey not configured, skipping snapshot verification");
-            return true;
-        }
-
-        var snapshot = SnapshotSigner.DeserializeSnapshot(snapshotJson);
-        if (snapshot is null)
-        {
-            logger.LogError("Failed to deserialize scope snapshot");
-            return false;
-        }
-
-        return SnapshotSigner.VerifySignature(snapshot, _options.SnapshotSecretKey);
-    }
-
-    private async Task SaveCheckpointAsync(Guid taskId, string checkpointJson, CancellationToken cancellationToken)
-    {
-        _taskCheckpoints[taskId] = checkpointJson;
-
-        var client = CreateClient(_options.TaskServiceBaseAddress);
-        var request = new SaveWorkerContextRequest(_options.WorkerId, worker.Capability.WorkerType, checkpointJson);
-        try
-        {
-            using var response = await client.PostAsJsonAsync($"/workers/contexts", request, JsonOptions, cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                logger.LogDebug("Saved checkpoint for task {TaskId}", taskId);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to save checkpoint for task {TaskId}", taskId);
-        }
-    }
-
     private async Task PublishArtifactAsync(ReconTaskDto task, WorkerProducedArtifact artifact, CancellationToken cancellationToken)
     {
         _artifactStore ??= httpClientFactory.CreateClient("artifact");
@@ -695,61 +669,11 @@ public sealed class ArgusWorkerBackgroundService(
         return System.Text.Encoding.UTF8.GetString(previewBytes);
     }
 
-    private async Task EmitAssetRejectedEventAsync(ReconTaskDto task, WorkerProducedAsset asset, CancellationToken cancellationToken)
-    {
-        var target = ScopeValidationTarget.Extract(asset);
-        var payload = new AssetRejectedEventPayload(
-            task.TaskId,
-            task.ProgramId,
-            asset.AssetType,
-            asset.Value,
-            target ?? asset.Value,
-            "OutOfScope",
-            $"Asset rejected by scope validation");
-
-        var request = new EventIngestRequest(
-            "AssetRejected",
-            "Argus.WorkerHost",
-            CorrelationId: task.TaskId,
-            CausationId: null,
-            JsonSerializer.Serialize(payload, JsonOptions));
-
-        var client = CreateClient(_options.RealtimeServiceBaseAddress);
-        try
-        {
-            using var response = await client.PostAsJsonAsync("/events", request, JsonOptions, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Failed to emit AssetRejected event for {AssetType} {Value}", asset.AssetType, asset.Value);
-        }
-    }
 }
 
 internal sealed record TaskRunState(
     CancellationTokenSource CancellationSource,
     string? CheckpointJson);
-
-internal sealed record SaveWorkerContextRequest(
-    string WorkerId,
-    string WorkerType,
-    string CheckpointJson);
-
-internal sealed record EventIngestRequest(
-    string EventType,
-    string? SourceService,
-    Guid? CorrelationId,
-    Guid? CausationId,
-    string? PayloadJson);
-
-internal sealed record AssetRejectedEventPayload(
-    Guid TaskId,
-    Guid ProgramId,
-    string AssetType,
-    string AssetValue,
-    string Target,
-    string ScopeStatus,
-    string Reason);
 
 internal static class ScopeValidationTarget
 {
