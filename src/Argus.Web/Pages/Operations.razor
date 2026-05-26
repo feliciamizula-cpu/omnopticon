@@ -202,9 +202,9 @@
 
     static readonly Dictionary<string, (string TaskType, string WorkerCapability)> ActionMap = new()
     {
-        ["enum-sub"]  = ("DomainDiscovery", "Subfinder"),
-        ["spider"]    = ("HtmlSpider",      "HtmlDomSpider"),
-        ["spider-hl"] = ("HeadlessSpider",  "HeadlessSpider"),
+        ["enum-sub"]  = ("subdomain-enumeration", "SubfinderWorker"),
+        ["spider"]    = ("spider",                "HtmlDomSpiderWorker"),
+        ["spider-hl"] = ("headless-spider",       "HeadlessSpiderWorker"),
     };
 
     // ── State ────────────────────────────────────────────────────────────────────

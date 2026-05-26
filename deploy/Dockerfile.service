@@ -7,6 +7,8 @@ ARG PROJECT_PATH=src/Argus.Web/Argus.Web.csproj
 ARG ASSEMBLY_NAME=Argus.Web
 ARG AMASS_VERSION=4.2.0
 ARG AMASS_LINUX_AMD64_SHA256=abef624f84b21fb45d4b9d39693863c6bf4e9ddb94830f797c129d03937a7f03
+ARG SUBFINDER_VERSION=2.14.0
+ARG SUBFINDER_LINUX_AMD64_SHA256=6529294788f56a20ed96a9b70e71f8f3c247f1d6104ba1e2c2e9e58d8a32c6cb
 
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
@@ -44,6 +46,8 @@ ARG BUILD_DATE
 ARG ASSEMBLY_NAME=Argus.Web
 ARG AMASS_VERSION
 ARG AMASS_LINUX_AMD64_SHA256
+ARG SUBFINDER_VERSION
+ARG SUBFINDER_LINUX_AMD64_SHA256
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libgssapi-krb5-2 python3 \
@@ -54,6 +58,14 @@ RUN apt-get update \
         && unzip -q /tmp/amass.zip -d /tmp/amass \
         && install -m 0755 "/tmp/amass/amass_Linux_amd64/amass" /usr/local/bin/amass \
         && rm -rf /tmp/amass /tmp/amass.zip; \
+    fi \
+    && if [ "$ASSEMBLY_NAME" = "Argus.Workers.Subfinder" ]; then \
+        apt-get install -y --no-install-recommends curl unzip \
+        && curl -fsSL -o /tmp/subfinder.zip "https://github.com/projectdiscovery/subfinder/releases/download/v${SUBFINDER_VERSION}/subfinder_${SUBFINDER_VERSION}_linux_amd64.zip" \
+        && echo "${SUBFINDER_LINUX_AMD64_SHA256}  /tmp/subfinder.zip" | sha256sum -c - \
+        && unzip -q /tmp/subfinder.zip -d /tmp/subfinder \
+        && install -m 0755 /tmp/subfinder/subfinder /usr/local/bin/subfinder \
+        && rm -rf /tmp/subfinder /tmp/subfinder.zip; \
     fi \
     && if [ "$ASSEMBLY_NAME" = "Argus.AgentService" ]; then apt-get install -y --no-install-recommends nodejs npm && npm install -g @openai/codex@0.133.0; fi \
     && rm -rf /var/lib/apt/lists/*

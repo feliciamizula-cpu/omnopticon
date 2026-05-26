@@ -509,6 +509,7 @@ public static class AssetEndpoints
 
     private static async Task<IResult> BulkEnqueue(
         BulkEnqueueRequest request,
+        AssetDbContext dbContext,
         IHttpClientFactory httpClientFactory,
         CancellationToken cancellationToken)
     {
@@ -521,6 +522,13 @@ public static class AssetEndpoints
         if (string.IsNullOrWhiteSpace(request.WorkerCapability))
             return Results.BadRequest("Worker capability is required.");
 
+        var assetIdSet = request.AssetIds.ToHashSet();
+        var assetValues = await dbContext.Assets
+            .AsNoTracking()
+            .Where(a => assetIdSet.Contains(a.AssetId))
+            .Select(a => new { a.AssetId, a.Value, Type = a.Type.ToString() })
+            .ToDictionaryAsync(a => a.AssetId, cancellationToken);
+
         var taskClient = httpClientFactory.CreateClient();
         taskClient.BaseAddress = new Uri(GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
 
@@ -530,12 +538,17 @@ public static class AssetEndpoints
 
         foreach (var assetId in request.AssetIds)
         {
+            assetValues.TryGetValue(assetId, out var assetInfo);
+            var payloadJson = assetInfo is not null
+                ? BuildTaskPayload(assetInfo.Type, assetInfo.Value, request.WorkerCapability)
+                : null;
+
             var createRequest = new CreateReconTaskRequest(
                 TaskType: request.TaskType,
                 ProgramId: request.ProgramId,
                 ScopeId: request.ScopeId,
                 InputAssetId: assetId,
-                InputPayloadJson: null,
+                InputPayloadJson: payloadJson,
                 WorkerCapability: request.WorkerCapability,
                 RequiredAssetType: null,
                 MaxAttempts: request.MaxAttempts,
@@ -563,6 +576,25 @@ public static class AssetEndpoints
         }
 
         return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, skippedCount));
+    }
+
+    private static string? BuildTaskPayload(string assetType, string value, string workerCapability)
+    {
+        object? payload = workerCapability switch
+        {
+            "SubfinderWorker" or "AmassWorker" =>
+                new { domain = value, assetType },
+            "HtmlDomSpiderWorker" =>
+                string.Equals(assetType, "Subdomain", StringComparison.OrdinalIgnoreCase)
+                    ? new { url = $"https://{value.TrimEnd('/')}/", host = value, assetType }
+                    : (object)new { url = value, assetType },
+            "HeadlessSpiderWorker" =>
+                string.Equals(assetType, "Subdomain", StringComparison.OrdinalIgnoreCase)
+                    ? new { url = $"https://{value.TrimEnd('/')}/", host = value, assetType }
+                    : (object)new { url = value, assetType },
+            _ => new { value, assetType },
+        };
+        return payload is null ? null : JsonSerializer.Serialize(payload, JsonOptions);
     }
 
     private static async Task<IResult> GetAssetTypes(
