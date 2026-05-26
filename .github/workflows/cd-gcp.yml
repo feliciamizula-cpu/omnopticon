@@ -13,6 +13,7 @@ env:
   PROJECT_ID: project-30b3b95e-ed2b-4573-98a
   REGION: us-central1
   CLUSTER_NAME: argus-gke
+  WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
 jobs:
   deploy-gke:
@@ -59,7 +60,8 @@ jobs:
           terraform -chdir=deploy/terraform apply -auto-approve \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
-            -var="cluster_name=${CLUSTER_NAME}"
+            -var="cluster_name=${CLUSTER_NAME}" \
+            -var="github_actions_service_account=${WIF_SERVICE_ACCOUNT}"
 
       - name: Configure kubectl
         run: gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}" --project "${PROJECT_ID}"

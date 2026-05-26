@@ -169,3 +169,35 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "continuous_workers" {
 
   depends_on = [kubectl_manifest.aspirate]
 }
+
+resource "google_project_iam_member" "github_actions_service_usage_consumer" {
+  count = var.github_actions_service_account != "" ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${var.github_actions_service_account}"
+}
+
+resource "google_project_iam_member" "github_actions_service_account_admin" {
+  count = var.github_actions_service_account != "" ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/iam.serviceAccountAdmin"
+  member  = "serviceAccount:${var.github_actions_service_account}"
+}
+
+resource "google_project_iam_member" "github_actions_compute_admin" {
+  count = var.github_actions_service_account != "" ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/compute.admin"
+  member  = "serviceAccount:${var.github_actions_service_account}"
+}
+
+resource "google_project_iam_member" "github_actions_container_admin" {
+  count = var.github_actions_service_account != "" ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/container.admin"
+  member  = "serviceAccount:${var.github_actions_service_account}"
+}
