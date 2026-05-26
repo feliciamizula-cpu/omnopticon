@@ -2262,3 +2262,51 @@ textarea.dev-input {
     grid-template-columns: 1fr;
   }
 }
+
+.deployment-freshness {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.deployment-freshness .freshness-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.deployment-freshness.fresh {
+  background: rgba(0, 201, 167, 0.15);
+  color: #00c9a7;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+}
+
+.deployment-freshness.fresh .freshness-dot {
+  background: #00c9a7;
+  box-shadow: 0 0 8px #00c9a7;
+}
+
+.deployment-freshness.ok {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d7e0ea;
+}
+
+.deployment-freshness.ok .freshness-dot {
+  background: #d7e0ea;
+}
+
+.deployment-freshness.stale {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff5050;
+}
+
+.deployment-freshness.stale .freshness-dot {
+  background: #ff5050;
+}
