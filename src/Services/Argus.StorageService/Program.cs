@@ -28,33 +28,25 @@ app.MapHealthChecks("/health");
 
 await app.RunAsync();
 
-internal sealed class AssetConfirmedConsumer : IIntegrationEventConsumer<AssetConfirmed>
+internal sealed class AssetDiscoveredConsumer : IIntegrationEventConsumer<AssetDiscovered>
 {
     private readonly StorageDbContext _context;
-    private readonly ILogger<AssetConfirmedConsumer> _logger;
+    private readonly ILogger<AssetDiscoveredConsumer> _logger;
 
-    public AssetConfirmedConsumer(StorageDbContext context, ILogger<AssetConfirmedConsumer> logger)
+    public AssetDiscoveredConsumer(StorageDbContext context, ILogger<AssetDiscoveredConsumer> logger)
     {
         _context = context;
         _logger = logger;
     }
 
-    public async Task ConsumeAsync(AssetConfirmed @event, CancellationToken cancellationToken)
+    public async Task ConsumeAsync(AssetDiscovered @event, CancellationToken cancellationToken)
     {
         try
         {
             var existingAsset = await _context.Assets.FirstOrDefaultAsync(
                 a => a.AssetId == @event.AssetId, cancellationToken);
 
-            if (existingAsset != null)
-            {
-                existingAsset.Value = @event.Value;
-                existingAsset.AssetType = @event.AssetType;
-                existingAsset.Subtype = @event.Subtype;
-                existingAsset.ConfirmedAt = DateTimeOffset.UtcNow;
-                _context.Assets.Update(existingAsset);
-            }
-            else
+            if (existingAsset == null)
             {
                 var asset = new AssetRecord
                 {
@@ -62,16 +54,13 @@ internal sealed class AssetConfirmedConsumer : IIntegrationEventConsumer<AssetCo
                     ProgramId = @event.ProgramId,
                     Value = @event.Value,
                     AssetType = @event.AssetType,
-                    Subtype = @event.Subtype,
-                    DiscoveredAt = DateTimeOffset.UtcNow,
-                    ConfirmedAt = DateTimeOffset.UtcNow
+                    DiscoveredAt = DateTimeOffset.UtcNow
                 };
 
                 _context.Assets.Add(asset);
+                await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Asset persisted: {AssetId} ({Value})", @event.AssetId, @event.Value);
             }
-
-            await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Asset persisted: {AssetId} ({Value})", @event.AssetId, @event.Value);
         }
         catch (Exception ex)
         {
@@ -104,7 +93,5 @@ internal sealed class AssetRecord
     public Guid ProgramId { get; set; }
     public string Value { get; set; } = string.Empty;
     public string AssetType { get; set; } = string.Empty;
-    public string? Subtype { get; set; }
     public DateTimeOffset DiscoveredAt { get; set; }
-    public DateTimeOffset ConfirmedAt { get; set; }
 }
