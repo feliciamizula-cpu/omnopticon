@@ -13,11 +13,11 @@
 
     @if (HasData && Enabled)
     {
+        <div class="pu-reset" title="@AbsoluteResetText">↺ @RelativeResetText</div>
         <div class="pu-progress" aria-hidden="true">
             <div class="pu-progress-fill" style="width: @ProgressWidth;"></div>
         </div>
         <div class="pu-window-meta">
-            <span class="pu-reset" title="@AbsoluteResetText">↺ @RelativeResetText</span>
             <button class="pu-alert-button @AlertButtonClass" type="button" @onclick="ToggleAlert">@AlertButtonText</button>
         </div>
     }

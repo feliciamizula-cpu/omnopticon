@@ -1846,17 +1846,23 @@ textarea.dev-input {
 .pu-window-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 4px;
   margin-top: 2px;
 }
 
 .pu-reset {
   color: var(--pu-text-2);
-  font-size: 9px;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
+  letter-spacing: .02em;
   cursor: default;
 }
+
+.pu-window-cell.is-green:not(.is-disabled) .pu-reset { color: var(--pu-green); }
+.pu-window-cell.is-amber:not(.is-disabled) .pu-reset { color: var(--pu-amber); }
+.pu-window-cell.is-red:not(.is-disabled) .pu-reset { color: var(--pu-red); }
 
 .pu-alert-button {
   padding: 2px 7px;

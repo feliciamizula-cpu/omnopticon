@@ -79,7 +79,7 @@ def read_statusline_file():
         details = []
 
         five_hour = rate_limits.get("five_hour") or rate_limits.get("fiveHour") or rate_limits.get("5h")
-        seven_day = rate_limits.get("seven_day") or rate_limits.get("weekly") or rate_limits.get("7d")
+        seven_day = rate_limits.get("seven_day") or rate_limits.get("sevenDay") or rate_limits.get("weekly") or rate_limits.get("7d")
 
         if isinstance(five_hour, dict):
             result["fiveHour"] = window_from_percent(
