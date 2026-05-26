@@ -1,89 +1,52 @@
 # Argus Deployment
 
-This folder gives Argus a repeatable container deployment path for a fresh environment. Aspire remains the preferred local development orchestrator, but this Compose setup is useful when you want a self-contained stack outside the Aspire dashboard.
+Argus now deploys to GKE through Terraform plus Kubernetes manifests generated from the Aspire AppHost by Aspirate.
 
-## Prerequisites
+## Layout
 
-- Docker Engine or Docker Desktop with Compose v2.
-- Access to the repository root.
+- `terraform/` provisions GKE, Artifact Registry, the Argus namespace, KEDA, generated manifests, and worker HPAs.
+- `aspirate/` documents the manifest generation step.
+- `Dockerfile.service` remains available for direct image builds when needed by local or fallback workflows.
 
 ## First Deploy
 
-From the repository root:
+```bash
+terraform -chdir=deploy/terraform init
+terraform -chdir=deploy/terraform apply \
+  -var='project_id=project-30b3b95e-ed2b-4573-98a'
+```
+
+Then generate manifests from Aspire:
 
 ```bash
-cp deploy/argus.env.example deploy/argus.env
-docker compose --env-file deploy/argus.env -f deploy/compose.yaml up --build -d
+dotnet tool restore
+cd src/Argus.AppHost
+aspirate init
+aspirate generate --non-interactive --disable-secrets
 ```
 
-Open:
-
-```text
-http://localhost:8080
-```
-
-The API gateway is exposed at:
-
-```text
-http://localhost:8081
-```
-
-The realtime service is exposed at:
-
-```text
-http://localhost:8082
-```
-
-Seed demo data:
+Finally apply the app manifests and autoscaling resources:
 
 ```bash
-tools/seed-demo-data.sh
+terraform -chdir=deploy/terraform apply \
+  -var='project_id=project-30b3b95e-ed2b-4573-98a' \
+  -var='apply_aspirate_manifests=true' \
+  -var='aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output'
 ```
 
-## Configuration
+## Worker Runtime Classes
 
-Edit `deploy/argus.env` before first use:
+- Continuous background workers: task-lease recon workers such as `http-probe-worker`, `dns-resolver-worker`, `asset-scoring-worker`, and the other durable pipeline workers. Terraform creates HPAs for these deployments.
+- Ephemeral worker hosts: `http-worker` and `asset-storage-worker`.
+- Validation service: `validation-worker`, which still exposes HTTP endpoints for promotion/dismissal workflows.
 
-- `ARGUS_POSTGRES_PASSWORD`: required for PostgreSQL.
-- `ARGUS_RABBITMQ_PASSWORD`: required for RabbitMQ event publishing.
-- `ARGUS_WEB_PORT`: host port for `Argus.Web`.
-- `ARGUS_GATEWAY_PORT`: host port for `Argus.ApiGateway`.
-- `ARGUS_REALTIME_PORT`: host port for direct event-stream access.
-- `ARGUS_EXPOSE_HEALTH_ENDPOINTS`: set to `true` for `/health` and `/alive`.
+## CI/CD
 
-Internal service URLs are injected by `deploy/compose.yaml` through `ARGUS_*_SERVICE` variables. PostgreSQL, Redis, and RabbitMQ are supplied through `ConnectionStrings__argusdb`, `ConnectionStrings__redis`, and `ConnectionStrings__eventbus`.
+`.github/workflows/cd-gcp.yml` now runs the same flow:
 
-## Health Checks
+1. Authenticate to GCP.
+2. Provision/update Terraform infrastructure.
+3. Generate and push Kubernetes manifests with Aspirate.
+4. Re-apply Terraform with generated manifest application enabled.
 
-Each Argus service maps:
-
-```text
-/health
-/alive
-```
-
-when `ARGUS_EXPOSE_HEALTH_ENDPOINTS=true`.
-
-## Update an Environment
-
-```bash
-docker compose --env-file deploy/argus.env -f deploy/compose.yaml up --build -d
-```
-
-## Stop
-
-```bash
-docker compose --env-file deploy/argus.env -f deploy/compose.yaml down
-```
-
-To remove persisted PostgreSQL, Redis, and RabbitMQ data:
-
-```bash
-docker compose --env-file deploy/argus.env -f deploy/compose.yaml down -v
-```
-
-## Notes
-
-- The current workers are adapter shells for the MVP pipeline. Replace their internals with real tool integrations as those adapters mature.
-- PostgreSQL tables are created by the services on startup through EF Core `EnsureCreated`.
-- RabbitMQ is included because it is part of the target topology; the current event path also publishes to the realtime service for UI visibility.
+The old Cloud Run path is no longer the primary deployment path.

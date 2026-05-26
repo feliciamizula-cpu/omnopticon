@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <UserSecretsId>da379111-2d89-4f65-8226-41d58da2c137</UserSecretsId>
+    <ContainerRegistry Condition="'$(ContainerRegistry)' == '' and '$(ARGUS_CONTAINER_REGISTRY)' != ''">$(ARGUS_CONTAINER_REGISTRY)</ContainerRegistry>
+    <ContainerImageTag Condition="'$(ContainerImageTag)' == '' and '$(ARGUS_CONTAINER_TAG)' != ''">$(ARGUS_CONTAINER_TAG)</ContainerImageTag>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,10 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.EventBus\Argus.BuildingBlocks.EventBus.csproj" />
     <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />

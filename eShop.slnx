@@ -7,7 +7,11 @@
   </Folder>
 
   <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/Argus.BuildingBlocks.Artifacts.csproj" />
     <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj" />
+    <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.EventDrivenWorkers/Argus.BuildingBlocks.EventDrivenWorkers.csproj" />
+    <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.RateLimiting/Argus.BuildingBlocks.RateLimiting.csproj" />
+    <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.WorkerDistribution/Argus.BuildingBlocks.WorkerDistribution.csproj" />
     <Project Path="src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj" />
   </Folder>
 
@@ -31,11 +35,13 @@
   <Folder Name="/src/Workers/">
     <Project Path="src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj" />
     <Project Path="src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj" />
+    <Project Path="src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj" />
     <Project Path="src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj" />
     <Project Path="src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj" />
     <Project Path="src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj" />
     <Project Path="src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj" />
     <Project Path="src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj" />
+    <Project Path="src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj" />
     <Project Path="src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj" />
     <Project Path="src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj" />
     <Project Path="src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj" />

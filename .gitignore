@@ -492,8 +492,10 @@ $RECYCLE.BIN/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+/.playwright-mcp/
 /user.json
 .azure
 
 tools/.agent-supervisor.pid
+.ssh/
 .ssh/key
