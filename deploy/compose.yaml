@@ -1,4 +1,3 @@
-name: argus-recon
 
 x-service-build: &service-build
   context: ..

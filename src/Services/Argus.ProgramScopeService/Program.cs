@@ -11,22 +11,10 @@ builder.AddServiceDefaults();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.ProgramScopeService");
 builder.Services.AddProblemDetails();
 
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("argusdb")))
-{
-    builder.Services.AddDbContext<ProgramScopeDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("argusdb")));
-    builder.Services.AddArgusEfCoreOutbox<ProgramScopeDbContext>();
-    builder.Services.AddArgusInboxConsumer<ProgramScopeDbContext>();
-    builder.Services.AddScoped<IProgramScopeStore, EfProgramScopeStore>();
-}
-else
-{
-    builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
-}
+builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
 
 var app = builder.Build();
 
-await app.InitializeProgramScopeStoreAsync();
 app.MapDefaultEndpoints();
 
 app.MapGet("/programs", (IProgramScopeStore store, CancellationToken cancellationToken) =>
