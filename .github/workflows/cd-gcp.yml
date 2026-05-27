@@ -293,7 +293,7 @@ jobs:
 
       - name: Generate Aspire Kubernetes manifests
         working-directory: src/Argus.AppHost
-        run: dotnet aspirate generate --non-interactive --disable-secrets --skip-build
+        run: dotnet aspirate generate --non-interactive --disable-secrets --skip-build --image-pull-policy Always
 
       - name: Patch deployment manifests
         env:
