@@ -213,10 +213,12 @@ jobs:
 
       - name: Remove legacy kubectl_manifest.aspirate resources from Terraform state
         run: |
-          STALE=$(terraform -chdir=deploy/terraform state list 2>/dev/null | grep '^kubectl_manifest\.aspirate\[' || true)
-          if [ -n "$STALE" ]; then
+          mapfile -t STALE < <(terraform -chdir=deploy/terraform state list 2>/dev/null | grep '^kubectl_manifest\.aspirate\[' || true)
+          if [ ${#STALE[@]} -gt 0 ]; then
             echo "Removing stale kubectl_manifest.aspirate resources from state..."
-            echo "$STALE" | xargs -I{} terraform -chdir=deploy/terraform state rm '{}'
+            for resource in "${STALE[@]}"; do
+              terraform -chdir=deploy/terraform state rm "$resource" 2>/dev/null || true
+            done
           fi
 
       - name: Plan infrastructure changes
@@ -564,10 +566,12 @@ jobs:
           # Workload manifests are now applied via kubectl apply -k (not Terraform).
           # Remove any previously tracked kubectl_manifest.aspirate[*] entries so
           # Terraform doesn't try to delete the live Deployments/Services/ConfigMaps.
-          STALE=$(terraform -chdir=deploy/terraform state list 2>/dev/null | grep '^kubectl_manifest\.aspirate\[' || true)
-          if [ -n "$STALE" ]; then
+          mapfile -t STALE < <(terraform -chdir=deploy/terraform state list 2>/dev/null | grep '^kubectl_manifest\.aspirate\[' || true)
+          if [ ${#STALE[@]} -gt 0 ]; then
             echo "Removing stale kubectl_manifest.aspirate resources from state..."
-            echo "$STALE" | xargs -I{} terraform -chdir=deploy/terraform state rm '{}'
+            for resource in "${STALE[@]}"; do
+              terraform -chdir=deploy/terraform state rm "$resource" 2>/dev/null || true
+            done
           else
             echo "No stale kubectl_manifest.aspirate resources in state."
           fi
