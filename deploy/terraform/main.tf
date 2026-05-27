@@ -29,11 +29,6 @@ resource "google_container_cluster" "argus" {
 
   ip_allocation_policy {}
 
-  node_config {
-    disk_size_gb = 20
-    disk_type    = "pd-standard"
-  }
-
   addons_config {
     horizontal_pod_autoscaling {
       disabled = false
@@ -41,6 +36,10 @@ resource "google_container_cluster" "argus" {
     http_load_balancing {
       disabled = false
     }
+  }
+
+  lifecycle {
+    ignore_changes = [node_config]
   }
 }
 

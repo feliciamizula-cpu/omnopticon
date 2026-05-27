@@ -71,6 +71,23 @@ jobs:
           echo "::error::Or create manually: gcloud storage buckets create gs://${BUCKET} --project=${PROJECT_ID} --location=${REGION}"
           exit 1
 
+      - name: Clear stale Terraform state locks
+        run: |
+          LOCK_FILE="gs://${PROJECT_ID}-terraform-state/gke/deploy/default.tflock"
+          echo "Checking for stale lock: $LOCK_FILE"
+          if gcloud storage ls "$LOCK_FILE" 2>/dev/null | grep -q "default.tflock"; then
+            echo "::warning::Found stale lock file — removing it"
+            gcloud storage rm "$LOCK_FILE" --force 2>/dev/null || \
+              gsutil -m rm -f "$LOCK_FILE" 2>/dev/null || true
+            sleep 2
+            if gcloud storage ls "$LOCK_FILE" 2>/dev/null | grep -q "default.tflock"; then
+              echo "::error::Failed to remove lock file. Trying force delete..."
+              gcloud storage rm "$LOCK_FILE" --force --no-user-output-enabled || true
+            fi
+          else
+            echo "No stale lock file found."
+          fi
+
       - name: Initialize Terraform and migrate state
         run: |
           BUCKET="${PROJECT_ID}-terraform-state"
@@ -78,19 +95,19 @@ jobs:
 
           if gcloud storage ls "$REMOTE_STATE" 2>/dev/null | grep -q "default.tfstate"; then
             echo "Remote state exists — normal init."
-            terraform -chdir=deploy/terraform init
+            terraform -chdir=deploy/terraform init -input=false
           elif [ -f deploy/terraform/terraform.tfstate ]; then
             echo "Remote state is empty. Migrating local state to GCS..."
-            terraform -chdir=deploy/terraform init -migrate-state -force-copy
+            terraform -chdir=deploy/terraform init -input=false -migrate-state -force-copy
             echo "Local state migrated to GCS."
           else
             echo "::warning::No local state found. Running normal init (fresh state)."
-            terraform -chdir=deploy/terraform init
+            terraform -chdir=deploy/terraform init -input=false
           fi
 
       - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
         run: |
-          terraform -chdir=deploy/terraform apply -auto-approve \
+          terraform -chdir=deploy/terraform apply -auto-approve -input=false \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
@@ -275,11 +292,11 @@ jobs:
         run: python3 deploy/patch-node-selectors.py
 
       - name: Terraform init
-        run: terraform -chdir=deploy/terraform init
+        run: terraform -chdir=deploy/terraform init -input=false
 
       - name: Apply workloads and public services
         run: |
-          terraform -chdir=deploy/terraform apply -auto-approve \
+          terraform -chdir=deploy/terraform apply -auto-approve -input=false \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
