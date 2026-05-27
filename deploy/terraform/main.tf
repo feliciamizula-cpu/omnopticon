@@ -172,7 +172,7 @@ resource "google_compute_address" "dashboard" {
 # KEDA can reference for AMQP auth.
 
 resource "kubernetes_secret" "eventbus" {
-  count = var.apply_aspirate_manifests ? 1 : 0
+  count = var.apply_workload_resources ? 1 : 0
 
   metadata {
     name      = "argus-eventbus"
@@ -193,36 +193,10 @@ resource "kubernetes_secret" "eventbus" {
   depends_on = [kubernetes_namespace.argus]
 }
 
-# ── Aspirate-generated workload manifests ─────────────────────────────────────
-
-data "kubectl_file_documents" "aspirate" {
-  count = var.apply_aspirate_manifests ? 1 : 0
-
-  content = join("\n---\n", [
-    for file_name in fileset(var.aspirate_manifest_dir, "**/*.yaml") :
-    file("${var.aspirate_manifest_dir}/${file_name}")
-    if !endswith(file_name, "kustomization.yaml") && !endswith(file_name, "kustomization.yml")
-  ])
-}
-
-resource "kubectl_manifest" "aspirate" {
-  for_each = var.apply_aspirate_manifests ? data.kubectl_file_documents.aspirate[0].manifests : {}
-
-  yaml_body          = each.value
-  override_namespace = var.namespace
-  wait_for_rollout   = false
-
-  depends_on = [
-    kubernetes_namespace.argus,
-    helm_release.keda,
-    kubernetes_secret.eventbus,
-  ]
-}
-
 # ── KEDA TriggerAuthentication for RabbitMQ ──────────────────────────────────
 
 resource "kubectl_manifest" "keda_rabbitmq_auth" {
-  count = var.apply_aspirate_manifests && var.create_worker_keda_scalers ? 1 : 0
+  count = var.apply_workload_resources && var.create_worker_keda_scalers ? 1 : 0
 
   yaml_body = yamlencode({
     apiVersion = "keda.sh/v1alpha1"
@@ -245,14 +219,13 @@ resource "kubectl_manifest" "keda_rabbitmq_auth" {
   depends_on = [
     helm_release.keda,
     kubernetes_secret.eventbus,
-    kubectl_manifest.aspirate,
   ]
 }
 
 # ── KEDA ScaledObjects: one per queue-driven worker ──────────────────────────
 
 resource "kubectl_manifest" "keda_worker_scalers" {
-  for_each = var.apply_aspirate_manifests && var.create_worker_keda_scalers ? local.worker_queues : {}
+  for_each = var.apply_workload_resources && var.create_worker_keda_scalers ? local.worker_queues : {}
 
   yaml_body = yamlencode({
     apiVersion = "keda.sh/v1alpha1"
@@ -289,14 +262,13 @@ resource "kubectl_manifest" "keda_worker_scalers" {
 
   depends_on = [
     kubectl_manifest.keda_rabbitmq_auth,
-    kubectl_manifest.aspirate,
   ]
 }
 
 # ── Public LoadBalancer: Argus web app ────────────────────────────────────────
 
 resource "kubernetes_service" "argus_web_lb" {
-  count = var.apply_aspirate_manifests ? 1 : 0
+  count = var.apply_workload_resources ? 1 : 0
 
   metadata {
     name      = "argus-web-public"
@@ -319,13 +291,13 @@ resource "kubernetes_service" "argus_web_lb" {
     }
   }
 
-  depends_on = [kubectl_manifest.aspirate]
+  depends_on = [kubernetes_namespace.argus]
 }
 
 # ── Aspire dashboard ──────────────────────────────────────────────────────────
 
 resource "kubernetes_deployment" "aspire_dashboard" {
-  count = var.apply_aspirate_manifests ? 1 : 0
+  count = var.apply_workload_resources ? 1 : 0
 
   metadata {
     name      = "aspire-dashboard"
@@ -425,7 +397,7 @@ resource "kubernetes_deployment" "aspire_dashboard" {
 }
 
 resource "kubernetes_service" "aspire_dashboard_lb" {
-  count = var.apply_aspirate_manifests ? 1 : 0
+  count = var.apply_workload_resources ? 1 : 0
 
   metadata {
     name      = "aspire-dashboard-public"
@@ -453,7 +425,7 @@ resource "kubernetes_service" "aspire_dashboard_lb" {
 
 # In-cluster Service so app pods can send OTLP without going through the LB.
 resource "kubernetes_service" "aspire_dashboard_otlp" {
-  count = var.apply_aspirate_manifests ? 1 : 0
+  count = var.apply_workload_resources ? 1 : 0
 
   metadata {
     name      = "aspire-dashboard-otlp"

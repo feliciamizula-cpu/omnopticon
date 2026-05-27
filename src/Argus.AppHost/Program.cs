@@ -6,8 +6,8 @@ var rabbitMq = builder.AddRabbitMQ("eventbus")
     .WithLifetime(ContainerLifetime.Persistent);
 
 var postgres = builder.AddPostgres("postgres")
-    .WithImage("ankane/pgvector")
-    .WithImageTag("pg16-v0.8.0")
+    .WithImage("pgvector/pgvector")
+    .WithImageTag("pg16")
     .WithLifetime(ContainerLifetime.Persistent);
 
 var argusDb = postgres.AddDatabase("argusdb");

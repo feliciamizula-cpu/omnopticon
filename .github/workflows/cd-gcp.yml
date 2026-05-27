@@ -211,14 +211,21 @@ jobs:
           terraform state list | grep -Fxq 'kubernetes_namespace.argus'
           terraform state list | grep -Fxq 'helm_release.keda[0]'
 
+      - name: Remove legacy kubectl_manifest.aspirate resources from Terraform state
+        run: |
+          STALE=$(terraform -chdir=deploy/terraform state list 2>/dev/null | grep '^kubectl_manifest\.aspirate\[' || true)
+          if [ -n "$STALE" ]; then
+            echo "Removing stale kubectl_manifest.aspirate resources from state..."
+            echo "$STALE" | xargs -I{} terraform -chdir=deploy/terraform state rm '{}'
+          fi
+
       - name: Plan infrastructure changes
         run: |
           set +e
           terraform -chdir=deploy/terraform plan -detailed-exitcode -input=false \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
-            -var="cluster_name=${CLUSTER_NAME}" \
-            -var="apply_aspirate_manifests=false"
+            -var="cluster_name=${CLUSTER_NAME}"
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then
@@ -237,8 +244,7 @@ jobs:
           terraform -chdir=deploy/terraform apply -auto-approve -input=false \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
-            -var="cluster_name=${CLUSTER_NAME}" \
-            -var="apply_aspirate_manifests=false"
+            -var="cluster_name=${CLUSTER_NAME}"
 
       - name: Provision summary
         if: ${{ env.SKIP_PROVISION_APPLY == 'true' }}
@@ -276,6 +282,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Cache Docker build layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.name }}-
+            ${{ runner.os }}-buildx-
+
       - name: Build and push ${{ matrix.name }}
         run: |
           docker buildx build \
@@ -285,12 +300,19 @@ jobs:
             --build-arg ASSEMBLY_NAME=${{ matrix.assembly_name }} \
             --build-arg GIT_SHA=${{ github.sha }} \
             --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
             --cache-from type=registry,ref=${{ env.REGISTRY }}/${{ matrix.name }}:buildcache \
             --cache-to type=registry,ref=${{ env.REGISTRY }}/${{ matrix.name }}:buildcache,mode=max \
             --tag ${{ env.REGISTRY }}/${{ matrix.name }}:${{ env.DEPLOY_IMAGE_TAG }} \
             --tag ${{ env.REGISTRY }}/${{ matrix.name }}:${{ github.sha }} \
             --push \
             .
+
+      - name: Move cache for next run
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache || true
 
 # ── Job 2b: Generate Kubernetes manifests (parallel with builds) ─────────────
 # Generates Aspire manifests while images are being built, so deploy doesn't wait.
@@ -328,6 +350,14 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/Directory.Packages.props') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
+
+      - name: Cache aspirate tool
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet/tools
+          key: ${{ runner.os }}-dotnet-tools-${{ hashFiles('.config/dotnet-tools.json') }}
+          restore-keys: |
+            ${{ runner.os }}-dotnet-tools-
 
       - name: Restore deployment tools
         run: dotnet tool restore
@@ -442,10 +472,12 @@ jobs:
             "argus.io/deployed-sha=${{ github.sha }}" \
             "argus.io/deployed-by=github-actions" \
             --overwrite
-          # Generous timeout for cold-start scenarios (image pull + healthcheck).
-          # Mass deploys via allApps changes update 27 services in parallel and
-          # nodes can be slow to pull each image.
-          kubectl -n argus rollout status "deployment/${DEPLOYMENT}" --timeout=600s
+          kubectl -n argus rollout status "deployment/${DEPLOYMENT}" --timeout=180s
+
+      - name: Verify deployment health
+        run: |
+          kubectl -n argus wait --for=condition=available deployment/${DEPLOYMENT} --timeout=120s
+          echo "Deployment ${DEPLOYMENT} is healthy"
 
       - name: Targeted deployment summary
         run: |
@@ -527,18 +559,36 @@ jobs:
       - name: Terraform init
         run: terraform -chdir=deploy/terraform init -input=false
 
-      - name: Apply workloads and public services
+      - name: Remove legacy kubectl_manifest.aspirate resources from Terraform state
+        run: |
+          # Workload manifests are now applied via kubectl apply -k (not Terraform).
+          # Remove any previously tracked kubectl_manifest.aspirate[*] entries so
+          # Terraform doesn't try to delete the live Deployments/Services/ConfigMaps.
+          STALE=$(terraform -chdir=deploy/terraform state list 2>/dev/null | grep '^kubectl_manifest\.aspirate\[' || true)
+          if [ -n "$STALE" ]; then
+            echo "Removing stale kubectl_manifest.aspirate resources from state..."
+            echo "$STALE" | xargs -I{} terraform -chdir=deploy/terraform state rm '{}'
+          else
+            echo "No stale kubectl_manifest.aspirate resources in state."
+          fi
+
+      - name: Apply infrastructure, KEDA, and public services
         run: |
           terraform -chdir=deploy/terraform apply -auto-approve -input=false \
             -parallelism=6 \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
-            -var="apply_aspirate_manifests=true" \
-            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output" \
+            -var="apply_workload_resources=true" \
             -var="eventbus_password=${EVENTBUS_PASSWORD}" \
             -var="eventbus_amqp_uri=${EVENTBUS_AMQP_URI}" \
             -var="dashboard_browser_token=${DASHBOARD_TOKEN}"
+
+      - name: Apply Aspirate workload manifests
+        run: |
+          kubectl apply -k src/Argus.AppHost/aspirate-output
+          kubectl -n argus rollout status deployment/argus-web --timeout=300s || true
+          kubectl -n argus rollout status deployment/argus-api-gateway --timeout=300s || true
 
       - name: Read deployed URLs from Terraform output
         id: urls
@@ -561,6 +611,12 @@ jobs:
             echo "  attempt $i/30 — web=${WEB_IP:-pending} dashboard=${DASH_IP:-pending}"
             sleep 10
           done
+
+      - name: Verify workload health
+        run: |
+          kubectl -n argus wait --for=condition=available deployment/argus-web --timeout=300s
+          kubectl -n argus wait --for=condition=available deployment/argus-api-gateway --timeout=300s
+          echo "Core workloads are healthy"
 
       - name: Deployment summary
         run: |
