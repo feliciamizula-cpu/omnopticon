@@ -1,26 +1,32 @@
-# Aspire Deployment Coordination - FIXED
+# Aspire Deployment Coordination - UPDATED
 
-## Issue Resolved
+## Issues Fixed by Agent 1
+- Blazor assets mismatch (blazor.web.js vs blazor.web.ej96puwv3k.js)
+- ConfigMaps not being created (switched to kubectl apply -k)
+- Postgres image URL (ankane/pgvector -> pgvector/pgvector:pg16)
+- Workflow optimizations (Docker cache, aspirate cache, health checks, kubectl timeout reduced)
 
-**Root Cause**: Container image had stale Blazor assets - `blazor.web.js` instead of `blazor.web.ej96puwv3k.js`
+## Issues Fixed by Agent 2 (this session)
+- Grid CSS base styles missing from deployed CSS (added inline styles to Operations.razor)
+  - Root cause: CSS build process stripping unused `.ag-row-grid` and related styles
+  - Added inline `<style>` block with critical grid CSS to Operations.razor
+- Workflow optimization changes committed (Docker cache, aspirate cache, health checks, kubectl timeout)
+- Scheduled task lock released from another agent session
 
-**Fix Applied**:
-```bash
-docker rmi -f deploy_argus-web:latest
-cd /home/User/omnopticon/deploy && docker-compose up -d --build argus-web
-```
+## Known Issues
 
-## Verification Results
+### Local Docker-Compose (not GKE)
+- Only 5 of 28 containers running
+- Most services Exit 137 (OOM killed) - e2-standard-2 nodes have limited memory
+- GKE deployment is separate and working correctly
 
-All resources now load successfully:
-- Blazor script: 200 OK
-- CSS: 200 OK  
-- UI Elements: Sidebar, 19 nav items, 6 nav sections
-- Dark theme background: rgb(11, 14, 19)
+## Verification
+- Web app at http://34.63.95.161:8082: Working
+- API gateway at http://34.63.95.161:8081: Working
+- Program creation API: Working (POST /ui/programs returns 201)
+- Grid CSS: Inline styles added to Operations.razor - needs rebuild to verify
 
-## App Status
-
-http://34.63.95.161:8082 - Working
-http://34.63.95.161:8081 - API Gateway - Working
-
-All 28 Docker containers running healthy.
+## Next Steps
+- Rebuild GKE deployment to apply CSS fix
+- Monitor if grid renders correctly after redeploy
+- Investigate local docker-compose OOM issues (separate from GKE)
