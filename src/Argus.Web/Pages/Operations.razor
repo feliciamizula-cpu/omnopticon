@@ -573,7 +573,8 @@
             using var programResp = await Http.PostAsJsonAsync("/ui/programs", createBody);
             if (!programResp.IsSuccessStatusCode)
             {
-                _newProgramError = $"Failed to create program ({(int)programResp.StatusCode}).";
+                _newProgramError = await ExtractError(programResp, "create program");
+                AddLog(_newProgramError, error: true);
                 return;
             }
 
@@ -624,6 +625,26 @@
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     string RowClassFn(AssetItem a) => _flashingIds.Contains(a.AssetId) ? "row-new" : "";
+
+    static async Task<string> ExtractError(HttpResponseMessage resp, string operation)
+    {
+        var status = (int)resp.StatusCode;
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                var detail = doc.RootElement.TryGetProperty("detail", out var d) ? d.GetString() :
+                             doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() :
+                             doc.RootElement.TryGetProperty("title", out var t) ? t.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(detail))
+                    return $"Failed to {operation} ({status}): {(detail!.Length > 200 ? detail[..200] + "…" : detail)}";
+            }
+        }
+        catch { }
+        return $"Failed to {operation} ({status}).";
+    }
 
     static string FmtAgo(DateTimeOffset? dt)
     {
