@@ -152,6 +152,7 @@ resource "kubectl_manifest" "aspirate" {
 
   yaml_body          = each.value
   override_namespace = var.namespace
+  wait_for_rollout   = false
 
   depends_on = [
     kubernetes_namespace.argus,

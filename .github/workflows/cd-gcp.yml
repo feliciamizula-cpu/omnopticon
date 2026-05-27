@@ -451,6 +451,7 @@ jobs:
       - name: Apply workloads and public services
         run: |
           terraform -chdir=deploy/terraform apply -auto-approve -input=false \
+            -parallelism=6 \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
