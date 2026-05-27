@@ -1,0 +1,267 @@
+x-common-env: &common-env
+  ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+  ARGUS_EXPOSE_HEALTH_ENDPOINTS: ${ARGUS_EXPOSE_HEALTH_ENDPOINTS:-true}
+  ARGUS_AGENT_SERVICE: http://agent-service:8080
+  ARGUS_PROGRAM_SCOPE_SERVICE: http://program-scope-service:8080
+  ARGUS_ASSET_SERVICE: http://asset-service:8080
+  ARGUS_ARTIFACT_SERVICE: http://artifact-service:8080
+  ARGUS_FINDING_SERVICE: http://finding-service:8080
+  ARGUS_TASK_SERVICE: http://task-service:8080
+  ARGUS_RATE_LIMIT_SERVICE: http://rate-limit-service:8080
+  ARGUS_SCAN_ORCHESTRATOR_SERVICE: http://scan-orchestrator-service:8080
+  ARGUS_EVENT_ROUTER_SERVICE: http://event-router-service:8080
+  ARGUS_REALTIME_SERVICE: http://realtime-service:8080
+  ARGUS_PROXY_REGISTRY_SERVICE: http://proxy-registry-service:8080
+  ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
+  ConnectionStrings__redis: redis:6379
+  ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
+
+x-logging: &logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "100m"
+      max-file: "3"
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  <<: *logging
+  environment:
+    <<: *common-env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  networks:
+    - argus
+
+services:
+
+  agent-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/agent-service:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENCODE_AUTH_TOKEN: ${OPENCODE_AUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      GEMINI_OAUTH_CLIENT_ID: ${GEMINI_OAUTH_CLIENT_ID:-}
+      GEMINI_OAUTH_CLIENT_SECRET: ${GEMINI_OAUTH_CLIENT_SECRET:-}
+      CODEX_FIVE_HOUR_LIMIT: ${CODEX_FIVE_HOUR_LIMIT:-0}
+      CODEX_TWENTY_FOUR_HOUR_LIMIT: ${CODEX_TWENTY_FOUR_HOUR_LIMIT:-0}
+      CODEX_WEEKLY_LIMIT: ${CODEX_WEEKLY_LIMIT:-0}
+      CODEX_MONTHLY_LIMIT: ${CODEX_MONTHLY_LIMIT:-0}
+    volumes:
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude.json:/root/.claude.json:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.claude:/root/.claude:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.codex:/root/.codex:ro
+      - ${ARGUS_USAGE_HOME:-/home/derekdperez}/.gemini:/root/.gemini:ro
+      - /tmp:/tmp
+
+  program-scope-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/program-scope-service:${ARGUS_TAG:-latest}
+
+  asset-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/asset-service:${ARGUS_TAG:-latest}
+
+  artifact-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/artifact-service:${ARGUS_TAG:-latest}
+
+  finding-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/finding-service:${ARGUS_TAG:-latest}
+
+  task-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/task-service:${ARGUS_TAG:-latest}
+
+  rate-limit-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/rate-limit-service:${ARGUS_TAG:-latest}
+
+  scan-orchestrator-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/scan-orchestrator-service:${ARGUS_TAG:-latest}
+
+  event-router-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/event-router-service:${ARGUS_TAG:-latest}
+
+  realtime-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/realtime-service:${ARGUS_TAG:-latest}
+
+  proxy-registry-service:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/proxy-registry-service:${ARGUS_TAG:-latest}
+
+  argus-api-gateway:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/argus-api-gateway:${ARGUS_TAG:-latest}
+    ports:
+      - "${ARGUS_GATEWAY_PORT:-8081}:8080"
+
+  argus-web:
+    <<: *service-defaults
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/argus-web:${ARGUS_TAG:-latest}
+    ports:
+      - "${ARGUS_WEB_PORT:-8080}:8080"
+
+  amass-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/amass-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  subfinder-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/subfinder-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  dns-resolver-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/dns-resolver-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  http-probe-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/http-probe-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  html-dom-spider-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/html-dom-spider-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  js-extractor-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/js-extractor-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  regex-scanner-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/regex-scanner-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  wordlist-discovery-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/wordlist-discovery-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  headless-spider-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/headless-spider-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  fingerprint-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/fingerprint-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  validation-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/validation-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "validation-service"
+
+  asset-scoring-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/asset-scoring-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  finding-deduper-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/finding-deduper-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "continuous"
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+
+  http-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/http-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "ephemeral"
+
+  asset-storage-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    image: ${ARGUS_REGISTRY:-ghcr.io/feliciamizula-cpu/omnopticon}/asset-storage-worker:${ARGUS_TAG:-latest}
+    environment:
+      <<: *common-env
+      ARGUS_WORKER_RUNTIME: "ephemeral"
+
+  review-report:
+    image: python:3-slim
+    container_name: argus-review-report
+    restart: unless-stopped
+    <<: *logging
+    ports:
+      - "${ARGUS_REVIEW_PORT:-8083}:8080"
+    volumes:
+      - ../tools/reviews:/usr/share/reviews:ro
+    working_dir: /usr/share/reviews
+    command: python3 -m http.server 8080
+    networks:
+      - argus
+
+networks:
+  argus:
+    name: argus

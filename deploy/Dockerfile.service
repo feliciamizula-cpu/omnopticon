@@ -22,9 +22,12 @@ COPY nuget.config ./
 
 COPY src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj                       src/Argus.ServiceDefaults/
 COPY src/Contracts/Argus.Contracts/Argus.Contracts.csproj                         src/Contracts/Argus.Contracts/
-COPY src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/Argus.BuildingBlocks.Artifacts.csproj   src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/
-COPY src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj     src/BuildingBlocks/Argus.BuildingBlocks.EventBus/
-COPY src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj       src/BuildingBlocks/Argus.BuildingBlocks.Workers/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/Argus.BuildingBlocks.Artifacts.csproj             src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj               src/BuildingBlocks/Argus.BuildingBlocks.EventBus/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.EventDrivenWorkers/Argus.BuildingBlocks.EventDrivenWorkers.csproj src/BuildingBlocks/Argus.BuildingBlocks.EventDrivenWorkers/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.RateLimiting/Argus.BuildingBlocks.RateLimiting.csproj       src/BuildingBlocks/Argus.BuildingBlocks.RateLimiting/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.WorkerDistribution/Argus.BuildingBlocks.WorkerDistribution.csproj src/BuildingBlocks/Argus.BuildingBlocks.WorkerDistribution/
+COPY src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj                 src/BuildingBlocks/Argus.BuildingBlocks.Workers/
 COPY ${PROJECT_PATH} ${PROJECT_PATH}
 
 RUN dotnet restore ${PROJECT_PATH}
@@ -32,6 +35,7 @@ RUN dotnet restore ${PROJECT_PATH}
 COPY src/ src/
 RUN dotnet publish ${PROJECT_PATH} \
     -c Release \
+    --no-restore \
     -o /app/publish \
     -p:TreatWarningsAsErrors=false
 
@@ -70,7 +74,12 @@ RUN apt-get update \
     && if [ "$ASSEMBLY_NAME" = "Argus.AgentService" ]; then apt-get install -y --no-install-recommends nodejs npm && npm install -g @openai/codex@0.133.0; fi \
     && rm -rf /var/lib/apt/lists/*
 
+LABEL org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.title="${ASSEMBLY_NAME}"
+
 ENV ARGUS_VERSION=${GIT_SHA}
+ENV ARGUS_GIT_SHA=${GIT_SHA}
 ENV ARGUS_BUILD_DATE=${BUILD_DATE}
 ENV ASPNETCORE_URLS=http://+:8080
 ENV DOTNET_EnableDiagnostics=0

@@ -1,0 +1,257 @@
+x-service-build: &service-build
+  context: ..
+  dockerfile: deploy/Dockerfile.service
+
+services:
+
+  agent-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.AgentService/Argus.AgentService.csproj
+        ASSEMBLY_NAME: Argus.AgentService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  program-scope-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj
+        ASSEMBLY_NAME: Argus.ProgramScopeService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  asset-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.AssetService/Argus.AssetService.csproj
+        ASSEMBLY_NAME: Argus.AssetService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  artifact-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj
+        ASSEMBLY_NAME: Argus.ArtifactService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  finding-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.FindingService/Argus.FindingService.csproj
+        ASSEMBLY_NAME: Argus.FindingService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  task-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.TaskService/Argus.TaskService.csproj
+        ASSEMBLY_NAME: Argus.TaskService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  rate-limit-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
+        ASSEMBLY_NAME: Argus.RateLimitService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  scan-orchestrator-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
+        ASSEMBLY_NAME: Argus.ScanOrchestratorService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  event-router-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj
+        ASSEMBLY_NAME: Argus.EventRouterService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  realtime-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj
+        ASSEMBLY_NAME: Argus.RealtimeService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  proxy-registry-service:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
+        ASSEMBLY_NAME: Argus.ProxyRegistryService
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  argus-api-gateway:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Argus.ApiGateway/Argus.ApiGateway.csproj
+        ASSEMBLY_NAME: Argus.ApiGateway
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  argus-web:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Argus.Web/Argus.Web.csproj
+        ASSEMBLY_NAME: Argus.Web
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  amass-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj
+        ASSEMBLY_NAME: Argus.Workers.Amass
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  subfinder-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
+        ASSEMBLY_NAME: Argus.Workers.Subfinder
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  dns-resolver-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj
+        ASSEMBLY_NAME: Argus.Workers.DnsResolver
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  http-probe-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj
+        ASSEMBLY_NAME: Argus.Workers.HttpProbe
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  html-dom-spider-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj
+        ASSEMBLY_NAME: Argus.Workers.HtmlDomSpider
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  js-extractor-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj
+        ASSEMBLY_NAME: Argus.Workers.JsExtractor
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  regex-scanner-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj
+        ASSEMBLY_NAME: Argus.Workers.RegexScanner
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  wordlist-discovery-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj
+        ASSEMBLY_NAME: Argus.Workers.WordlistDiscovery
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  headless-spider-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj
+        ASSEMBLY_NAME: Argus.Workers.HeadlessSpider
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  fingerprint-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj
+        ASSEMBLY_NAME: Argus.Workers.Fingerprint
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  validation-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj
+        ASSEMBLY_NAME: Argus.Workers.Validation
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  asset-scoring-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
+        ASSEMBLY_NAME: Argus.Workers.AssetScoring
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  finding-deduper-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj
+        ASSEMBLY_NAME: Argus.Workers.FindingDeduper
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  http-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj
+        ASSEMBLY_NAME: Argus.Workers.Http
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}
+
+  asset-storage-worker:
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj
+        ASSEMBLY_NAME: Argus.Workers.AssetStorage
+        GIT_SHA: ${ARGUS_GIT_SHA:-local}
+        BUILD_DATE: ${ARGUS_BUILD_DATE:-local}

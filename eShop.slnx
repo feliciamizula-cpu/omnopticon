@@ -20,6 +20,7 @@
   </Folder>
 
   <Folder Name="/src/Services/">
+    <Project Path="src/Services/Argus.AgentService/Argus.AgentService.csproj" />
     <Project Path="src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj" />
     <Project Path="src/Services/Argus.AssetService/Argus.AssetService.csproj" />
     <Project Path="src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj" />
@@ -51,6 +52,7 @@
   </Folder>
 
   <Folder Name="/tests/">
+    <Project Path="tests/Argus.AgentService.Tests/Argus.AgentService.Tests.csproj" />
     <Project Path="tests/Argus.ApiGateway.Tests/Argus.ApiGateway.Tests.csproj" />
     <Project Path="tests/Argus.Workers.AssetScoring.Tests/Argus.Workers.AssetScoring.Tests.csproj" />
     <Project Path="tests/Argus.Workers.HtmlDomSpider.Tests/Argus.Workers.HtmlDomSpider.Tests.csproj" />

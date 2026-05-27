@@ -11,6 +11,10 @@ on:
         description: Git ref to deploy
         required: false
         default: main
+      service:
+        description: Optional Compose service to rebuild/restart incrementally, for example asset-service
+        required: false
+        default: ""
 
 jobs:
   deploy-development-vm:
@@ -21,6 +25,7 @@ jobs:
       VM_NAME: argus-development-agents
       REPO_URL: https://github.com/${{ github.repository }}.git
       DEPLOY_REF: ${{ inputs.ref || github.ref_name }}
+      DEPLOY_SERVICE: ${{ inputs.service || '' }}
       HOURLY_CAP_USD: "2.00"
       ESTIMATED_HOURLY_USD: "0.40"
     steps:
@@ -66,7 +71,15 @@ jobs:
               cd /opt/argus/omnopticon
               git fetch origin '${DEPLOY_REF}'
               git checkout FETCH_HEAD
-              if [ -f deploy/compose.yaml ]; then
+              if [ -f deploy/compose.infra.yaml ] && [ -f deploy/compose.apps.yaml ] && [ -f deploy/compose.build.yaml ]; then
+                docker compose --env-file deploy/argus.env -f deploy/compose.infra.yaml up -d postgres redis rabbitmq minio
+                if [ -n '${DEPLOY_SERVICE}' ]; then
+                  docker compose --env-file deploy/argus.env -f deploy/compose.infra.yaml -f deploy/compose.apps.yaml -f deploy/compose.build.yaml build '${DEPLOY_SERVICE}'
+                  docker compose --env-file deploy/argus.env -f deploy/compose.infra.yaml -f deploy/compose.apps.yaml -f deploy/compose.build.yaml up -d --no-deps '${DEPLOY_SERVICE}'
+                else
+                  docker compose --env-file deploy/argus.env -f deploy/compose.infra.yaml -f deploy/compose.apps.yaml -f deploy/compose.build.yaml up -d --build
+                fi
+              elif [ -f deploy/compose.yaml ]; then
                 docker compose --env-file deploy/argus.env -f deploy/compose.yaml up -d --build
               elif [ -f docker-compose.yml ]; then
                 docker compose up -d --build

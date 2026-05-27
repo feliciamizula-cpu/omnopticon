@@ -1,0 +1,85 @@
+x-logging: &logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "100m"
+      max-file: "3"
+
+services:
+  postgres:
+    image: ankane/pgvector:pg16-v0.8.0
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
+      POSTGRES_DB: argusdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - argus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d argusdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    <<: *logging
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - argus
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: argus
+      RABBITMQ_DEFAULT_PASS: ${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - argus
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      MINIO_ROOT_USER: ${ARGUS_MINIO_ACCESS_KEY:-argus}
+      MINIO_ROOT_PASSWORD: ${ARGUS_MINIO_SECRET_KEY:-argus-minio-secret}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - argus
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  argus:
+    name: argus
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:

@@ -1,0 +1,450 @@
+# Source of truth for incremental Argus CI/CD impact detection.
+# Service keys intentionally match Docker Compose service names and Kubernetes deployment names.
+version: 1
+solution: eShop.slnx
+registryImagePrefix: ${REGISTRY}
+
+globalPaths:
+  allApps:
+    - Directory.Build.props
+    - Directory.Build.targets
+    - Directory.Packages.props
+    - global.json
+    - nuget.config
+    - NuGet.config
+    - deploy/Dockerfile.service
+    - .ci/service-map.yml
+    - scripts/ci/**
+  fullTopology:
+    - src/Argus.AppHost/**
+    - deploy/terraform/**
+    - deploy/patch-node-selectors.py
+    - deploy/compose*.yaml
+    - .github/workflows/cd-gcp.yml
+
+sharedProjects:
+  service-defaults:
+    project: src/Argus.ServiceDefaults/Argus.ServiceDefaults.csproj
+    paths:
+      - src/Argus.ServiceDefaults/**
+    affects: all-runnable
+
+  contracts:
+    project: src/Contracts/Argus.Contracts/Argus.Contracts.csproj
+    paths:
+      - src/Contracts/Argus.Contracts/**
+      - src/Contracts/**
+    affects: referenced-by
+
+  artifacts:
+    project: src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/Argus.BuildingBlocks.Artifacts.csproj
+    paths:
+      - src/BuildingBlocks/Argus.BuildingBlocks.Artifacts/**
+    affects: referenced-by
+
+  event-bus:
+    project: src/BuildingBlocks/Argus.BuildingBlocks.EventBus/Argus.BuildingBlocks.EventBus.csproj
+    paths:
+      - src/BuildingBlocks/Argus.BuildingBlocks.EventBus/**
+    affects: referenced-by
+
+  event-driven-workers:
+    project: src/BuildingBlocks/Argus.BuildingBlocks.EventDrivenWorkers/Argus.BuildingBlocks.EventDrivenWorkers.csproj
+    paths:
+      - src/BuildingBlocks/Argus.BuildingBlocks.EventDrivenWorkers/**
+    affects: referenced-by
+
+  rate-limiting:
+    project: src/BuildingBlocks/Argus.BuildingBlocks.RateLimiting/Argus.BuildingBlocks.RateLimiting.csproj
+    paths:
+      - src/BuildingBlocks/Argus.BuildingBlocks.RateLimiting/**
+    affects: referenced-by
+
+  worker-distribution:
+    project: src/BuildingBlocks/Argus.BuildingBlocks.WorkerDistribution/Argus.BuildingBlocks.WorkerDistribution.csproj
+    paths:
+      - src/BuildingBlocks/Argus.BuildingBlocks.WorkerDistribution/**
+    affects: referenced-by
+
+  workers:
+    project: src/BuildingBlocks/Argus.BuildingBlocks.Workers/Argus.BuildingBlocks.Workers.csproj
+    paths:
+      - src/BuildingBlocks/Argus.BuildingBlocks.Workers/**
+    affects: referenced-by
+
+services:
+  agent-service:
+    kind: service
+    project: src/Services/Argus.AgentService/Argus.AgentService.csproj
+    assembly: Argus.AgentService
+    image: agent-service
+    composeService: agent-service
+    kubernetesDeployment: agent-service
+    kubernetesContainer: agent-service
+    paths:
+      - src/Services/Argus.AgentService/**
+    tests:
+      - tests/Argus.AgentService.Tests/Argus.AgentService.Tests.csproj
+    healthUrl: /health
+
+  program-scope-service:
+    kind: service
+    project: src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj
+    assembly: Argus.ProgramScopeService
+    image: program-scope-service
+    composeService: program-scope-service
+    kubernetesDeployment: program-scope-service
+    kubernetesContainer: program-scope-service
+    paths:
+      - src/Services/Argus.ProgramScopeService/**
+    tests: []
+    healthUrl: /health
+
+  asset-service:
+    kind: service
+    project: src/Services/Argus.AssetService/Argus.AssetService.csproj
+    assembly: Argus.AssetService
+    image: asset-service
+    composeService: asset-service
+    kubernetesDeployment: asset-service
+    kubernetesContainer: asset-service
+    paths:
+      - src/Services/Argus.AssetService/**
+    tests: []
+    healthUrl: /health
+
+  artifact-service:
+    kind: service
+    project: src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj
+    assembly: Argus.ArtifactService
+    image: artifact-service
+    composeService: artifact-service
+    kubernetesDeployment: artifact-service
+    kubernetesContainer: artifact-service
+    paths:
+      - src/Services/Argus.ArtifactService/**
+    tests: []
+    healthUrl: /health
+
+  finding-service:
+    kind: service
+    project: src/Services/Argus.FindingService/Argus.FindingService.csproj
+    assembly: Argus.FindingService
+    image: finding-service
+    composeService: finding-service
+    kubernetesDeployment: finding-service
+    kubernetesContainer: finding-service
+    paths:
+      - src/Services/Argus.FindingService/**
+    tests: []
+    healthUrl: /health
+
+  task-service:
+    kind: service
+    project: src/Services/Argus.TaskService/Argus.TaskService.csproj
+    assembly: Argus.TaskService
+    image: task-service
+    composeService: task-service
+    kubernetesDeployment: task-service
+    kubernetesContainer: task-service
+    paths:
+      - src/Services/Argus.TaskService/**
+    tests: []
+    healthUrl: /health
+
+  rate-limit-service:
+    kind: service
+    project: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
+    assembly: Argus.RateLimitService
+    image: rate-limit-service
+    composeService: rate-limit-service
+    kubernetesDeployment: rate-limit-service
+    kubernetesContainer: rate-limit-service
+    paths:
+      - src/Services/Argus.RateLimitService/**
+    tests: []
+    healthUrl: /health
+
+  scan-orchestrator-service:
+    kind: service
+    project: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
+    assembly: Argus.ScanOrchestratorService
+    image: scan-orchestrator-service
+    composeService: scan-orchestrator-service
+    kubernetesDeployment: scan-orchestrator-service
+    kubernetesContainer: scan-orchestrator-service
+    paths:
+      - src/Services/Argus.ScanOrchestratorService/**
+    tests: []
+    healthUrl: /health
+
+  event-router-service:
+    kind: service
+    project: src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj
+    assembly: Argus.EventRouterService
+    image: event-router-service
+    composeService: event-router-service
+    kubernetesDeployment: event-router-service
+    kubernetesContainer: event-router-service
+    paths:
+      - src/Services/Argus.EventRouterService/**
+    tests: []
+    healthUrl: /health
+
+  realtime-service:
+    kind: service
+    project: src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj
+    assembly: Argus.RealtimeService
+    image: realtime-service
+    composeService: realtime-service
+    kubernetesDeployment: realtime-service
+    kubernetesContainer: realtime-service
+    paths:
+      - src/Services/Argus.RealtimeService/**
+    tests: []
+    healthUrl: /health
+
+  proxy-registry-service:
+    kind: service
+    project: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
+    assembly: Argus.ProxyRegistryService
+    image: proxy-registry-service
+    composeService: proxy-registry-service
+    kubernetesDeployment: proxy-registry-service
+    kubernetesContainer: proxy-registry-service
+    paths:
+      - src/Services/Argus.ProxyRegistryService/**
+    tests: []
+    healthUrl: /health
+
+  argus-api-gateway:
+    kind: gateway
+    project: src/Argus.ApiGateway/Argus.ApiGateway.csproj
+    assembly: Argus.ApiGateway
+    image: argus-api-gateway
+    composeService: argus-api-gateway
+    kubernetesDeployment: argus-api-gateway
+    kubernetesContainer: argus-api-gateway
+    paths:
+      - src/Argus.ApiGateway/**
+    tests:
+      - tests/Argus.ApiGateway.Tests/Argus.ApiGateway.Tests.csproj
+    healthUrl: /health
+
+  argus-web:
+    kind: web
+    project: src/Argus.Web/Argus.Web.csproj
+    assembly: Argus.Web
+    image: argus-web
+    composeService: argus-web
+    kubernetesDeployment: argus-web
+    kubernetesContainer: argus-web
+    paths:
+      - src/Argus.Web/**
+    tests: []
+    healthUrl: /health
+
+  amass-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj
+    assembly: Argus.Workers.Amass
+    image: amass-worker
+    composeService: amass-worker
+    kubernetesDeployment: amass-worker
+    kubernetesContainer: amass-worker
+    paths:
+      - src/Workers/Argus.Workers.Amass/**
+    tests: []
+    healthUrl: /health
+
+  subfinder-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
+    assembly: Argus.Workers.Subfinder
+    image: subfinder-worker
+    composeService: subfinder-worker
+    kubernetesDeployment: subfinder-worker
+    kubernetesContainer: subfinder-worker
+    paths:
+      - src/Workers/Argus.Workers.Subfinder/**
+    tests: []
+    healthUrl: /health
+
+  dns-resolver-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj
+    assembly: Argus.Workers.DnsResolver
+    image: dns-resolver-worker
+    composeService: dns-resolver-worker
+    kubernetesDeployment: dns-resolver-worker
+    kubernetesContainer: dns-resolver-worker
+    paths:
+      - src/Workers/Argus.Workers.DnsResolver/**
+    tests: []
+    healthUrl: /health
+
+  http-probe-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj
+    assembly: Argus.Workers.HttpProbe
+    image: http-probe-worker
+    composeService: http-probe-worker
+    kubernetesDeployment: http-probe-worker
+    kubernetesContainer: http-probe-worker
+    paths:
+      - src/Workers/Argus.Workers.HttpProbe/**
+    tests:
+      - tests/Argus.Workers.HttpProbe.Tests/Argus.Workers.HttpProbe.Tests.csproj
+    healthUrl: /health
+
+  html-dom-spider-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj
+    assembly: Argus.Workers.HtmlDomSpider
+    image: html-dom-spider-worker
+    composeService: html-dom-spider-worker
+    kubernetesDeployment: html-dom-spider-worker
+    kubernetesContainer: html-dom-spider-worker
+    paths:
+      - src/Workers/Argus.Workers.HtmlDomSpider/**
+    tests:
+      - tests/Argus.Workers.HtmlDomSpider.Tests/Argus.Workers.HtmlDomSpider.Tests.csproj
+    healthUrl: /health
+
+  js-extractor-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj
+    assembly: Argus.Workers.JsExtractor
+    image: js-extractor-worker
+    composeService: js-extractor-worker
+    kubernetesDeployment: js-extractor-worker
+    kubernetesContainer: js-extractor-worker
+    paths:
+      - src/Workers/Argus.Workers.JsExtractor/**
+    tests: []
+    healthUrl: /health
+
+  regex-scanner-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj
+    assembly: Argus.Workers.RegexScanner
+    image: regex-scanner-worker
+    composeService: regex-scanner-worker
+    kubernetesDeployment: regex-scanner-worker
+    kubernetesContainer: regex-scanner-worker
+    paths:
+      - src/Workers/Argus.Workers.RegexScanner/**
+    tests: []
+    healthUrl: /health
+
+  wordlist-discovery-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj
+    assembly: Argus.Workers.WordlistDiscovery
+    image: wordlist-discovery-worker
+    composeService: wordlist-discovery-worker
+    kubernetesDeployment: wordlist-discovery-worker
+    kubernetesContainer: wordlist-discovery-worker
+    paths:
+      - src/Workers/Argus.Workers.WordlistDiscovery/**
+    tests: []
+    healthUrl: /health
+
+  headless-spider-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj
+    assembly: Argus.Workers.HeadlessSpider
+    image: headless-spider-worker
+    composeService: headless-spider-worker
+    kubernetesDeployment: headless-spider-worker
+    kubernetesContainer: headless-spider-worker
+    paths:
+      - src/Workers/Argus.Workers.HeadlessSpider/**
+    tests: []
+    healthUrl: /health
+
+  fingerprint-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj
+    assembly: Argus.Workers.Fingerprint
+    image: fingerprint-worker
+    composeService: fingerprint-worker
+    kubernetesDeployment: fingerprint-worker
+    kubernetesContainer: fingerprint-worker
+    paths:
+      - src/Workers/Argus.Workers.Fingerprint/**
+    tests: []
+    healthUrl: /health
+
+  validation-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj
+    assembly: Argus.Workers.Validation
+    image: validation-worker
+    composeService: validation-worker
+    kubernetesDeployment: validation-worker
+    kubernetesContainer: validation-worker
+    paths:
+      - src/Workers/Argus.Workers.Validation/**
+    tests: []
+    healthUrl: /health
+
+  asset-scoring-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
+    assembly: Argus.Workers.AssetScoring
+    image: asset-scoring-worker
+    composeService: asset-scoring-worker
+    kubernetesDeployment: asset-scoring-worker
+    kubernetesContainer: asset-scoring-worker
+    paths:
+      - src/Workers/Argus.Workers.AssetScoring/**
+    tests:
+      - tests/Argus.Workers.AssetScoring.Tests/Argus.Workers.AssetScoring.Tests.csproj
+    healthUrl: /health
+
+  finding-deduper-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj
+    assembly: Argus.Workers.FindingDeduper
+    image: finding-deduper-worker
+    composeService: finding-deduper-worker
+    kubernetesDeployment: finding-deduper-worker
+    kubernetesContainer: finding-deduper-worker
+    paths:
+      - src/Workers/Argus.Workers.FindingDeduper/**
+    tests: []
+    healthUrl: /health
+
+  http-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj
+    assembly: Argus.Workers.Http
+    image: http-worker
+    composeService: http-worker
+    kubernetesDeployment: http-worker
+    kubernetesContainer: http-worker
+    paths:
+      - src/Workers/Argus.Workers.Http/**
+    tests: []
+    healthUrl: /health
+
+  asset-storage-worker:
+    kind: worker
+    project: src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj
+    assembly: Argus.Workers.AssetStorage
+    image: asset-storage-worker
+    composeService: asset-storage-worker
+    kubernetesDeployment: asset-storage-worker
+    kubernetesContainer: asset-storage-worker
+    paths:
+      - src/Workers/Argus.Workers.AssetStorage/**
+    tests: []
+    healthUrl: /health
+
+nonDeployedProjects:
+  storage-service:
+    kind: service
+    project: src/Services/Argus.StorageService/Argus.StorageService.csproj
+    assembly: Argus.StorageService
+    reason: Present in src but not currently wired into AppHost, Compose, or GKE manifests.

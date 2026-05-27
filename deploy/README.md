@@ -42,11 +42,20 @@ terraform -chdir=deploy/terraform apply \
 
 ## CI/CD
 
-`.github/workflows/cd-gcp.yml` now runs the same flow:
+`.github/workflows/cd-gcp.yml` is now incremental by default.
 
-1. Authenticate to GCP.
-2. Provision/update Terraform infrastructure.
-3. Generate and push Kubernetes manifests with Aspirate.
-4. Re-apply Terraform with generated manifest application enabled.
+For service-only changes it:
 
-The old Cloud Run path is no longer the primary deployment path.
+1. detects impacted services from `.ci/service-map.yml`;
+2. builds and pushes only those service images;
+3. patches only the matching Kubernetes Deployment images with `kubectl set image`;
+4. waits only for the impacted rollouts.
+
+For topology or global changes it still uses the full path:
+
+1. provision/update Terraform infrastructure;
+2. regenerate Kubernetes manifests from Aspire;
+3. apply manifests through Terraform;
+4. wait for the public service endpoints.
+
+See `docs/deployment-incremental.md` for local Compose commands, detector usage, and rollback instructions.
