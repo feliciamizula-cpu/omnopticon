@@ -3,6 +3,14 @@ name: Security Scan and Test
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+      - '.editorconfig'
+      - 'LICENSE'
+      - 'tools/**'
+      - 'scripts/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -16,10 +24,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Build and Test
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -29,18 +37,19 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Restore
         run: dotnet restore eShop.slnx
 
       - name: Build
         run: dotnet build eShop.slnx --configuration Release --no-restore
-
-      - name: Test
-        run: |
-          set -euo pipefail
-          find tests -name '*.csproj' -print0 \
-            | sort -z \
-            | xargs -0 -I {} dotnet test "{}" --configuration Release
 
       - name: Validate compose config
         run: docker compose --env-file deploy/argus.env.example -f deploy/compose.yaml config --quiet
@@ -48,10 +57,50 @@ jobs:
       - name: Check NuGet vulnerabilities
         run: dotnet list eShop.slnx package --vulnerable --include-transitive
 
-  scan:
-    name: Security Scans
+  test:
+    name: Test ${{ matrix.project }}
+    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - Argus.Workers.HttpProbe.Tests
+          - Argus.AgentService.Tests
+          - Argus.Workers.HtmlDomSpider.Tests
+          - Argus.ApiGateway.Tests
+          - Argus.Workers.AssetScoring.Tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore eShop.slnx
+
+      - name: Build
+        run: dotnet build eShop.slnx --configuration Release --no-restore
+
+      - name: Test ${{ matrix.project }}
+        run: dotnet test tests/${{ matrix.project }}/${{ matrix.project }}.csproj --configuration Release --no-build
+
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +111,14 @@ jobs:
             -v "$PWD:/repo" \
             zricethezav/gitleaks:latest \
             detect --source /repo --no-git --redact --verbose
+
+  filesystem-scan:
+    name: Filesystem Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Filesystem vulnerability scan
         uses: aquasecurity/trivy-action@master
@@ -80,13 +137,48 @@ jobs:
           sarif_file: trivy-fs.sarif
           category: trivy-filesystem
 
+  container-scan:
+    name: Container Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECT_ID: project-30b3b95e-ed2b-4573-98a
+      REGION: us-central1
+      REGISTRY: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build web image for scan
         run: |
-          docker build \
+          docker buildx build \
+            --platform linux/amd64 \
+            --file deploy/Dockerfile.service \
+            --build-arg PROJECT_PATH=src/Argus.Web/Argus.Web.csproj \
+            --build-arg ASSEMBLY_NAME=Argus.Web \
             --build-arg GIT_SHA=${{ github.sha }} \
             --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --cache-from type=registry,ref=${{ env.REGISTRY }}/argus-web:buildcache \
+            --load \
             -t argus-web-scan:${{ github.sha }} \
-            -f deploy/Dockerfile.service .
+            .
 
       - name: Container vulnerability scan
         uses: aquasecurity/trivy-action@master

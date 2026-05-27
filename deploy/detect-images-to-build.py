@@ -49,6 +49,28 @@ REBUILD_ALL_PREFIXES = (
     "src/Contracts/",
 )
 
+MANIFEST_CHANGE_PREFIXES = (
+    "src/Argus.AppHost/",
+    "src/Argus.ServiceDefaults/",
+    "src/BuildingBlocks/",
+    "src/Contracts/",
+    "deploy/terraform/",
+    "deploy/patch-node-selectors.py",
+)
+
+IGNORE_PREFIXES = (
+    ".github/",
+    "docs/",
+    "*.md",
+    "LICENSE",
+    ".gitignore",
+    ".editorconfig",
+    "tools/",
+    "scripts/",
+    "context.md",
+    "aspire_coordinate.txt",
+)
+
 
 def run(args: list[str]) -> str:
     return subprocess.check_output(args, text=True).strip()
@@ -99,15 +121,48 @@ def main() -> None:
                 selected.append(service_entry(service))
         reason = "selected"
 
+    # Check if manifests need regeneration
+    manifests_changed = force or diff_failed or any(
+        path.startswith(MANIFEST_CHANGE_PREFIXES) for path in changes
+    )
+
+    # Check if any app code changed (vs just docs/tests)
+    def is_ignored(path: str) -> bool:
+        for prefix in IGNORE_PREFIXES:
+            if prefix.endswith("/"):
+                if path.startswith(prefix):
+                    return True
+            elif prefix.startswith("*."):
+                if path.endswith(prefix[1:]):
+                    return True
+            elif path == prefix:
+                return True
+        return False
+
+    app_code_changed = force or diff_failed or any(
+        not is_ignored(path) for path in changes
+    )
+
+    # Check if Argus.Web specifically changed (for Cloud Run)
+    web_changed = force or diff_failed or any(
+        path.startswith("src/Argus.Web/") for path in changes
+    )
+
     output_path = os.environ["GITHUB_OUTPUT"]
     with open(output_path, "a", encoding="utf-8") as output:
         output.write(f"matrix={json.dumps({'include': selected}, separators=(',', ':'))}\n")
         output.write(f"build_required={str(bool(selected)).lower()}\n")
         output.write(f"reason={reason}\n")
         output.write(f"changed_count={len(changes)}\n")
+        output.write(f"manifests_changed={str(manifests_changed).lower()}\n")
+        output.write(f"app_code_changed={str(app_code_changed).lower()}\n")
+        output.write(f"web_changed={str(web_changed).lower()}\n")
 
     print(f"Changed files: {len(changes)}")
     print(f"Image rebuild mode: {reason}; images selected: {len(selected)}")
+    print(f"Manifests need regeneration: {manifests_changed}")
+    print(f"App code changed: {app_code_changed}")
+    print(f"Argus.Web changed: {web_changed}")
     for item in selected:
         print(f"  {item['name']}")
 

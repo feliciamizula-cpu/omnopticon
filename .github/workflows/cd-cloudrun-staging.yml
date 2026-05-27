@@ -3,10 +3,21 @@ name: CD - Deploy to Cloud Run (Staging)
 permissions:
   id-token: write
   contents: read
+  actions: read
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/Argus.Web/**'
+      - 'src/Argus.ServiceDefaults/**'
+      - 'src/BuildingBlocks/**'
+      - 'src/Contracts/**'
+      - 'deploy/Dockerfile.service'
+      - 'Directory.Build.props'
+      - 'Directory.Build.targets'
+      - 'Directory.Packages.props'
+      - 'global.json'
   workflow_dispatch:
 
 env:
@@ -17,7 +28,53 @@ env:
   DEV_VM_GATEWAY: http://34.63.95.161:8081
 
 jobs:
+  wait-for-gke-build:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.wait.outputs.image_tag }}
+    steps:
+      - name: Wait for GKE build workflow
+        id: wait
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sha = context.sha;
+            
+            // Wait up to 10 minutes for the GKE workflow to complete
+            const maxAttempts = 60;
+            const delayMs = 10000;
+            
+            for (let i = 0; i < maxAttempts; i++) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'cd-gcp.yml',
+                head_sha: sha,
+                status: 'completed'
+              });
+              
+              if (runs.data.workflow_runs.length > 0) {
+                const run = runs.data.workflow_runs[0];
+                if (run.conclusion === 'success') {
+                  core.setOutput('image_tag', `${sha}`);
+                  console.log(`GKE build completed successfully for ${sha}`);
+                  return;
+                } else {
+                  core.setFailed(`GKE build failed with conclusion: ${run.conclusion}`);
+                  return;
+                }
+              }
+              
+              console.log(`Waiting for GKE build... attempt ${i + 1}/${maxAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            
+            core.setFailed('Timeout waiting for GKE build');
+
   deploy:
+    needs: wait-for-gke-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,27 +93,11 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push argus-web
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --file deploy/Dockerfile.service \
-            --build-arg PROJECT_PATH=src/Argus.Web/Argus.Web.csproj \
-            --build-arg ASSEMBLY_NAME=Argus.Web \
-            --build-arg GIT_SHA=${{ github.sha }} \
-            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-            --tag ${{ env.REGISTRY }}/argus-web:staging-${{ github.sha }} \
-            --push \
-            .
-
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGISTRY }}/argus-web:staging-${{ github.sha }}
+          image: ${{ env.REGISTRY }}/argus-web:${{ needs.wait-for-gke-build.outputs.image_tag }}
           region: ${{ env.REGION }}
           env_vars: |
             ASPNETCORE_ENVIRONMENT=Staging
