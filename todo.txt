@@ -1,3 +1,0 @@
-- When creating a task, provide the option to assign to a specific agent, or to a role such as "developer", "system architect", etc., and let the system automatically choose which one to use.
-
-- Allow the user to add new CLIs that must be configured, authenticated, etc., and then can be selected during agent configuration. It needs to be able to do the same for models. Add a configuration feature that allows the user to easily configure both. Make sure the settings are persisted and honored.
