@@ -102,11 +102,5 @@ variable "worker_cpu_utilization" {
 variable "install_keda" {
   description = "Install KEDA so queue/custom metric scaled workers can be added without changing cluster provisioning."
   type        = bool
-  default     = true
-}
-
-variable "github_actions_service_account" {
-  description = "Email of the service account used by GitHub Actions via Workload Identity Federation."
-  type        = string
-  default     = ""
+   default     = true
 }

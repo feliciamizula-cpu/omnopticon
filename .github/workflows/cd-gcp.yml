@@ -48,8 +48,7 @@ jobs:
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
-            -var="apply_aspirate_manifests=false" \
-            -var="github_actions_service_account=${{ secrets.WIF_SERVICE_ACCOUNT }}"
+            -var="apply_aspirate_manifests=false"
 
 # ── Job 2: Build and push container images (parallel matrix) ─────────────────
 # Builds all 28 service/worker images in parallel and pushes to Artifact Registry.
@@ -239,8 +238,7 @@ jobs:
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
             -var="apply_aspirate_manifests=true" \
-            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output" \
-            -var="github_actions_service_account=${{ secrets.WIF_SERVICE_ACCOUNT }}"
+            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output"
 
       - name: Wait for LoadBalancer IPs
         run: |

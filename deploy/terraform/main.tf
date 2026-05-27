@@ -1,30 +1,3 @@
-# ── GCP APIs ─────────────────────────────────────────────────────────────────
-
-resource "google_project_service" "container" {
-  service            = "container.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "artifact_registry" {
-  service            = "artifactregistry.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "cloudresourcemanager" {
-  service            = "cloudresourcemanager.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "iam" {
-  service            = "iam.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "compute" {
-  service            = "compute.googleapis.com"
-  disable_on_destroy = false
-}
-
 # ── Artifact Registry ─────────────────────────────────────────────────────────
 
 resource "google_artifact_registry_repository" "argus" {
@@ -32,21 +5,6 @@ resource "google_artifact_registry_repository" "argus" {
   repository_id = var.artifact_registry_repository
   description   = "Argus application container images"
   format        = "DOCKER"
-
-  depends_on = [google_project_service.artifact_registry]
-}
-
-# ── Service accounts ──────────────────────────────────────────────────────────
-
-resource "google_service_account" "gke_nodes" {
-  account_id   = "argus-gke-nodes"
-  display_name = "Argus GKE node pool"
-}
-
-resource "google_project_iam_member" "nodes_artifact_reader" {
-  project = var.project_id
-  role    = "roles/artifactregistry.reader"
-  member  = "serviceAccount:${google_service_account.gke_nodes.email}"
 }
 
 # ── GKE cluster ───────────────────────────────────────────────────────────────
@@ -84,8 +42,6 @@ resource "google_container_cluster" "argus" {
       disabled = false
     }
   }
-
-  depends_on = [google_project_service.container]
 }
 
 # ── Core node pool (n2-standard-16, 1 TB SSD, fixed size) ────────────────────
@@ -106,11 +62,10 @@ resource "google_container_node_pool" "core" {
   }
 
   node_config {
-    machine_type    = var.core_machine_type
-    disk_size_gb    = var.core_disk_size_gb
-    disk_type       = "pd-ssd"
-    service_account = google_service_account.gke_nodes.email
-    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+    machine_type = var.core_machine_type
+    disk_size_gb = var.core_disk_size_gb
+    disk_type    = "pd-ssd"
+    oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
     labels = merge(local.common_labels, {
       argus-nodepool = "core"
@@ -139,11 +94,10 @@ resource "google_container_node_pool" "workers" {
   }
 
   node_config {
-    machine_type    = var.worker_machine_type
-    disk_size_gb    = 50
-    disk_type       = "pd-standard"
-    service_account = google_service_account.gke_nodes.email
-    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+    machine_type = var.worker_machine_type
+    disk_size_gb = 50
+    disk_type    = "pd-standard"
+    oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
     labels = merge(local.common_labels, {
       argus-nodepool = "workers"
@@ -366,44 +320,3 @@ resource "kubernetes_service" "aspire_dashboard_lb" {
   depends_on = [kubernetes_deployment.aspire_dashboard]
 }
 
-# ── GitHub Actions IAM grants ─────────────────────────────────────────────────
-
-resource "google_project_iam_member" "github_actions_service_usage_consumer" {
-  count = var.github_actions_service_account != "" ? 1 : 0
-
-  project = var.project_id
-  role    = "roles/serviceusage.serviceUsageConsumer"
-  member  = "serviceAccount:${var.github_actions_service_account}"
-
-  depends_on = [google_project_service.cloudresourcemanager, google_project_service.iam]
-}
-
-resource "google_project_iam_member" "github_actions_service_account_admin" {
-  count = var.github_actions_service_account != "" ? 1 : 0
-
-  project = var.project_id
-  role    = "roles/iam.serviceAccountAdmin"
-  member  = "serviceAccount:${var.github_actions_service_account}"
-
-  depends_on = [google_project_service.cloudresourcemanager, google_project_service.iam]
-}
-
-resource "google_project_iam_member" "github_actions_compute_admin" {
-  count = var.github_actions_service_account != "" ? 1 : 0
-
-  project = var.project_id
-  role    = "roles/compute.admin"
-  member  = "serviceAccount:${var.github_actions_service_account}"
-
-  depends_on = [google_project_service.cloudresourcemanager, google_project_service.compute]
-}
-
-resource "google_project_iam_member" "github_actions_container_admin" {
-  count = var.github_actions_service_account != "" ? 1 : 0
-
-  project = var.project_id
-  role    = "roles/container.admin"
-  member  = "serviceAccount:${var.github_actions_service_account}"
-
-  depends_on = [google_project_service.cloudresourcemanager, google_project_service.container]
-}
