@@ -1,0 +1,74 @@
+name: CD - Deploy to Cloud Run (Staging)
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: project-30b3b95e-ed2b-4573-98a
+  REGION: us-central1
+  REGISTRY: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
+  SERVICE_NAME: argus-web-staging
+  DEV_VM_GATEWAY: http://34.63.95.161:8081
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push argus-web
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file deploy/Dockerfile.service \
+            --build-arg PROJECT_PATH=src/Argus.Web/Argus.Web.csproj \
+            --build-arg ASSEMBLY_NAME=Argus.Web \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --tag ${{ env.REGISTRY }}/argus-web:staging-${{ github.sha }} \
+            --push \
+            .
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          image: ${{ env.REGISTRY }}/argus-web:staging-${{ github.sha }}
+          region: ${{ env.REGION }}
+          env_vars: |
+            ASPNETCORE_ENVIRONMENT=Staging
+            ARGUS_VERSION=${{ github.sha }}
+            ARGUS_AGENT_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_PROGRAM_SCOPE_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_ASSET_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_ARTIFACT_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_FINDING_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_TASK_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_RATE_LIMIT_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_SCAN_ORCHESTRATOR_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_EVENT_ROUTER_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_REALTIME_SERVICE=${{ env.DEV_VM_GATEWAY }}
+            ARGUS_PROXY_REGISTRY_SERVICE=${{ env.DEV_VM_GATEWAY }}
