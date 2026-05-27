@@ -95,14 +95,14 @@ jobs:
 
           if gcloud storage ls "$REMOTE_STATE" 2>/dev/null | grep -q "default.tfstate"; then
             echo "Remote state exists — normal init."
-            terraform -chdir=deploy/terraform init -input=false
+            terraform -chdir=deploy/terraform init -input=false -reconfigure
           elif [ -f deploy/terraform/terraform.tfstate ]; then
             echo "Remote state is empty. Migrating local state to GCS..."
             terraform -chdir=deploy/terraform init -input=false -migrate-state -force-copy
             echo "Local state migrated to GCS."
           else
             echo "::warning::No local state found. Running normal init (fresh state)."
-            terraform -chdir=deploy/terraform init -input=false
+            terraform -chdir=deploy/terraform init -input=false -reconfigure
           fi
 
       - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
