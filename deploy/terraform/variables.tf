@@ -44,13 +44,13 @@ variable "core_disk_size_gb" {
 variable "core_min_node_count" {
   description = "Minimum core nodes."
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "core_max_node_count" {
-  description = "Maximum core nodes."
+  description = "Maximum core nodes. Kept small to fit a 32-vCPU regional quota; raise after requesting a quota increase."
   type        = number
-  default     = 3
+  default     = 2
 }
 
 # ── Worker node pool (autoscaling, spot/preemptible) ──────────────────────────
@@ -74,9 +74,9 @@ variable "min_node_count" {
 }
 
 variable "max_node_count" {
-  description = "Maximum worker nodes."
+  description = "Maximum worker nodes. Kept small to fit a 32-vCPU regional quota; raise after requesting a quota increase."
   type        = number
-  default     = 5
+  default     = 3
 }
 
 # ── Aspirate / workloads ──────────────────────────────────────────────────────
