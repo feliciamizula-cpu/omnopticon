@@ -70,7 +70,7 @@ def changed_files(base_sha: str | None, head_sha: str | None) -> tuple[list[str]
 
 
 def matches_any(path: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+    return any(fnmatch.fnmatch(path, norm(pattern)) for pattern in patterns)
 
 
 def project_references(project_path: str) -> set[str]:
