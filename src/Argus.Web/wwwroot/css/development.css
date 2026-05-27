@@ -2540,8 +2540,156 @@ textarea.dev-input {
 /* ── ArgusGrid overrides for ops ──────────────────────────────── */
 .ag {
   --ag-cols: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   font-size: 12px;
 }
+
+/* ── Toolbar ── */
+.ag-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line-1);
+  flex-shrink: 0;
+}
+
+.ag-search {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: inherit;
+  font-size: 11px;
+  border-radius: 3px;
+  outline: none;
+}
+.ag-search:focus { border-color: var(--accent); }
+
+.ag-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+}
+.ag-icon-btn:hover, .ag-icon-btn.active { border-color: var(--accent); color: var(--accent); }
+
+.ag-select {
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-0);
+  color: var(--fg-2);
+  font-family: inherit;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  outline: none;
+}
+
+.ag-count { font-size: 10px; color: var(--fg-3); white-space: nowrap; margin-left: auto; }
+.ag-count-sep { margin: 0 2px; opacity: 0.4; }
+
+/* ── Scrollable body ── */
+.ag-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* CSS grid shared by header, filter row, and data rows */
+.ag-row-grid {
+  display: grid;
+  grid-template-columns: var(--ag-cols);
+  align-items: center;
+}
+
+/* Sticky column header */
+.ag-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.ag-th {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+.ag-th.ag-sortable { cursor: pointer; }
+.ag-th.ag-sortable:hover { color: var(--fg-1); }
+.ag-th.ag-asc::after  { content: " ↑"; }
+.ag-th.ag-desc::after { content: " ↓"; }
+
+/* Filter row */
+.ag-filter-row { border-bottom: 1px solid var(--line-1); background: var(--bg-1); }
+.ag-fc { padding: 2px 4px; }
+.ag-fi {
+  width: 100%;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: inherit;
+  font-size: 10px;
+  border-radius: 2px;
+  outline: none;
+}
+.ag-fi:focus { border-color: var(--accent); }
+
+/* Data rows */
+.ag-row {
+  height: 32px;
+  border-bottom: 1px solid var(--line-0);
+  cursor: pointer;
+}
+.ag-row:hover { background: var(--bg-3); }
+.ag-row.ag-sel { background: var(--dev-amber-bg); }
+
+.ag-td {
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--fg-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ag-td.ag-primary { color: var(--fg-0); font-weight: 500; }
+
+/* Group rows */
+.ag-group-row { background: var(--bg-2); border-bottom: 1px solid var(--line-1); }
+.ag-group-cell { padding: 4px 8px; display: flex; align-items: center; gap: 8px; }
+.ag-group-key { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-2); }
+.ag-group-count { font-size: 10px; color: var(--fg-3); background: var(--line-1); padding: 0 5px; border-radius: 8px; }
+
+/* Empty state */
+.ag-empty { padding: 24px 16px; font-size: 11px; color: var(--fg-3); font-style: italic; }
 
 .ops-layout .ag {
   font-size: 12px;
