@@ -13,7 +13,7 @@ resource "google_container_cluster" "argus" {
   provider = google-beta
 
   name     = var.cluster_name
-  location = var.region
+  location = "${var.region}-a"
 
   deletion_protection      = false
   remove_default_node_pool = true
@@ -50,7 +50,7 @@ resource "google_container_node_pool" "core" {
   provider = google-beta
 
   name     = "argus-core"
-  location = var.region
+  location = "${var.region}-a"
   cluster  = google_container_cluster.argus.name
 
   node_count = 1
@@ -79,7 +79,7 @@ resource "google_container_node_pool" "workers" {
   provider = google-beta
 
   name     = "argus-workers"
-  location = var.region
+  location = "${var.region}-a"
   cluster  = google_container_cluster.argus.name
 
   autoscaling {
