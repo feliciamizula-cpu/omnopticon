@@ -68,7 +68,9 @@ resource "google_container_node_pool" "core" {
   node_config {
     machine_type = var.core_machine_type
     disk_size_gb = var.core_disk_size_gb
-    disk_type    = "pd-balanced"
+    # pd-standard (HDD) keeps us under the regional SSD_TOTAL_GB quota.
+    # Boot time is a few minutes longer; irrelevant for long-running nodes.
+    disk_type    = "pd-standard"
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
     labels = merge(local.common_labels, {

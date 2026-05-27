@@ -36,9 +36,9 @@ variable "core_machine_type" {
 }
 
 variable "core_disk_size_gb" {
-  description = "Boot disk size in GB for core service nodes."
+  description = "Boot disk size in GB for core service nodes (pd-standard HDD)."
   type        = number
-  default     = 50
+  default     = 30
 }
 
 variable "core_min_node_count" {
