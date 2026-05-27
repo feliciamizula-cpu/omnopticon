@@ -1,0 +1,14 @@
+{
+  "projectPath": ".",
+  "outputPath": "aspirate-output",
+  "namespace": "argus",
+  "containerRegistry": "us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus",
+  "containerImageTags": [
+    "5cec9a89d724b43a9597a0dbcdeaf371fe23d34c"
+  ],
+  "containerBuilder": "docker",
+  "outputFormat": "kustomize",
+  "disableSecrets": true,
+  "privateRegistryEmail": "aspir8@aka.ms",
+  "includeDashboard": false
+}

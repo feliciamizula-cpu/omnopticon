@@ -21,7 +21,6 @@ override.tf.json
 
 # Aspirate generated deployment output
 src/Argus.AppHost/manifest.json
-src/Argus.AppHost/aspirate-state.json
 src/Argus.AppHost/aspirate-output/
 
 # User-specific files
