@@ -30,8 +30,12 @@ resource "google_container_cluster" "argus" {
   ip_allocation_policy {}
 
   addons_config {
-    horizontal_pod_autoscaling { disabled = false }
-    http_load_balancing        { disabled = false }
+    horizontal_pod_autoscaling {
+      disabled = false
+    }
+    http_load_balancing {
+      disabled = false
+    }
   }
 
   lifecycle {
@@ -348,8 +352,15 @@ resource "kubernetes_deployment" "aspire_dashboard" {
           name  = "aspire-dashboard"
           image = "mcr.microsoft.com/dotnet/aspire-dashboard:9.0"
 
-          port { name = "ui"        container_port = 18888 }
-          port { name = "otlp-grpc" container_port = 18889 }
+          port {
+            name           = "ui"
+            container_port = 18888
+          }
+
+          port {
+            name           = "otlp-grpc"
+            container_port = 18889
+          }
 
           # Frontend token auth when a token is provided; otherwise unsecured.
           dynamic "env" {
@@ -394,8 +405,14 @@ resource "kubernetes_deployment" "aspire_dashboard" {
           }
 
           resources {
-            requests = { cpu = "100m" memory = "256Mi" }
-            limits   = { cpu = "500m" memory = "512Mi" }
+            requests = {
+              cpu    = "100m"
+              memory = "256Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "512Mi"
+            }
           }
         }
       }
