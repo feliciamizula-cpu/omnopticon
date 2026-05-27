@@ -516,3 +516,5 @@ $RECYCLE.BIN/
 tools/.agent-supervisor.pid
 .ssh/
 .ssh/key
+bench_runs/
+opencode_benchmark_prompts/
