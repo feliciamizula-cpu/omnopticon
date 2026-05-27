@@ -1,0 +1,5 @@
+{
+  "model": "opencode/big-pickle",
+  "timeout_seconds": 120,
+  "max_code_lines": 500
+}

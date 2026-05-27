@@ -91,13 +91,18 @@ jobs:
       - name: Initialize Terraform
         run: terraform -chdir=deploy/terraform init -input=false -reconfigure
 
+      - name: Configure kubectl for import
+        run: |
+          gcloud container clusters get-credentials "${CLUSTER_NAME}" \
+            --zone "${REGION}-a" --project "${PROJECT_ID}" || true
+
       - name: Import existing resources into state
         run: |
           cd deploy/terraform
           # Import namespace if it exists
-          terraform import kubernetes_namespace.argus argus 2>/dev/null || true
+          terraform import -input=false kubernetes_namespace.argus argus 2>/dev/null || true
           # Import KEDA helm release if it exists
-          terraform import helm_release.keda keda 2>/dev/null || true
+          terraform import -input=false helm_release.keda keda 2>/dev/null || true
 
       - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
         run: |
