@@ -39,7 +39,10 @@ RUN dotnet publish ${PROJECT_PATH} \
     -o /app/publish \
     -p:TreatWarningsAsErrors=false
 
-RUN if [ -d /app/publish/wwwroot ]; then test -s /app/publish/wwwroot/_framework/blazor.web.js; fi
+RUN if [ -d /app/publish/wwwroot/_framework ]; then \
+      find /app/publish/wwwroot/_framework -name 'blazor.web*.js' | grep -q . || \
+      { echo "ERROR: No Blazor framework JS found in wwwroot/_framework/"; ls /app/publish/wwwroot/_framework/ 2>/dev/null || true; exit 1; }; \
+    fi
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
