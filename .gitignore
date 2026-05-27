@@ -518,3 +518,8 @@ tools/.agent-supervisor.pid
 .ssh/key
 bench_runs/
 opencode_benchmark_prompts/
+
+# Terraform
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/
