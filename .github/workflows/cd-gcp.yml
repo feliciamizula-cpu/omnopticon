@@ -7,6 +7,19 @@ permissions:
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+      - '.editorconfig'
+      - 'LICENSE'
+      - 'tools/**'
+      - 'scripts/**'
+      - 'context.md'
+      - 'aspire_coordinate.txt'
+      - '.github/workflows/cd-cloudrun-staging.yml'
+      - '.github/workflows/cd-gcp-development.yml'
+      - '.github/workflows/security-scan.yml'
   workflow_dispatch:
     inputs:
       force_rebuild_all:
@@ -38,6 +51,8 @@ jobs:
       build_required: ${{ steps.detect.outputs.build_required }}
       reason: ${{ steps.detect.outputs.reason }}
       changed_count: ${{ steps.detect.outputs.changed_count }}
+      manifests_changed: ${{ steps.detect.outputs.manifests_changed }}
+      app_code_changed: ${{ steps.detect.outputs.app_code_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +67,8 @@ jobs:
         run: python3 deploy/detect-images-to-build.py
 
   provision:
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.app_code_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +86,19 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
+
+      - name: Cache Terraform plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-${{ hashFiles('deploy/terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
+
+      - name: Configure Terraform plugin cache dir
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
 
       - name: Ensure Terraform state bucket exists
         run: |
@@ -250,41 +280,28 @@ jobs:
             --push \
             .
 
-# ── Job 3: Generate manifests and deploy workloads ────────────────────────────
-# Stamps the staging image tag into aspirate-state.json, runs aspirate generate,
-# patches node selectors, then applies everything via Terraform.
-# Waits for GCP to assign LoadBalancer IPs and writes URLs to the job summary.
+# ── Job 2b: Generate Kubernetes manifests (parallel with builds) ─────────────
+# Generates Aspire manifests while images are being built, so deploy doesn't wait.
 
-  deploy:
-    needs: [provision, detect-changes, build]
-    if: ${{ always() && needs.provision.result == 'success' && needs.detect-changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+  generate-manifests:
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.manifests_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
 
-      - name: Configure kubectl
-        run: |
-          gcloud container clusters get-credentials "${CLUSTER_NAME}" \
-            --zone "${REGION}-a" --project "${PROJECT_ID}"
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Restore deployment tools
         run: dotnet tool restore
@@ -303,6 +320,62 @@ jobs:
         env:
           DEPLOY_SHA: ${{ github.sha }}
         run: python3 deploy/patch-node-selectors.py
+
+      - name: Upload manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: aspirate-manifests
+          path: src/Argus.AppHost/aspirate-output/
+          retention-days: 1
+
+# ── Job 3: Generate manifests and deploy workloads ────────────────────────────
+# Downloads pre-generated manifests and applies them via Terraform.
+# Waits for GCP to assign LoadBalancer IPs and writes URLs to the job summary.
+
+  deploy:
+    needs: [provision, detect-changes, build, generate-manifests]
+    if: ${{ always() && needs.detect-changes.outputs.app_code_changed == 'true' && needs.provision.result == 'success' && needs.detect-changes.result == 'success' && needs.generate-manifests.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Cache Terraform plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-${{ hashFiles('deploy/terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-
+
+      - name: Configure Terraform plugin cache dir
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
+
+      - name: Configure kubectl
+        run: |
+          gcloud container clusters get-credentials "${CLUSTER_NAME}" \
+            --zone "${REGION}-a" --project "${PROJECT_ID}"
+
+      - name: Download manifests
+        uses: actions/download-artifact@v4
+        with:
+          name: aspirate-manifests
+          path: src/Argus.AppHost/aspirate-output/
 
       - name: Terraform init
         run: terraform -chdir=deploy/terraform init -input=false
