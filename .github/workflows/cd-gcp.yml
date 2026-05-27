@@ -43,24 +43,50 @@ jobs:
         run: |
           BUCKET="${PROJECT_ID}-terraform-state"
           echo "Checking for Terraform state bucket: gs://${BUCKET}"
-          if ! gcloud storage buckets describe "gs://${BUCKET}" &>/dev/null; then
-            echo "::warning::State bucket does not exist. Creating gs://${BUCKET}"
-            echo "::warning::If this fails, create it manually: gcloud storage buckets create gs://${BUCKET} --project=${PROJECT_ID} --location=${REGION}"
-            gcloud storage buckets create "gs://${BUCKET}" \
+          if gcloud storage buckets describe "gs://${BUCKET}" &>/dev/null; then
+            echo "State bucket exists: gs://${BUCKET}"
+            exit 0
+          fi
+
+          echo "::warning::State bucket does not exist. Creating gs://${BUCKET}"
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+            if gcloud storage buckets create "gs://${BUCKET}" \
               --project="${PROJECT_ID}" \
               --location="${REGION}" \
               --uniform-bucket-level-access \
-              --public-access-prevention || {
-              echo "::error::Failed to create state bucket. Please create it manually and re-run."
-              exit 1
-            }
-            gcloud storage buckets update "gs://${BUCKET}" --versioning || true
-          else
-            echo "State bucket exists: gs://${BUCKET}"
-          fi
+              --public-access-prevention; then
+              gcloud storage buckets update "gs://${BUCKET}" --versioning || true
+              echo "State bucket created successfully."
+              exit 0
+            fi
+            echo "Attempt $i failed. Waiting 5 seconds..."
+            sleep 5
+          done
 
-      - name: Terraform init
-        run: terraform -chdir=deploy/terraform init
+          echo "::error::Failed to create state bucket after $MAX_RETRIES attempts."
+          echo "::error::The WIF service account needs 'roles/storage.admin' on the project."
+          echo "::error::Run: bash scripts/grant-wif-roles.sh (after setting WIF_SA)"
+          echo "::error::Or create manually: gcloud storage buckets create gs://${BUCKET} --project=${PROJECT_ID} --location=${REGION}"
+          exit 1
+
+      - name: Initialize Terraform and migrate state
+        run: |
+          BUCKET="${PROJECT_ID}-terraform-state"
+          REMOTE_STATE="gs://${BUCKET}/gke/deploy/default.tfstate"
+
+          if gcloud storage ls "$REMOTE_STATE" 2>/dev/null | grep -q "default.tfstate"; then
+            echo "Remote state exists — normal init."
+            terraform -chdir=deploy/terraform init
+          elif [ -f deploy/terraform/terraform.tfstate ]; then
+            echo "Remote state is empty. Migrating local state to GCS..."
+            terraform -chdir=deploy/terraform init -migrate-state -force-copy
+            echo "Local state migrated to GCS."
+          else
+            echo "::warning::No local state found. Running normal init (fresh state)."
+            terraform -chdir=deploy/terraform init
+          fi
 
       - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
         run: |
