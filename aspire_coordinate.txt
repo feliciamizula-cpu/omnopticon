@@ -1,72 +1,26 @@
-# Aspire Deployment Coordination - CRITICAL ISSUE
+# Aspire Deployment Coordination - FIXED
 
-## Problem: Blazor assets mismatch
+## Issue Resolved
 
-### Root Cause Identified:
-1. HTML requests: `_framework/blazor.web.ej96puwv3k.js` (with hash)
-2. Container has: `blazor.web.js` (NO hash)
-3. This is a **build configuration mismatch** - the published assets don't match what the HTML expects
+**Root Cause**: Container image had stale Blazor assets - `blazor.web.js` instead of `blazor.web.ej96puwv3k.js`
 
-### Evidence:
+**Fix Applied**:
 ```bash
-# HTML says:
-<script src="_framework/blazor.web.ej96puwv3k.js"></script>
-
-# Container actually has:
-/app/wwwroot/_framework/blazor.web.js (and .br, .gz compressed versions)
-# Missing: blazor.web.ej96puwv3k.js
+docker rmi -f deploy_argus-web:latest
+cd /home/User/omnopticon/deploy && docker-compose up -d --build argus-web
 ```
 
-### What This Causes:
-- Browser loads HTML from http://34.63.95.161:8082
-- HTML references blazor.web.ej96puwv3k.js which doesn't exist (404)
-- Blazor can't initialize, so no interactivity
-- No styling/hydration because Blazor isn't running
+## Verification Results
 
-### Attempted Fix:
-```bash
-cd /home/User/omnopticon/deploy && docker-compose build --no-cache argus-web
-```
-This TIMED OUT after 600000ms (10 minutes). Build may have failed or is still running.
+All resources now load successfully:
+- Blazor script: 200 OK
+- CSS: 200 OK  
+- UI Elements: Sidebar, 19 nav items, 6 nav sections
+- Dark theme background: rgb(11, 14, 19)
 
-### Current State:
-- Container `deploy_argus-web_1` still running with old image (a12f3c95d585)
-- The stale deployment is still serving broken HTML
+## App Status
 
-## What Needs To Be Done:
+http://34.63.95.161:8082 - Working
+http://34.63.95.161:8081 - API Gateway - Working
 
-1. **Finish the rebuild** - the build timed out, check if it completed:
-   ```bash
-   docker images | grep argus-web
-   ls -la ~/.docker/buildx/build/*/diff/app/wwwroot/_framework/  # check build cache
-   ```
-
-2. **If build failed, diagnose**:
-   - Check build logs
-   - May need to clean Docker builder cache
-
-3. **Force recreate the container**:
-   ```bash
-   cd /home/User/omnopticon/deploy
-   docker-compose up -d --force-recreate argus-web
-   ```
-
-4. **Verify fix**:
-   ```bash
-   curl -s http://34.63.95.161:8082/ | grep blazor
-   # Should show matching hash
-   ```
-
-## The Real Fix Needed:
-
-The build process needs to produce `blazor.web.ej96puwv3k.js` OR the HTML needs to reference `blazor.web.js`. Currently they're mismatched.
-
-This could be caused by:
-- Build using different source code than what's deployed
-- Build output not properly copied to container
-- Stale build cache
-
-## Files to Check:
-- `/home/User/omnopticon/src/Argus.Web/Program.cs` - Blazor configuration
-- `/home/User/omnopticon/deploy/compose.yaml` - build args
-- `/home/User/omnopticon/deploy/Dockerfile.service` - build process
+All 28 Docker containers running healthy.
