@@ -23,6 +23,9 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(o =>
+    o.DetailedErrors = true);
+
 builder.Services.AddSignalR();
 builder.Services.AddScoped<DevelopmentRealtimeClient>();
 builder.Services.AddSingleton<DevelopmentRealtimeNotifier>();

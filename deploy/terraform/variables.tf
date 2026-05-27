@@ -32,13 +32,13 @@ variable "artifact_registry_repository" {
 variable "core_machine_type" {
   description = "Machine type for the core-services node pool."
   type        = string
-  default     = "n2-standard-16"
+  default     = "n2-standard-8"
 }
 
 variable "core_disk_size_gb" {
-  description = "Boot disk size in GB for core service nodes (1000 = ~1 TB)."
+  description = "Boot disk size in GB for core service nodes."
   type        = number
-  default     = 1000
+  default     = 200
 }
 
 # ── Worker node pool (autoscaling background workers) ─────────────────────────
@@ -58,7 +58,7 @@ variable "min_node_count" {
 variable "max_node_count" {
   description = "Maximum worker nodes."
   type        = number
-  default     = 10
+  default     = 3
 }
 
 # ── Aspirate / workloads ──────────────────────────────────────────────────────
@@ -102,11 +102,5 @@ variable "worker_cpu_utilization" {
 variable "install_keda" {
   description = "Install KEDA so queue/custom metric scaled workers can be added without changing cluster provisioning."
   type        = bool
-  default     = true
-}
-
-variable "github_actions_service_account" {
-  description = "Email of the service account used by GitHub Actions via Workload Identity Federation."
-  type        = string
-  default     = ""
+   default     = true
 }

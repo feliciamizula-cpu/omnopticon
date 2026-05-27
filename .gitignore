@@ -21,7 +21,6 @@ override.tf.json
 
 # Aspirate generated deployment output
 src/Argus.AppHost/manifest.json
-src/Argus.AppHost/aspirate-state.json
 src/Argus.AppHost/aspirate-output/
 
 # User-specific files
@@ -516,3 +515,10 @@ $RECYCLE.BIN/
 tools/.agent-supervisor.pid
 .ssh/
 .ssh/key
+bench_runs/
+opencode_benchmark_prompts/
+
+# Terraform
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/

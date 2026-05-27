@@ -7,6 +7,7 @@
 @inject HttpClient Http
 @inject NavigationManager Nav
 @inject DevelopmentRealtimeClient Realtime
+@inject IJSRuntime JS
 
 <ErrorBoundary>
     <div class="page-body environments-page">
@@ -15,9 +16,273 @@
                 <h1>Environments</h1>
                 <p>Development VM control, health, services, deployment state, and cost tracking</p>
             </div>
-            <button type="button" @onclick="RefreshAsync" disabled="@_loading">Refresh</button>
+            <button type="button" @onclick="RefreshAllAsync" disabled="@(_loading || _wloading || _vmsLoading)">Refresh</button>
         </div>
 
+        @* ── GKE Deployment Status ── *@
+        @if (_wloading && _runs is null)
+        {
+            <div class="env-empty">Loading deployment status...</div>
+        }
+        else if (_runs is not null)
+        {
+            @if (!_runs.HasToken)
+            {
+                <div class="env-alert">GITHUB_TOKEN is not configured — deployment status unavailable.</div>
+            }
+            else if (_runs.Error is not null)
+            {
+                <div class="env-alert">GitHub API error: @_runs.Error</div>
+            }
+            else
+            {
+                var latest = _runs.Runs.Length > 0 ? _runs.Runs[0] : null;
+                <section class="deploy-status @DeployStatusClass(latest)">
+                    <div class="deploy-status-icon">
+                        @if (latest?.Conclusion == "success")
+                        {
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M16.7 5.3a1 1 0 010 1.4l-8 8a1 1 0 01-1.4 0l-4-4a1 1 0 011.4-1.4L8 12.6l7.3-7.3a1 1 0 011.4 0z"/></svg>
+                        }
+                        else if (latest?.Conclusion is "failure" or "timed_out")
+                        {
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 5.3a1 1 0 00-1.4 1.4L8.6 10l-3.7 3.7a1 1 0 001.4 1.4L10 11.4l3.7 3.7a1 1 0 001.4-1.4L11.4 10l3.7-3.7a1 1 0 00-1.4-1.4L10 8.6 6.3 5.3z"/></svg>
+                        }
+                        else if (latest?.Status is "in_progress" or "queued")
+                        {
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm0 14a6 6 0 110-12 6 6 0 010 12z" opacity=".3"/><path d="M10 2a8 8 0 018 8h-2a6 6 0 00-6-6V2z"/></svg>
+                        }
+                        else
+                        {
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><circle cx="10" cy="10" r="6"/></svg>
+                        }
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div class="deploy-status-title">
+                            @if (latest is null)
+                            {
+                                <span>No deployments found</span>
+                            }
+                            else if (latest.Conclusion == "success")
+                            {
+                                <span>Deployment succeeded</span>
+                            }
+                            else if (latest.Conclusion is "failure" or "timed_out")
+                            {
+                                <span>Deployment failed</span>
+                            }
+                            else if (latest.Status == "in_progress")
+                            {
+                                <span>Deployment in progress</span>
+                            }
+                            else if (latest.Status == "queued")
+                            {
+                                <span>Deployment queued</span>
+                            }
+                            else
+                            {
+                                <span>@(latest.Status ?? "Unknown")</span>
+                            }
+                        </div>
+                        @if (latest is not null)
+                        {
+                            <div class="deploy-status-detail">
+                                @(latest.HeadSha?.Length >= 7 ? latest.HeadSha[..7] : latest.HeadSha)
+                                &mdash;
+                                @latest.DisplayTitle
+                                &mdash;
+                                @RelativeTime(latest.UpdatedAt ?? latest.CreatedAt)
+                            </div>
+                        }
+                        @if (_runs.LatestJobSummary is not null)
+                        {
+                            <div class="deploy-status-error">@_runs.LatestJobSummary</div>
+                        }
+                    </div>
+                    <div class="deploy-status-actions">
+                        <button type="button" class="deploy-rerun-btn" disabled="@_wbusy" @onclick="DispatchWorkflowAsync">
+                            @(_wbusy ? "Dispatching..." : "Re-run Deploy")
+                        </button>
+                        @if (latest?.HtmlUrl is not null)
+                        {
+                            <a class="deploy-gh-link" href="@latest.HtmlUrl" target="_blank">View on GitHub</a>
+                        }
+                    </div>
+                </section>
+
+                @if (_runs.Runs.Length > 0)
+                {
+                    <section class="env-panel" style="margin-bottom:0; margin-top:12px;">
+                        <h2>Recent Workflow Runs</h2>
+                        <div class="run-table">
+                            @foreach (var run in _runs.Runs)
+                            {
+                                <div class="run-row">
+                                    <span class="run-badge @RunBadgeClass(run)">@(run.Conclusion ?? run.Status ?? "unknown")</span>
+                                    <span class="run-sha">@(run.HeadSha?.Length >= 7 ? run.HeadSha[..7] : run.HeadSha)</span>
+                                    <span class="run-title">@run.DisplayTitle</span>
+                                    <span class="run-age">@RelativeTime(run.UpdatedAt ?? run.CreatedAt)</span>
+                                    @if (run.HtmlUrl is not null)
+                                    {
+                                        <a class="run-link" href="@run.HtmlUrl" target="_blank">Details</a>
+                                    }
+                                    else
+                                    {
+                                        <span></span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+            }
+        }
+
+        @* ── GCE Development VMs ── *@
+        <section class="vm-section">
+            <div class="vm-section-head">
+                <h2>GCE Development VMs</h2>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_vmsError))
+            {
+                <div class="env-alert">@_vmsError</div>
+            }
+
+            @if (_vmsLoading && _vms is null)
+            {
+                <div class="env-empty">Loading VMs...</div>
+            }
+            else if (_vms is { Length: 0 })
+            {
+                <div class="env-empty">No development VMs found (label argus-environment=development).</div>
+            }
+            else if (_vms is not null)
+            {
+                <div class="vm-grid">
+                    @foreach (var vm in _vms)
+                    {
+                        var capturedName = vm.Name;
+                        <article class="vm-card @vm.Status">
+                            <div class="vm-card-head">
+                                <span class="vm-name">@vm.Name</span>
+                                <span class="vm-status-badge @vm.Status">
+                                    <span class="vm-status-dot"></span>
+                                    @vm.Status
+                                </span>
+                            </div>
+
+                            <div class="vm-meta">
+                                <div class="vm-meta-item">
+                                    <span class="label">Machine Type</span>
+                                    <span class="value">@vm.MachineType</span>
+                                </div>
+                                <div class="vm-meta-item">
+                                    <span class="label">Zone</span>
+                                    <span class="value">@vm.Zone</span>
+                                </div>
+                                @if (vm.CreatedAt is not null)
+                                {
+                                    <div class="vm-meta-item">
+                                        <span class="label">Created</span>
+                                        <span class="value">@RelativeTime(vm.CreatedAt)</span>
+                                    </div>
+                                }
+                            </div>
+
+                            @if (vm.ExternalIp is not null)
+                            {
+                                var ip = vm.ExternalIp;
+                                <div class="vm-ip-line">
+                                    <span class="vm-ip-label">IP</span>
+                                    <span class="vm-ip-value">@vm.ExternalIp</span>
+                                    <button type="button" class="vm-copy-btn @(_copiedText == ip ? "copied" : "")" @onclick="() => CopyAsync(ip)">
+                                        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2h7a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2zm7 1H4a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V4a1 1 0 00-1-1z"/><path d="M13 1h-1v1h1a1 1 0 011 1v9h1V3a2 2 0 00-2-2z"/></svg>
+                                    </button>
+                                </div>
+                            }
+
+                            @if (vm.WebUrl is not null || vm.AspireUrl is not null)
+                            {
+                                <div class="vm-urls">
+                                    @if (vm.WebUrl is not null)
+                                    {
+                                        var webUrl = vm.WebUrl;
+                                        <div class="vm-url-row">
+                                            <span class="vm-url-label">Web App</span>
+                                            <a class="vm-url-link" href="@webUrl" target="_blank">@webUrl</a>
+                                            <button type="button" class="vm-copy-btn @(_copiedText == webUrl ? "copied" : "")" @onclick="() => CopyAsync(webUrl)">
+                                                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2h7a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2zm7 1H4a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V4a1 1 0 00-1-1z"/><path d="M13 1h-1v1h1a1 1 0 011 1v9h1V3a2 2 0 00-2-2z"/></svg>
+                                            </button>
+                                        </div>
+                                    }
+                                    @if (vm.AspireUrl is not null)
+                                    {
+                                        var aspireUrl = vm.AspireUrl;
+                                        <div class="vm-url-row">
+                                            <span class="vm-url-label">Aspire</span>
+                                            <a class="vm-url-link" href="@aspireUrl" target="_blank">@aspireUrl</a>
+                                            <button type="button" class="vm-copy-btn @(_copiedText == aspireUrl ? "copied" : "")" @onclick="() => CopyAsync(aspireUrl)">
+                                                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2h7a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4a2 2 0 012-2zm7 1H4a1 1 0 00-1 1v8a1 1 0 001 1h7a1 1 0 001-1V4a1 1 0 00-1-1z"/><path d="M13 1h-1v1h1a1 1 0 011 1v9h1V3a2 2 0 00-2-2z"/></svg>
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            <div class="vm-actions">
+                                @if (vm.Status is "terminated" or "stopping")
+                                {
+                                    <button type="button" class="vm-action-btn" disabled="@_vmActionBusy" @onclick='() => VmActionAsync(capturedName, "start")'>Start</button>
+                                }
+                                @if (vm.Status == "running")
+                                {
+                                    <button type="button" class="vm-action-btn" disabled="@_vmActionBusy" @onclick='() => VmActionAsync(capturedName, "stop")'>Stop</button>
+                                }
+                                <button type="button" class="vm-action-btn danger" disabled="@_vmActionBusy" @onclick='() => VmActionAsync(capturedName, "delete")'>Delete</button>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+
+            @if (_vmsLastResult is not null)
+            {
+                <div class="provision-result @(_vmsLastResult.Success ? "success" : "error")" style="margin-top:10px;">
+                    @_vmsLastResult.Message
+                </div>
+            }
+
+            <div class="provision-panel">
+                <h3>Provision New VM</h3>
+                <div class="provision-form-grid">
+                    <div class="provision-field">
+                        <label>VM Name</label>
+                        <input class="provision-input" type="text" @bind="_provisionName" placeholder="argus-dev-2" />
+                    </div>
+                    <div class="provision-field">
+                        <label>vCPUs</label>
+                        <input class="provision-input" type="number" @bind="_provisionCores" min="2" max="64" step="2" />
+                    </div>
+                    <div class="provision-field">
+                        <label>RAM (GB)</label>
+                        <input class="provision-input" type="number" @bind="_provisionMemoryGb" min="4" max="512" />
+                    </div>
+                    <div class="provision-field">
+                        <label>Disk (GB)</label>
+                        <input class="provision-input" type="number" @bind="_provisionDiskGb" min="20" max="2000" />
+                    </div>
+                    <button type="button" class="provision-submit-btn" disabled="@_provisionBusy" @onclick="ProvisionNewVmAsync">
+                        @(_provisionBusy ? "Provisioning..." : "Provision VM")
+                    </button>
+                </div>
+                @if (_provisionResult is not null)
+                {
+                    <div class="provision-result @(_provisionResult.Success ? "success" : "error")">@_provisionResult.Message</div>
+                }
+            </div>
+        </section>
+
+        @* ── Tracked VM details ── *@
         @if (!string.IsNullOrWhiteSpace(_error))
         {
             <div class="env-alert">@_error</div>
@@ -25,13 +290,9 @@
 
         @if (_loading && _summary is null)
         {
-            <div class="env-empty">Loading environment status...</div>
+            <div class="env-empty">Loading VM environment status...</div>
         }
-        else if (_summary is null)
-        {
-            <div class="env-empty">No development environment status is available.</div>
-        }
-        else
+        else if (_summary is not null)
         {
             <section class="env-control-strip">
                 <div>
@@ -136,11 +397,37 @@
 
 @code {
     private static readonly string[] Actions = ["create", "start", "stop", "restart", "delete"];
+
+    // Single tracked VM
     private EnvironmentSummary? _summary;
-    private EnvironmentActionResult? _lastAction;
+    private EnvironmentVmOpResult? _lastAction;
     private bool _loading;
     private bool _actionBusy;
     private string? _error;
+
+    // GitHub workflow runs
+    private WorkflowRunsResult? _runs;
+    private bool _wloading;
+    private bool _wbusy;
+    private System.Threading.Timer? _wrefreshTimer;
+
+    // GCE VM list
+    private VmListItem[]? _vms;
+    private bool _vmsLoading;
+    private string? _vmsError;
+    private bool _vmActionBusy;
+    private VmOpResult? _vmsLastResult;
+
+    // Provision form
+    private string _provisionName = string.Empty;
+    private int _provisionCores = 8;
+    private int _provisionMemoryGb = 32;
+    private int _provisionDiskGb = 500;
+    private bool _provisionBusy;
+    private VmOpResult? _provisionResult;
+
+    // Copy feedback
+    private string _copiedText = string.Empty;
 
     private string CostClass => _summary?.Cost.IsOverCap == true ? "is-over" : "is-under";
 
@@ -149,8 +436,14 @@
         Realtime.Changed += OnDevelopmentDataChanged;
         _ = Realtime.StartAsync();
         _ = RefreshAsync();
+        _ = LoadWorkflowRunsAsync();
+        _ = LoadVmsAsync();
+        _wrefreshTimer = new System.Threading.Timer(_ => InvokeAsync(LoadWorkflowRunsAsync), null,
+            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         return Task.CompletedTask;
     }
+
+    private Task RefreshAllAsync() => Task.WhenAll(RefreshAsync(), LoadWorkflowRunsAsync(), LoadVmsAsync());
 
     private async Task RefreshAsync()
     {
@@ -167,7 +460,134 @@
         finally
         {
             _loading = false;
+            StateHasChanged();
         }
+    }
+
+    private async Task LoadWorkflowRunsAsync()
+    {
+        _wloading = true;
+        try
+        {
+            _runs = await Http.GetFromJsonAsync<WorkflowRunsResult>(
+                Ui("/ui/github/workflow-runs"),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch { }
+        finally
+        {
+            _wloading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadVmsAsync()
+    {
+        _vmsLoading = true;
+        _vmsError = null;
+        try
+        {
+            _vms = await Http.GetFromJsonAsync<VmListItem[]>(
+                Ui("/ui/development-vms"),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch (Exception ex)
+        {
+            _vmsError = $"Unable to load VM list: {ex.Message}";
+        }
+        finally
+        {
+            _vmsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DispatchWorkflowAsync()
+    {
+        _wbusy = true;
+        StateHasChanged();
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Ui("/ui/github/workflow-dispatch"), new { });
+            if (response.IsSuccessStatusCode)
+                await Task.Delay(2000);
+            await LoadWorkflowRunsAsync();
+        }
+        catch { }
+        finally
+        {
+            _wbusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task VmActionAsync(string vmName, string action)
+    {
+        _vmActionBusy = true;
+        _vmsLastResult = null;
+        StateHasChanged();
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Ui($"/ui/development-vms/{vmName}/{action}"), new { });
+            _vmsLastResult = await response.Content.ReadFromJsonAsync<VmOpResult>(
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            await LoadVmsAsync();
+        }
+        catch (Exception ex)
+        {
+            _vmsLastResult = new VmOpResult(false, $"{action} failed: {ex.Message}");
+        }
+        finally
+        {
+            _vmActionBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProvisionNewVmAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_provisionName)) return;
+        _provisionBusy = true;
+        _provisionResult = null;
+        StateHasChanged();
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Ui("/ui/development-vms/provision"), new
+            {
+                vmName = _provisionName.Trim(),
+                cores = _provisionCores,
+                memoryGb = _provisionMemoryGb,
+                diskGb = _provisionDiskGb
+            });
+            _provisionResult = await response.Content.ReadFromJsonAsync<VmOpResult>(
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (_provisionResult?.Success == true)
+                await LoadVmsAsync();
+        }
+        catch (Exception ex)
+        {
+            _provisionResult = new VmOpResult(false, $"Provision request failed: {ex.Message}");
+        }
+        finally
+        {
+            _provisionBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyAsync(string? text)
+    {
+        if (text is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _copiedText = text;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copiedText = string.Empty;
+            StateHasChanged();
+        }
+        catch { }
     }
 
     private async Task RunActionAsync(string action)
@@ -177,7 +597,7 @@
         try
         {
             using var response = await Http.PostAsJsonAsync(Ui($"/ui/development-environment/{action}"), new { });
-            _lastAction = await response.Content.ReadFromJsonAsync<EnvironmentActionResult>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            _lastAction = await response.Content.ReadFromJsonAsync<EnvironmentVmOpResult>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await RefreshAsync();
         }
         catch (Exception ex)
@@ -195,16 +615,76 @@
             ? InvokeAsync(RefreshAsync)
             : Task.CompletedTask;
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         Realtime.Changed -= OnDevelopmentDataChanged;
-        return ValueTask.CompletedTask;
+        if (_wrefreshTimer is not null)
+            await _wrefreshTimer.DisposeAsync();
     }
 
     private string Ui(string path) => Nav.ToAbsoluteUri(path).ToString();
     private static string ActionLabel(string action) => action.ToUpperInvariant();
     private static string ActionClass(string action) => action.Equals("delete", StringComparison.OrdinalIgnoreCase) ? "is-danger" : string.Empty;
-    private static string StatusClass(string status) => status.Equals("healthy", StringComparison.OrdinalIgnoreCase) || status.Equals("running", StringComparison.OrdinalIgnoreCase) ? "is-good" : status.Equals("unknown", StringComparison.OrdinalIgnoreCase) ? "is-muted" : "is-warn";
+    private static string StatusClass(string status) =>
+        status.Equals("healthy", StringComparison.OrdinalIgnoreCase) || status.Equals("running", StringComparison.OrdinalIgnoreCase)
+            ? "is-good"
+            : status.Equals("unknown", StringComparison.OrdinalIgnoreCase) ? "is-muted" : "is-warn";
+
+    private static string DeployStatusClass(WorkflowRun? run) =>
+        run?.Conclusion switch
+        {
+            "success" => "is-success",
+            "failure" or "timed_out" => "is-failure",
+            _ => run?.Status is "in_progress" or "queued" ? "is-running" : string.Empty
+        };
+
+    private static string RunBadgeClass(WorkflowRun run) =>
+        run.Conclusion switch
+        {
+            "success" => "success",
+            "failure" or "timed_out" => "failure",
+            "cancelled" => "cancelled",
+            _ => run.Status is "in_progress" or "queued" ? "in_progress" : string.Empty
+        };
+
+    private static string RelativeTime(string? iso)
+    {
+        if (!DateTimeOffset.TryParse(iso, out var dt)) return iso ?? string.Empty;
+        var ago = DateTimeOffset.UtcNow - dt;
+        if (ago.TotalSeconds < 60) return "just now";
+        if (ago.TotalMinutes < 60) return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalHours < 24) return $"{(int)ago.TotalHours}h ago";
+        return $"{(int)ago.TotalDays}d ago";
+    }
+
+    private sealed record VmOpResult(bool Success, string Message);
+
+    private sealed record WorkflowRunsResult(
+        bool HasToken,
+        WorkflowRun[] Runs,
+        string? LatestJobSummary,
+        string? Error);
+
+    private sealed record WorkflowRun(
+        long Id,
+        string? Status,
+        string? Conclusion,
+        string? HeadSha,
+        string? HeadBranch,
+        string? CreatedAt,
+        string? UpdatedAt,
+        string? HtmlUrl,
+        string? DisplayTitle);
+
+    private sealed record VmListItem(
+        string Name,
+        string Status,
+        string? ExternalIp,
+        string Zone,
+        string MachineType,
+        string? CreatedAt,
+        string? WebUrl,
+        string? AspireUrl);
 
     private sealed record EnvironmentSummary(
         string EnvironmentName,
@@ -233,5 +713,5 @@
     private sealed record EnvironmentDeployment(string Sha, string Branch, string Workflow, string DeployedAt);
     private sealed record EnvironmentComponent(string Name, string Status, string Detail);
     private sealed record EnvironmentService(string Name, string Url, string Health);
-    private sealed record EnvironmentActionResult(bool Success, string Action, string Message, string Command);
+    private sealed record EnvironmentVmOpResult(bool Success, string Action, string Message, string Command);
 }

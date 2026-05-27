@@ -1,0 +1,2 @@
+model,success,execution_time,peak_memory_mb,code_lines,error,summary_path
+opencode/big-pickle,True,5.1098034381866455,280.515625,57,,/tmp/bench_runs/opencode_big-pickle/summary.json

@@ -8,18 +8,45 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_rebuild_all:
+        description: Rebuild every service image before deploying
+        required: false
+        type: boolean
+        default: false
 
 env:
   PROJECT_ID: project-30b3b95e-ed2b-4573-98a
   REGION: us-central1
   CLUSTER_NAME: argus-gke
   REGISTRY: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
+  DEPLOY_IMAGE_TAG: staging
 
 # ── Job 1: Provision GKE infrastructure ──────────────────────────────────────
 # Creates/updates the cluster, node pools, namespace, KEDA, and Artifact Registry.
 # Does NOT deploy application workloads yet (images aren't built yet).
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      build_required: ${{ steps.detect.outputs.build_required }}
+      reason: ${{ steps.detect.outputs.reason }}
+      changed_count: ${{ steps.detect.outputs.changed_count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect service images to rebuild
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          FORCE_REBUILD_ALL: ${{ inputs.force_rebuild_all || false }}
+        run: python3 deploy/detect-images-to-build.py
+
   provision:
     runs-on: ubuntu-latest
     steps:
@@ -39,113 +66,149 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform init
-        run: terraform -chdir=deploy/terraform init
-
-      - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
+      - name: Ensure Terraform state bucket exists
         run: |
-          terraform -chdir=deploy/terraform apply -auto-approve \
+          BUCKET="${PROJECT_ID}-terraform-state"
+          echo "Checking for Terraform state bucket: gs://${BUCKET}"
+          if gcloud storage buckets describe "gs://${BUCKET}" &>/dev/null; then
+            echo "State bucket exists: gs://${BUCKET}"
+            exit 0
+          fi
+
+          echo "::warning::State bucket does not exist. Creating gs://${BUCKET}"
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+            if gcloud storage buckets create "gs://${BUCKET}" \
+              --project="${PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access \
+              --public-access-prevention; then
+              gcloud storage buckets update "gs://${BUCKET}" --versioning || true
+              echo "State bucket created successfully."
+              exit 0
+            fi
+            echo "Attempt $i failed. Waiting 5 seconds..."
+            sleep 5
+          done
+
+          echo "::error::Failed to create state bucket after $MAX_RETRIES attempts."
+          echo "::error::The WIF service account needs 'roles/storage.admin' on the project."
+          echo "::error::Run: bash scripts/grant-wif-roles.sh (after setting WIF_SA)"
+          echo "::error::Or create manually: gcloud storage buckets create gs://${BUCKET} --project=${PROJECT_ID} --location=${REGION}"
+          exit 1
+
+      - name: Clear stale Terraform state locks
+        run: |
+          LOCK_FILE="gs://${PROJECT_ID}-terraform-state/gke/deploy/default.tflock"
+          echo "Checking for stale lock: $LOCK_FILE"
+          if gcloud storage ls "$LOCK_FILE" 2>/dev/null | grep -q "default.tflock"; then
+            echo "::warning::Found stale lock file — removing it"
+            gcloud storage rm "$LOCK_FILE" --force 2>/dev/null || \
+              gsutil -m rm -f "$LOCK_FILE" 2>/dev/null || true
+            sleep 2
+            if gcloud storage ls "$LOCK_FILE" 2>/dev/null | grep -q "default.tflock"; then
+              echo "::error::Failed to remove lock file. Trying force delete..."
+              gcloud storage rm "$LOCK_FILE" --force --no-user-output-enabled || true
+            fi
+          else
+            echo "No stale lock file found."
+          fi
+
+      - name: Initialize Terraform
+        run: terraform -chdir=deploy/terraform init -input=false -reconfigure
+
+      - name: Configure kubectl for import
+        run: |
+          gcloud container clusters get-credentials "${CLUSTER_NAME}" \
+            --zone "${REGION}-a" --project "${PROJECT_ID}" || true
+
+      - name: Import existing resources into state
+        run: |
+          cd deploy/terraform
+
+          import_if_present() {
+            local address="$1"
+            local id="$2"
+            if terraform state list | grep -Fxq "$address"; then
+              return 0
+            fi
+
+            set +e
+            output=$(timeout 60s terraform import -input=false -lock-timeout=60s \
+              -var="project_id=${PROJECT_ID}" \
+              -var="region=${REGION}" \
+              -var="cluster_name=${CLUSTER_NAME}" \
+              "$address" "$id" 2>&1)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+            if [ "$status" -eq 0 ]; then
+              return 0
+            fi
+            if printf '%s\n' "$output" | grep -qi "Cannot import non-existent remote object"; then
+              echo "Remote object ${id} does not exist; Terraform will create ${address}."
+              return 0
+            fi
+
+            echo "::error::Failed to import ${address} from ${id}."
+            return "$status"
+          }
+
+          import_if_present kubernetes_namespace.argus argus
+          import_if_present 'helm_release.keda[0]' keda/keda
+
+      - name: Verify imported Terraform resources
+        run: |
+          cd deploy/terraform
+          terraform state list | grep -Fxq 'kubernetes_namespace.argus'
+          terraform state list | grep -Fxq 'helm_release.keda[0]'
+
+      - name: Plan infrastructure changes
+        run: |
+          set +e
+          terraform -chdir=deploy/terraform plan -detailed-exitcode -input=false \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
-            -var="apply_aspirate_manifests=false" \
-            -var="github_actions_service_account=${{ secrets.WIF_SERVICE_ACCOUNT }}"
+            -var="apply_aspirate_manifests=false"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "No infrastructure changes needed."
+            echo "SKIP_PROVISION_APPLY=true" >> "$GITHUB_ENV"
+          elif [ "$status" -eq 2 ]; then
+            echo "Infrastructure changes detected."
+            echo "SKIP_PROVISION_APPLY=false" >> "$GITHUB_ENV"
+          else
+            exit "$status"
+          fi
 
-# ── Job 2: Build and push container images (parallel matrix) ─────────────────
-# Builds all 28 service/worker images in parallel and pushes to Artifact Registry.
+      - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
+        if: ${{ env.SKIP_PROVISION_APPLY != 'true' }}
+        run: |
+          terraform -chdir=deploy/terraform apply -auto-approve -input=false \
+            -var="project_id=${PROJECT_ID}" \
+            -var="region=${REGION}" \
+            -var="cluster_name=${CLUSTER_NAME}" \
+            -var="apply_aspirate_manifests=false"
+
+      - name: Provision summary
+        if: ${{ env.SKIP_PROVISION_APPLY == 'true' }}
+        run: echo "Provision apply skipped; infrastructure is already up to date."
+
+# ── Job 2: Build and push changed container images (parallel matrix) ─────────
+# Rebuilds only changed service/worker images unless shared build inputs changed.
 
   build:
-    needs: provision
+    needs: [provision, detect-changes]
+    if: ${{ needs.detect-changes.outputs.build_required == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       max-parallel: 10
-      matrix:
-        include:
-          - name: agent-service
-            project_path: src/Services/Argus.AgentService/Argus.AgentService.csproj
-            assembly_name: Argus.AgentService
-          - name: amass-worker
-            project_path: src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj
-            assembly_name: Argus.Workers.Amass
-          - name: argus-api-gateway
-            project_path: src/Argus.ApiGateway/Argus.ApiGateway.csproj
-            assembly_name: Argus.ApiGateway
-          - name: argus-web
-            project_path: src/Argus.Web/Argus.Web.csproj
-            assembly_name: Argus.Web
-          - name: artifact-service
-            project_path: src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj
-            assembly_name: Argus.ArtifactService
-          - name: asset-scoring-worker
-            project_path: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
-            assembly_name: Argus.Workers.AssetScoring
-          - name: asset-service
-            project_path: src/Services/Argus.AssetService/Argus.AssetService.csproj
-            assembly_name: Argus.AssetService
-          - name: asset-storage-worker
-            project_path: src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj
-            assembly_name: Argus.Workers.AssetStorage
-          - name: dns-resolver-worker
-            project_path: src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj
-            assembly_name: Argus.Workers.DnsResolver
-          - name: event-router-service
-            project_path: src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj
-            assembly_name: Argus.EventRouterService
-          - name: finding-deduper-worker
-            project_path: src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj
-            assembly_name: Argus.Workers.FindingDeduper
-          - name: finding-service
-            project_path: src/Services/Argus.FindingService/Argus.FindingService.csproj
-            assembly_name: Argus.FindingService
-          - name: fingerprint-worker
-            project_path: src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj
-            assembly_name: Argus.Workers.Fingerprint
-          - name: headless-spider-worker
-            project_path: src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj
-            assembly_name: Argus.Workers.HeadlessSpider
-          - name: html-dom-spider-worker
-            project_path: src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj
-            assembly_name: Argus.Workers.HtmlDomSpider
-          - name: http-probe-worker
-            project_path: src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj
-            assembly_name: Argus.Workers.HttpProbe
-          - name: http-worker
-            project_path: src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj
-            assembly_name: Argus.Workers.Http
-          - name: js-extractor-worker
-            project_path: src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj
-            assembly_name: Argus.Workers.JsExtractor
-          - name: program-scope-service
-            project_path: src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj
-            assembly_name: Argus.ProgramScopeService
-          - name: proxy-registry-service
-            project_path: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
-            assembly_name: Argus.ProxyRegistryService
-          - name: rate-limit-service
-            project_path: src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj
-            assembly_name: Argus.RateLimitService
-          - name: realtime-service
-            project_path: src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj
-            assembly_name: Argus.RealtimeService
-          - name: regex-scanner-worker
-            project_path: src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj
-            assembly_name: Argus.Workers.RegexScanner
-          - name: scan-orchestrator-service
-            project_path: src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj
-            assembly_name: Argus.ScanOrchestratorService
-          - name: subfinder-worker
-            project_path: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
-            assembly_name: Argus.Workers.Subfinder
-          - name: task-service
-            project_path: src/Services/Argus.TaskService/Argus.TaskService.csproj
-            assembly_name: Argus.TaskService
-          - name: validation-worker
-            project_path: src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj
-            assembly_name: Argus.Workers.Validation
-          - name: wordlist-discovery-worker
-            project_path: src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj
-            assembly_name: Argus.Workers.WordlistDiscovery
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -174,17 +237,23 @@ jobs:
             --file deploy/Dockerfile.service \
             --build-arg PROJECT_PATH=${{ matrix.project_path }} \
             --build-arg ASSEMBLY_NAME=${{ matrix.assembly_name }} \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --cache-from type=registry,ref=${{ env.REGISTRY }}/${{ matrix.name }}:buildcache \
+            --cache-to type=registry,ref=${{ env.REGISTRY }}/${{ matrix.name }}:buildcache,mode=max \
+            --tag ${{ env.REGISTRY }}/${{ matrix.name }}:${{ env.DEPLOY_IMAGE_TAG }} \
             --tag ${{ env.REGISTRY }}/${{ matrix.name }}:${{ github.sha }} \
             --push \
             .
 
 # ── Job 3: Generate manifests and deploy workloads ────────────────────────────
-# Stamps the commit SHA into aspirate-state.json, runs aspirate generate,
+# Stamps the staging image tag into aspirate-state.json, runs aspirate generate,
 # patches node selectors, then applies everything via Terraform.
 # Waits for GCP to assign LoadBalancer IPs and writes URLs to the job summary.
 
   deploy:
-    needs: build
+    needs: [provision, detect-changes, build]
+    if: ${{ always() && needs.provision.result == 'success' && needs.detect-changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -211,36 +280,37 @@ jobs:
       - name: Configure kubectl
         run: |
           gcloud container clusters get-credentials "${CLUSTER_NAME}" \
-            --region "${REGION}" --project "${PROJECT_ID}"
+            --zone "${REGION}-a" --project "${PROJECT_ID}"
 
       - name: Restore deployment tools
         run: dotnet tool restore
 
-      - name: Stamp commit SHA into aspirate-state.json
+      - name: Stamp staging image tag into aspirate-state.json
         run: |
-          jq --arg tag "${{ github.sha }}" '.containerImageTags = [$tag]' \
+          jq --arg tag "${DEPLOY_IMAGE_TAG}" '.containerImageTags = [$tag]' \
             src/Argus.AppHost/aspirate-state.json > /tmp/state.json
           mv /tmp/state.json src/Argus.AppHost/aspirate-state.json
 
       - name: Generate Aspire Kubernetes manifests
         working-directory: src/Argus.AppHost
-        run: aspirate generate --non-interactive --disable-secrets
+        run: dotnet aspirate generate --non-interactive --disable-secrets --skip-build --image-pull-policy Always
 
-      - name: Patch node selectors (core vs workers pools)
+      - name: Patch deployment manifests
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
         run: python3 deploy/patch-node-selectors.py
 
       - name: Terraform init
-        run: terraform -chdir=deploy/terraform init
+        run: terraform -chdir=deploy/terraform init -input=false
 
       - name: Apply workloads and public services
         run: |
-          terraform -chdir=deploy/terraform apply -auto-approve \
+          terraform -chdir=deploy/terraform apply -auto-approve -input=false \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
             -var="apply_aspirate_manifests=true" \
-            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output" \
-            -var="github_actions_service_account=${{ secrets.WIF_SERVICE_ACCOUNT }}"
+            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output"
 
       - name: Wait for LoadBalancer IPs
         run: |
@@ -264,6 +334,8 @@ jobs:
       - name: Deployment summary
         run: |
           echo "## Deployment complete — ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Image rebuild mode: ${{ needs.detect-changes.outputs.reason }}; changed files: ${{ needs.detect-changes.outputs.changed_count }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Service            | URL |" >> "$GITHUB_STEP_SUMMARY"
           echo "|--------------------|-----|" >> "$GITHUB_STEP_SUMMARY"

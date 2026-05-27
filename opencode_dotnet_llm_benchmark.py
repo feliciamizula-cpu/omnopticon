@@ -80,7 +80,7 @@ The program must write `score.json` with this exact shape:
   "subdomains": 40000,
   "urls": 1000000,
   "confirmedUrls": 1000000,
-  "findings": 120000,
+  "findings": 240000,
   "checksum": "<lowercase 64-char sha256 hex>",
   "elapsedMsInsideProcess": 0
 }
@@ -111,7 +111,7 @@ For the required benchmark arguments, this produces exactly:
 - 40,000 subdomains
 - 1,000,000 URLs
 - 1,000,000 confirmed URLs
-- 120,000 findings
+- 240,000 findings
 
 ## Checksum requirement
 Compute `checksum` as lowercase SHA-256 hex over the UTF-8 bytes of this deterministic stream, in generation order:
@@ -409,6 +409,11 @@ def ensure_opencode() -> None:
         raise SystemExit("opencode was not found on PATH. Install/configure OpenCode first, then rerun this script.")
 
 
+def ensure_dotnet() -> None:
+    if shutil.which("dotnet") is None:
+        raise SystemExit("dotnet was not found on PATH. Install the .NET SDK or remove --evaluate to skip evaluation.")
+
+
 def parse_models(raw: str) -> List[str]:
     models = [m.strip() for m in raw.split(",") if m.strip()]
     if not models:
@@ -574,42 +579,51 @@ def count_src_loc(workspace: Path) -> int:
 def run_monitored(cmd: List[str], cwd: Path, stdout_path: Path, stderr_path: Path, timeout_seconds: int) -> Dict[str, Any]:
     started = time.perf_counter()
     peak_rss = 0
-    with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
-        proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=out, stderr=err)
-        ps_proc = psutil.Process(proc.pid) if psutil else None
-        try:
-            while proc.poll() is None:
-                if ps_proc:
-                    try:
-                        rss = ps_proc.memory_info().rss
-                        peak_rss = max(peak_rss, rss)
-                        for child in ps_proc.children(recursive=True):
-                            try:
-                                peak_rss = max(peak_rss, child.memory_info().rss)
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                if time.perf_counter() - started > timeout_seconds:
-                    proc.kill()
-                    return {
-                        "exit_code": -9,
-                        "elapsed_seconds": time.perf_counter() - started,
-                        "peak_rss_bytes": peak_rss or None,
-                        "timed_out": True,
-                    }
-                time.sleep(0.1)
-        finally:
+    try:
+        with stdout_path.open("wb") as out, stderr_path.open("wb") as err:
+            proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=out, stderr=err)
+            ps_proc = psutil.Process(proc.pid) if psutil else None
             try:
-                proc.wait(timeout=5)
-            except Exception:
-                pass
-    return {
-        "exit_code": proc.returncode,
-        "elapsed_seconds": time.perf_counter() - started,
-        "peak_rss_bytes": peak_rss or None,
-        "timed_out": False,
-    }
+                while proc.poll() is None:
+                    if ps_proc:
+                        try:
+                            rss = ps_proc.memory_info().rss
+                            peak_rss = max(peak_rss, rss)
+                            for child in ps_proc.children(recursive=True):
+                                try:
+                                    peak_rss = max(peak_rss, child.memory_info().rss)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    if time.perf_counter() - started > timeout_seconds:
+                        proc.kill()
+                        return {
+                            "exit_code": -9,
+                            "elapsed_seconds": time.perf_counter() - started,
+                            "peak_rss_bytes": peak_rss or None,
+                            "timed_out": True,
+                        }
+                    time.sleep(0.1)
+            finally:
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+        return {
+            "exit_code": proc.returncode,
+            "elapsed_seconds": time.perf_counter() - started,
+            "peak_rss_bytes": peak_rss or None,
+            "timed_out": False,
+        }
+    except FileNotFoundError:
+        return {
+            "exit_code": -1,
+            "elapsed_seconds": time.perf_counter() - started,
+            "peak_rss_bytes": None,
+            "timed_out": False,
+            "error": f"command not found: {cmd[0]}",
+        }
 
 
 def evaluate(workspace: Path, task: str, timeout_seconds: int) -> Dict[str, Any]:
@@ -722,6 +736,7 @@ async def run_opencode_one(
         "--format", "json",
         "--dir", str(workspace),
         "--file", str(prompt_path),
+        "--dangerously-skip-permissions",
         "Implement the benchmark task exactly as specified in prompt.md. Create all files in the current working directory. Run the tests before finishing.",
     ]
 
@@ -762,6 +777,8 @@ async def run_opencode_one(
 
 async def run_all(args: argparse.Namespace) -> None:
     ensure_opencode()
+    if args.evaluate:
+        ensure_dotnet()
     models = parse_models(args.models)
     tasks = parse_tasks(args.tasks)
     root = Path(args.out).resolve() / time.strftime("%Y%m%d_%H%M%S")
@@ -775,9 +792,24 @@ async def run_all(args: argparse.Namespace) -> None:
     async def guarded(i: int, model: str, task: str) -> None:
         async with sem:
             print(f"[{utc_now()}] starting task={task} model={model}", flush=True)
-            result = await run_opencode_one(
-                i, model, task, root, args.stagger_seconds, args.timeout_seconds, args.evaluate
-            )
+            try:
+                result = await run_opencode_one(
+                    i, model, task, root, args.stagger_seconds, args.timeout_seconds, args.evaluate
+                )
+            except Exception as exc:
+                print(f"[{utc_now()}] ERROR task={task} model={model}: {exc}", flush=True)
+                result = RunResult(
+                    model=model,
+                    task=task,
+                    workspace=str(root / task / slugify(model)),
+                    prompt_path="",
+                    stdout_path="",
+                    stderr_path="",
+                    exit_code=-1,
+                    elapsed_seconds=0.0,
+                    started_at=utc_now(),
+                    finished_at=utc_now(),
+                )
             print(
                 f"[{utc_now()}] finished task={task} model={model} exit={result.exit_code} "
                 f"eval={result.evaluation_passed} elapsed={result.elapsed_seconds:.1f}s",

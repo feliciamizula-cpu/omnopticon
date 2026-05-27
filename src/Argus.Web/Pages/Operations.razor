@@ -346,10 +346,11 @@
             if (newIds.Count > 0)
             {
                 _flashingIds.UnionWith(newIds);
-                _ = Task.Delay(2500).ContinueWith(_ =>
+                _ = Task.Run(async () =>
                 {
+                    await Task.Delay(2500);
                     _flashingIds.ExceptWith(newIds);
-                    InvokeAsync(StateHasChanged);
+                    await InvokeAsync(StateHasChanged);
                 });
             }
         }

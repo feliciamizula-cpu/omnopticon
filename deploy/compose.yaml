@@ -20,8 +20,16 @@ x-common-env: &common-env
   ConnectionStrings__redis: redis:6379
   ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
 
+x-logging: &logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "100m"
+      max-file: "3"
+
 x-service-defaults: &service-defaults
   restart: unless-stopped
+  <<: *logging
   environment:
     <<: *common-env
   depends_on:
@@ -36,6 +44,7 @@ services:
   postgres:
     image: ankane/pgvector:latest
     restart: unless-stopped
+    <<: *logging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
@@ -51,6 +60,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    <<: *logging
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
@@ -63,6 +73,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     restart: unless-stopped
+    <<: *logging
     environment:
       RABBITMQ_DEFAULT_USER: argus
       RABBITMQ_DEFAULT_PASS: ${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}
@@ -204,6 +215,7 @@ services:
     image: python:3-slim
     container_name: argus-review-report
     restart: unless-stopped
+    <<: *logging
     ports:
       - "${ARGUS_REVIEW_PORT:-8083}:8080"
     volumes:
@@ -322,6 +334,7 @@ services:
   minio:
     image: minio/minio:latest
     restart: unless-stopped
+    <<: *logging
     environment:
       MINIO_ROOT_USER: ${ARGUS_MINIO_ACCESS_KEY:-argus}
       MINIO_ROOT_PASSWORD: ${ARGUS_MINIO_SECRET_KEY:-argus-minio-secret}

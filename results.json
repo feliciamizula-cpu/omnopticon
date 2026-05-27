@@ -1,0 +1,11 @@
+[
+  {
+    "model": "opencode/big-pickle",
+    "success": true,
+    "execution_time": 5.1098034381866455,
+    "peak_memory_mb": 280.515625,
+    "code_lines": 57,
+    "error": "",
+    "summary_path": "/tmp/bench_runs/opencode_big-pickle/summary.json"
+  }
+]
