@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "YOUR_TERRAFORM_STATE_BUCKET"
+    bucket = "project-30b3b95e-ed2b-4573-98a-terraform-state"
     prefix = "gke/deploy"
   }
 }

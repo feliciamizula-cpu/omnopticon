@@ -39,6 +39,26 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Ensure Terraform state bucket exists
+        run: |
+          BUCKET="${PROJECT_ID}-terraform-state"
+          echo "Checking for Terraform state bucket: gs://${BUCKET}"
+          if ! gcloud storage buckets describe "gs://${BUCKET}" &>/dev/null; then
+            echo "::warning::State bucket does not exist. Creating gs://${BUCKET}"
+            echo "::warning::If this fails, create it manually: gcloud storage buckets create gs://${BUCKET} --project=${PROJECT_ID} --location=${REGION}"
+            gcloud storage buckets create "gs://${BUCKET}" \
+              --project="${PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access \
+              --public-access-prevention || {
+              echo "::error::Failed to create state bucket. Please create it manually and re-run."
+              exit 1
+            }
+            gcloud storage buckets update "gs://${BUCKET}" --versioning || true
+          else
+            echo "State bucket exists: gs://${BUCKET}"
+          fi
+
       - name: Terraform init
         run: terraform -chdir=deploy/terraform init
 
