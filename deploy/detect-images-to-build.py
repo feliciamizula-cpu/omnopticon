@@ -67,6 +67,8 @@ IGNORE_PREFIXES = (
     ".editorconfig",
     "tools/",
     "scripts/",
+    "deploy/detect-images-to-build.py",
+    "deploy/patch-node-selectors.py",
     "context.md",
     "aspire_coordinate.txt",
 )
