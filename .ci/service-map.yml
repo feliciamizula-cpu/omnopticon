@@ -19,6 +19,7 @@ globalPaths:
     - src/Argus.AppHost/**
     - deploy/terraform/**
     - deploy/patch-node-selectors.py
+    - deploy/patch-secrets.py
     - deploy/compose*.yaml
     - .github/workflows/cd-gcp.yml
 

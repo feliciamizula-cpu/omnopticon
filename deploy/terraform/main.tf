@@ -1,4 +1,3 @@
-# ── Infrastructure ────────────────────────────────────────────────────────────
 # ── Artifact Registry ─────────────────────────────────────────────────────────
 
 resource "google_artifact_registry_repository" "argus" {
@@ -31,12 +30,8 @@ resource "google_container_cluster" "argus" {
   ip_allocation_policy {}
 
   addons_config {
-    horizontal_pod_autoscaling {
-      disabled = false
-    }
-    http_load_balancing {
-      disabled = false
-    }
+    horizontal_pod_autoscaling { disabled = false }
+    http_load_balancing        { disabled = false }
   }
 
   lifecycle {
@@ -44,8 +39,10 @@ resource "google_container_cluster" "argus" {
   }
 }
 
-# ── Core node pool (n2-standard-16, 1 TB SSD, fixed size) ────────────────────
-# Runs: services, databases (postgres/redis/rabbitmq), API gateway, web app
+# ── Core node pool: autoscaling 1-3 × e2-standard-2 ──────────────────────────
+# Runs: services, databases (postgres/redis/rabbitmq), API gateway, web app,
+# Aspire dashboard. Stays on regular (non-spot) VMs to keep stateful workloads
+# from being preempted.
 
 resource "google_container_node_pool" "core" {
   provider = google-beta
@@ -54,7 +51,10 @@ resource "google_container_node_pool" "core" {
   location = "${var.region}-a"
   cluster  = google_container_cluster.argus.name
 
-  node_count = 1
+  autoscaling {
+    min_node_count = var.core_min_node_count
+    max_node_count = var.core_max_node_count
+  }
 
   management {
     auto_repair  = true
@@ -64,7 +64,7 @@ resource "google_container_node_pool" "core" {
   node_config {
     machine_type = var.core_machine_type
     disk_size_gb = var.core_disk_size_gb
-    disk_type    = "pd-ssd"
+    disk_type    = "pd-balanced"
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
     labels = merge(local.common_labels, {
@@ -73,8 +73,8 @@ resource "google_container_node_pool" "core" {
   }
 }
 
-# ── Worker node pool (e2-standard-4, autoscaling 0–10) ───────────────────────
-# Runs: all background workers (continuous, ephemeral, validation)
+# ── Worker node pool: spot 0-5 × e2-standard-2 ───────────────────────────────
+# Runs: all background workers. Scales to zero when no queues have backlog.
 
 resource "google_container_node_pool" "workers" {
   provider = google-beta
@@ -95,13 +95,22 @@ resource "google_container_node_pool" "workers" {
 
   node_config {
     machine_type = var.worker_machine_type
-    disk_size_gb = 50
+    disk_size_gb = 30
     disk_type    = "pd-standard"
+    spot         = var.worker_spot
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
     labels = merge(local.common_labels, {
       argus-nodepool = "workers"
     })
+
+    # Workloads must opt-in via tolerations + nodeSelector. Prevents core
+    # services from landing on spot nodes by accident.
+    taint {
+      key    = "argus/workload"
+      value  = "worker"
+      effect = "NO_SCHEDULE"
+    }
   }
 }
 
@@ -136,6 +145,48 @@ resource "helm_release" "keda" {
   ]
 }
 
+# ── Static external IPs for the two public LoadBalancers ─────────────────────
+# These survive Terraform churn and let us bookmark stable URLs.
+
+resource "google_compute_address" "web" {
+  name         = "argus-web-ip"
+  region       = var.region
+  address_type = "EXTERNAL"
+}
+
+resource "google_compute_address" "dashboard" {
+  name         = "argus-dashboard-ip"
+  region       = var.region
+  address_type = "EXTERNAL"
+}
+
+# ── Eventbus / Postgres / Redis secrets ──────────────────────────────────────
+# Aspirate is invoked with --disable-secrets in CI; passwords are substituted
+# into manifests by deploy/patch-secrets.py. We also create K8s Secrets that
+# KEDA can reference for AMQP auth.
+
+resource "kubernetes_secret" "eventbus" {
+  count = var.apply_aspirate_manifests ? 1 : 0
+
+  metadata {
+    name      = "argus-eventbus"
+    namespace = var.namespace
+    labels    = local.common_labels
+  }
+
+  data = {
+    host     = "eventbus"
+    port     = "5672"
+    username = "guest"
+    password = var.eventbus_password
+    amqp_uri = var.eventbus_amqp_uri
+  }
+
+  type = "Opaque"
+
+  depends_on = [kubernetes_namespace.argus]
+}
+
 # ── Aspirate-generated workload manifests ─────────────────────────────────────
 
 data "kubectl_file_documents" "aspirate" {
@@ -158,43 +209,82 @@ resource "kubectl_manifest" "aspirate" {
   depends_on = [
     kubernetes_namespace.argus,
     helm_release.keda,
+    kubernetes_secret.eventbus,
   ]
 }
 
-# ── Continuous-worker HPAs ────────────────────────────────────────────────────
+# ── KEDA TriggerAuthentication for RabbitMQ ──────────────────────────────────
 
-resource "kubernetes_horizontal_pod_autoscaler_v2" "continuous_workers" {
-  for_each = var.apply_aspirate_manifests && var.create_worker_hpas ? local.continuous_workers : toset([])
+resource "kubectl_manifest" "keda_rabbitmq_auth" {
+  count = var.apply_aspirate_manifests && var.create_worker_keda_scalers ? 1 : 0
 
-  metadata {
-    name      = each.key
-    namespace = var.namespace
-    labels    = local.common_labels
-  }
-
-  spec {
-    min_replicas = var.worker_min_replicas
-    max_replicas = var.worker_max_replicas
-
-    scale_target_ref {
-      api_version = "apps/v1"
-      kind        = "Deployment"
-      name        = each.key
+  yaml_body = yamlencode({
+    apiVersion = "keda.sh/v1alpha1"
+    kind       = "TriggerAuthentication"
+    metadata = {
+      name      = "argus-rabbitmq-auth"
+      namespace = var.namespace
     }
-
-    metric {
-      type = "Resource"
-      resource {
-        name = "cpu"
-        target {
-          type                = "Utilization"
-          average_utilization = var.worker_cpu_utilization
+    spec = {
+      secretTargetRef = [
+        {
+          parameter = "host"
+          name      = "argus-eventbus"
+          key       = "amqp_uri"
         }
-      }
+      ]
     }
-  }
+  })
 
-  depends_on = [kubectl_manifest.aspirate]
+  depends_on = [
+    helm_release.keda,
+    kubernetes_secret.eventbus,
+    kubectl_manifest.aspirate,
+  ]
+}
+
+# ── KEDA ScaledObjects: one per queue-driven worker ──────────────────────────
+
+resource "kubectl_manifest" "keda_worker_scalers" {
+  for_each = var.apply_aspirate_manifests && var.create_worker_keda_scalers ? local.worker_queues : {}
+
+  yaml_body = yamlencode({
+    apiVersion = "keda.sh/v1alpha1"
+    kind       = "ScaledObject"
+    metadata = {
+      name      = "${each.key}-scaler"
+      namespace = var.namespace
+      labels    = local.common_labels
+    }
+    spec = {
+      scaleTargetRef = {
+        name = each.key
+      }
+      minReplicaCount  = var.worker_min_replicas
+      maxReplicaCount  = var.worker_max_replicas
+      pollingInterval  = 15
+      cooldownPeriod   = var.worker_cooldown_seconds
+      triggers = [
+        {
+          type = "rabbitmq"
+          metadata = {
+            protocol    = "amqp"
+            queueName   = each.value
+            mode        = "QueueLength"
+            value       = tostring(var.worker_queue_threshold)
+          }
+          authenticationRef = {
+            name = "argus-rabbitmq-auth"
+          }
+        }
+      ]
+    }
+  })
+
+  depends_on = [
+    kubectl_manifest.keda_rabbitmq_auth,
+    kubectl_manifest.aspirate,
+  ]
 }
 
 # ── Public LoadBalancer: Argus web app ────────────────────────────────────────
@@ -209,7 +299,8 @@ resource "kubernetes_service" "argus_web_lb" {
   }
 
   spec {
-    type = "LoadBalancer"
+    type             = "LoadBalancer"
+    load_balancer_ip = google_compute_address.web.address
 
     selector = {
       app = "argus-web"
@@ -225,7 +316,7 @@ resource "kubernetes_service" "argus_web_lb" {
   depends_on = [kubectl_manifest.aspirate]
 }
 
-# ── Aspire dashboard deployment + public LoadBalancer ─────────────────────────
+# ── Aspire dashboard ──────────────────────────────────────────────────────────
 
 resource "kubernetes_deployment" "aspire_dashboard" {
   count = var.apply_aspirate_manifests ? 1 : 0
@@ -257,35 +348,54 @@ resource "kubernetes_deployment" "aspire_dashboard" {
           name  = "aspire-dashboard"
           image = "mcr.microsoft.com/dotnet/aspire-dashboard:9.0"
 
-          port {
-            name           = "ui"
-            container_port = 18080
+          port { name = "ui"        container_port = 18888 }
+          port { name = "otlp-grpc" container_port = 18889 }
+
+          # Frontend token auth when a token is provided; otherwise unsecured.
+          dynamic "env" {
+            for_each = var.dashboard_browser_token == "" ? [1] : []
+            content {
+              name  = "DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS"
+              value = "true"
+            }
           }
 
-          port {
-            name           = "otlp-grpc"
-            container_port = 18888
+          dynamic "env" {
+            for_each = var.dashboard_browser_token == "" ? [] : [1]
+            content {
+              name  = "Dashboard__Frontend__AuthMode"
+              value = "BrowserToken"
+            }
           }
 
-          port {
-            name           = "otlp-http"
-            container_port = 18889
+          dynamic "env" {
+            for_each = var.dashboard_browser_token == "" ? [] : [1]
+            content {
+              name  = "Dashboard__Frontend__BrowserToken"
+              value = var.dashboard_browser_token
+            }
+          }
+
+          # OTLP receiver auth: allow services in-cluster to send telemetry
+          # without a key (they're on the trusted network).
+          env {
+            name  = "Dashboard__Otlp__AuthMode"
+            value = "Unsecured"
           }
 
           env {
-            name  = "DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS"
-            value = "true"
+            name  = "ASPNETCORE_URLS"
+            value = "http://+:18888"
+          }
+
+          env {
+            name  = "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL"
+            value = "http://+:18889"
           }
 
           resources {
-            requests = {
-              cpu    = "100m"
-              memory = "256Mi"
-            }
-            limits = {
-              cpu    = "500m"
-              memory = "512Mi"
-            }
+            requests = { cpu = "100m" memory = "256Mi" }
+            limits   = { cpu = "500m" memory = "512Mi" }
           }
         }
       }
@@ -305,7 +415,8 @@ resource "kubernetes_service" "aspire_dashboard_lb" {
   }
 
   spec {
-    type = "LoadBalancer"
+    type             = "LoadBalancer"
+    load_balancer_ip = google_compute_address.dashboard.address
 
     selector = {
       app = "aspire-dashboard"
@@ -314,10 +425,36 @@ resource "kubernetes_service" "aspire_dashboard_lb" {
     port {
       name        = "ui"
       port        = 80
-      target_port = 18080
+      target_port = 18888
     }
   }
 
   depends_on = [kubernetes_deployment.aspire_dashboard]
 }
 
+# In-cluster Service so app pods can send OTLP without going through the LB.
+resource "kubernetes_service" "aspire_dashboard_otlp" {
+  count = var.apply_aspirate_manifests ? 1 : 0
+
+  metadata {
+    name      = "aspire-dashboard-otlp"
+    namespace = var.namespace
+    labels    = local.common_labels
+  }
+
+  spec {
+    type = "ClusterIP"
+
+    selector = {
+      app = "aspire-dashboard"
+    }
+
+    port {
+      name        = "otlp-grpc"
+      port        = 4317
+      target_port = 18889
+    }
+  }
+
+  depends_on = [kubernetes_deployment.aspire_dashboard]
+}

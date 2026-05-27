@@ -16,8 +16,6 @@ on:
       - 'tools/**'
       - 'context.md'
       - 'aspire_coordinate.txt'
-      - '.github/workflows/cd-cloudrun-staging.yml'
-      - '.github/workflows/cd-gcp-development.yml'
       - '.github/workflows/security-scan.yml'
       - '.github/workflows/incremental-ci.yml'
   workflow_dispatch:
@@ -298,8 +296,8 @@ jobs:
 # Generates Aspire manifests while images are being built, so deploy doesn't wait.
 
   generate-manifests:
-    needs: [detect-changes]
-    if: ${{ needs.detect-changes.outputs.full_topology == 'true' }}
+    needs: [detect-changes, provision]
+    if: ${{ needs.detect-changes.outputs.full_topology == 'true' && needs.provision.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -308,6 +306,20 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Install PyYAML
+        run: python3 -m pip install --user pyyaml
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -320,6 +332,39 @@ jobs:
       - name: Restore deployment tools
         run: dotnet tool restore
 
+      - name: Derive deterministic backend secrets and dashboard token
+        id: secrets
+        run: |
+          gen_pw() {
+            local role="$1"
+            local override="$2"
+            if [ -n "$override" ]; then echo "$override"; return; fi
+            echo -n "argus-${role}-${{ github.repository }}-v1" | sha256sum | head -c 32
+          }
+          POSTGRES_PASSWORD=$(gen_pw postgres "${{ secrets.POSTGRES_PASSWORD }}")
+          REDIS_PASSWORD=$(gen_pw redis "${{ secrets.REDIS_PASSWORD }}")
+          EVENTBUS_PASSWORD=$(gen_pw eventbus "${{ secrets.EVENTBUS_PASSWORD }}")
+          DASHBOARD_TOKEN=$(gen_pw dashboard "${{ secrets.DASHBOARD_TOKEN }}")
+          for v in POSTGRES_PASSWORD REDIS_PASSWORD EVENTBUS_PASSWORD DASHBOARD_TOKEN; do
+            echo "::add-mask::${!v}"
+            echo "${v}=${!v}" >> "$GITHUB_ENV"
+          done
+
+      - name: Look up reserved static dashboard IP
+        run: |
+          DASH_IP=$(gcloud compute addresses describe argus-dashboard-ip \
+            --region "$REGION" --project "$PROJECT_ID" \
+            --format='value(address)' 2>/dev/null || true)
+          if [ -n "$DASH_IP" ]; then
+            # The dashboard's login page accepts the browser token; the topbar
+            # link just opens the dashboard, the user pastes the token from
+            # the workflow summary (or bookmark the post-auth URL).
+            echo "DASHBOARD_URL=http://${DASH_IP}" >> "$GITHUB_ENV"
+            echo "Dashboard URL: http://${DASH_IP}"
+          else
+            echo "::warning::Static dashboard IP not yet reserved; topbar link will be empty on first run"
+          fi
+
       - name: Stamp staging image tag into aspirate-state.json
         run: |
           jq --arg tag "${DEPLOY_IMAGE_TAG}" '.containerImageTags = [$tag]' \
@@ -330,10 +375,13 @@ jobs:
         working-directory: src/Argus.AppHost
         run: dotnet aspirate generate --non-interactive --disable-secrets --skip-build --image-pull-policy Always
 
-      - name: Patch deployment manifests
+      - name: Patch deployment manifests (selectors, tolerations, OTel, dashboard link)
         env:
           DEPLOY_SHA: ${{ github.sha }}
         run: python3 deploy/patch-node-selectors.py
+
+      - name: Substitute secret placeholders
+        run: python3 deploy/patch-secrets.py
 
       - name: Upload manifests
         uses: actions/upload-artifact@v4
@@ -447,6 +495,24 @@ jobs:
           name: aspirate-manifests
           path: src/Argus.AppHost/aspirate-output/
 
+      - name: Derive backend secrets and dashboard token
+        run: |
+          gen_pw() {
+            local role="$1"
+            local override="$2"
+            if [ -n "$override" ]; then echo "$override"; return; fi
+            echo -n "argus-${role}-${{ github.repository }}-v1" | sha256sum | head -c 32
+          }
+          POSTGRES_PASSWORD=$(gen_pw postgres "${{ secrets.POSTGRES_PASSWORD }}")
+          REDIS_PASSWORD=$(gen_pw redis "${{ secrets.REDIS_PASSWORD }}")
+          EVENTBUS_PASSWORD=$(gen_pw eventbus "${{ secrets.EVENTBUS_PASSWORD }}")
+          DASHBOARD_TOKEN=$(gen_pw dashboard "${{ secrets.DASHBOARD_TOKEN }}")
+          EVENTBUS_AMQP_URI="amqp://guest:$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$EVENTBUS_PASSWORD")@eventbus:5672"
+          for v in POSTGRES_PASSWORD REDIS_PASSWORD EVENTBUS_PASSWORD DASHBOARD_TOKEN EVENTBUS_AMQP_URI; do
+            echo "::add-mask::${!v}"
+            echo "${v}=${!v}" >> "$GITHUB_ENV"
+          done
+
       - name: Terraform init
         run: terraform -chdir=deploy/terraform init -input=false
 
@@ -458,47 +524,72 @@ jobs:
             -var="region=${REGION}" \
             -var="cluster_name=${CLUSTER_NAME}" \
             -var="apply_aspirate_manifests=true" \
-            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output"
+            -var="aspirate_manifest_dir=../../src/Argus.AppHost/aspirate-output" \
+            -var="eventbus_password=${EVENTBUS_PASSWORD}" \
+            -var="eventbus_amqp_uri=${EVENTBUS_AMQP_URI}" \
+            -var="dashboard_browser_token=${DASHBOARD_TOKEN}"
 
-      - name: Wait for LoadBalancer IPs
+      - name: Read deployed URLs from Terraform output
+        id: urls
         run: |
-          echo "Waiting for LoadBalancer IPs (up to 5 minutes)..."
-          WEB_IP=""
-          DASH_IP=""
+          WEB_URL=$(terraform -chdir=deploy/terraform output -raw argus_web_url)
+          DASH_URL=$(terraform -chdir=deploy/terraform output -raw aspire_dashboard_url)
+          echo "WEB_URL=${WEB_URL}" >> "$GITHUB_ENV"
+          echo "DASH_URL=${DASH_URL}" >> "$GITHUB_ENV"
+
+      - name: Wait for LoadBalancers to attach
+        run: |
+          echo "Waiting for K8s Services to advertise the static IPs..."
           for i in $(seq 1 30); do
-            WEB_IP=$(kubectl -n argus get svc argus-web-public \
-              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-            DASH_IP=$(kubectl -n argus get svc aspire-dashboard-public \
-              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            WEB_IP=$(kubectl -n argus get svc argus-web-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+            DASH_IP=$(kubectl -n argus get svc aspire-dashboard-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
             if [ -n "$WEB_IP" ] && [ -n "$DASH_IP" ]; then
+              echo "  ✓ web=${WEB_IP} dashboard=${DASH_IP}"
               break
             fi
             echo "  attempt $i/30 — web=${WEB_IP:-pending} dashboard=${DASH_IP:-pending}"
             sleep 10
           done
-          echo "WEB_IP=${WEB_IP}" >> "$GITHUB_ENV"
-          echo "DASH_IP=${DASH_IP}" >> "$GITHUB_ENV"
 
       - name: Deployment summary
         run: |
-          echo "## Deployment complete — ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Image rebuild mode: ${{ needs.detect-changes.outputs.reason }}; changed files: ${{ needs.detect-changes.outputs.changed_count }}; selected: ${{ needs.detect-changes.outputs.selected_names }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Service            | URL |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------------------|-----|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Web app            | http://${WEB_IP:-pending} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Aspire dashboard   | http://${DASH_IP:-pending} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Workload status" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-          kubectl -n argus get deploy >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### HPAs" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-          kubectl -n argus get hpa >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "# 🚀 Argus deployed — \`${{ github.sha }}\`"
+            echo ""
+            echo "## Links"
+            echo ""
+            echo "| | URL |"
+            echo "|---|---|"
+            echo "| **Web app** | ${WEB_URL} |"
+            echo "| **Aspire dashboard** | ${DASH_URL} |"
+            echo "| **Dashboard browser token** | \`${DASHBOARD_TOKEN}\` |"
+            echo ""
+            echo "> Paste the browser token into the Aspire dashboard's login screen."
+            echo ""
+            echo "## Rebuild scope"
+            echo ""
+            echo "- Mode: \`${{ needs.detect-changes.outputs.reason }}\`"
+            echo "- Files changed: \`${{ needs.detect-changes.outputs.changed_count }}\`"
+            echo "- Services touched: \`${{ needs.detect-changes.outputs.selected_names }}\`"
+            echo ""
+            echo "## Workload status"
+            echo ""
+            echo '```'
+            kubectl -n argus get deploy
+            echo '```'
+            echo ""
+            echo "## KEDA scalers"
+            echo ""
+            echo '```'
+            kubectl -n argus get scaledobjects 2>/dev/null || echo "(none — KEDA not yet installed)"
+            echo '```'
+            echo ""
+            echo "## Pod summary"
+            echo ""
+            echo '```'
+            kubectl -n argus get pods --no-headers | awk '{print $1, $3}' | sort | uniq -c | sort -rn
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           echo ""
-          echo "Web app:          http://${WEB_IP:-pending}"
-          echo "Aspire dashboard: http://${DASH_IP:-pending}"
+          echo "Web app:          ${WEB_URL}"
+          echo "Aspire dashboard: ${DASH_URL}  (token: ${DASHBOARD_TOKEN})"
