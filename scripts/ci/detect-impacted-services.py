@@ -182,7 +182,6 @@ def detect(config: dict[str, Any], files: list[str], diff_failed: bool, force_al
 
             if matches_any(changed, global_paths.get("allApps", [])):
                 build_global = True
-                full_topology = True
                 add_all(f"global-build:{changed}")
                 continue
 

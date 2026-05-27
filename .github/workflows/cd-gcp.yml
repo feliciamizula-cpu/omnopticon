@@ -428,13 +428,24 @@ jobs:
           DEPLOYMENT="${{ matrix.kubernetes_deployment }}"
           CONTAINER="${{ matrix.kubernetes_container }}"
 
+          # If the deployment doesn't exist yet (cluster never bootstrapped),
+          # this targeted path can't help — fail loudly so the user sees they
+          # need to run a full deploy first.
+          if ! kubectl -n argus get "deployment/${DEPLOYMENT}" >/dev/null 2>&1; then
+            echo "::error::Deployment ${DEPLOYMENT} not found. Run a full deploy first (touch deploy/terraform/* and push, or workflow_dispatch with force_rebuild_all)."
+            exit 1
+          fi
+
           echo "Deploying ${IMAGE} to deployment/${DEPLOYMENT} container ${CONTAINER}"
           kubectl -n argus set image "deployment/${DEPLOYMENT}" "${CONTAINER}=${IMAGE}"
           kubectl -n argus annotate "deployment/${DEPLOYMENT}" \
             "argus.io/deployed-sha=${{ github.sha }}" \
             "argus.io/deployed-by=github-actions" \
             --overwrite
-          kubectl -n argus rollout status "deployment/${DEPLOYMENT}" --timeout=180s
+          # Generous timeout for cold-start scenarios (image pull + healthcheck).
+          # Mass deploys via allApps changes update 27 services in parallel and
+          # nodes can be slow to pull each image.
+          kubectl -n argus rollout status "deployment/${DEPLOYMENT}" --timeout=600s
 
       - name: Targeted deployment summary
         run: |
