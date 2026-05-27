@@ -91,6 +91,17 @@ jobs:
       - name: Initialize Terraform
         run: terraform -chdir=deploy/terraform init -input=false -reconfigure
 
+      - name: Clean stale Kubernetes resources from state
+        run: |
+          cd deploy/terraform
+          terraform state rm kubernetes_namespace.argus 2>/dev/null || true
+          terraform state rm helm_release.keda 2>/dev/null || true
+          terraform state rm 'kubectl_manifest.aspirate' 2>/dev/null || true
+          terraform state rm kubernetes_horizontal_pod_autoscaler_v2.continuous_workers 2>/dev/null || true
+          terraform state rm kubernetes_service.argus_web_lb 2>/dev/null || true
+          terraform state rm kubernetes_deployment.aspire_dashboard 2>/dev/null || true
+          terraform state rm kubernetes_service.aspire_dashboard_lb 2>/dev/null || true
+
       - name: Provision infrastructure (cluster, node pools, namespace, KEDA)
         run: |
           terraform -chdir=deploy/terraform apply -auto-approve -input=false \
