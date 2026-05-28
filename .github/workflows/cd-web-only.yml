@@ -11,19 +11,29 @@ permissions:
   contents: read
 
 env:
-  PROJECT_ID: project-30b3b95e-ed2b-4573-98a
-  REGION: us-central1
-  CLUSTER_NAME: argus-gke
-  REGISTRY: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
   DEPLOY_IMAGE_TAG: staging
 
 concurrency:
-  group: deploy-gke-web-only
+  group: deploy-gke-web-only-${{ matrix.server_ip_prefix }}
   cancel-in-progress: false
 
 jobs:
   build-and-deploy-web:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - server_ip_prefix: "34"
+            project_id: project-30b3b95e-ed2b-4573-98a
+            region: us-central1
+            cluster_name: argus-gke-34
+            registry: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
+          - server_ip_prefix: "35"
+            project_id: project-30b3b95e-ed2b-4573-98a
+            region: us-central1
+            cluster_name: argus-gke-35
+            registry: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
     steps:
       - uses: actions/checkout@v4
 
@@ -36,10 +46,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.PROJECT_ID }}
+          project_id: ${{ matrix.project_id }}
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+        run: gcloud auth configure-docker ${{ matrix.region }}-docker.pkg.dev --quiet
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -64,10 +74,10 @@ jobs:
             --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
             --cache-from type=local,src=/tmp/.buildx-cache \
             --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            --cache-from type=registry,ref=${{ env.REGISTRY }}/argus-web:buildcache \
-            --cache-to type=registry,ref=${{ env.REGISTRY }}/argus-web:buildcache,mode=max \
-            --tag ${{ env.REGISTRY }}/argus-web:${{ env.DEPLOY_IMAGE_TAG }} \
-            --tag ${{ env.REGISTRY }}/argus-web:${{ github.sha }} \
+            --cache-from type=registry,ref=${{ matrix.registry }}/argus-web:buildcache \
+            --cache-to type=registry,ref=${{ matrix.registry }}/argus-web:buildcache,mode=max \
+            --tag ${{ matrix.registry }}/argus-web:${{ env.DEPLOY_IMAGE_TAG }} \
+            --tag ${{ matrix.registry }}/argus-web:${{ github.sha }} \
             --push \
             .
 
@@ -78,12 +88,12 @@ jobs:
 
       - name: Configure kubectl
         run: |
-          gcloud container clusters get-credentials "${{ env.CLUSTER_NAME }}" \
-            --zone "${{ env.REGION }}-a" --project "${{ env.PROJECT_ID }}"
+          gcloud container clusters get-credentials "${{ matrix.cluster_name }}" \
+            --zone "${{ matrix.region }}-a" --project "${{ matrix.project_id }}"
 
       - name: Deploy updated web image
         run: |
-          IMAGE="${{ env.REGISTRY }}/argus-web:${{ github.sha }}"
+          IMAGE="${{ matrix.registry }}/argus-web:${{ github.sha }}"
           DEPLOYMENT="argus-web"
           CONTAINER="argus-web"
           kubectl -n argus set image "deployment/${DEPLOYMENT}" "${CONTAINER}=${IMAGE}"
@@ -92,4 +102,4 @@ jobs:
       - name: Verify web deployment health
         run: |
           kubectl -n argus wait --for=condition=available deployment/argus-web --timeout=120s
-          echo "Web deployment is healthy"
+          echo "Web deployment to ${{ matrix.server_ip_prefix }}.x.x.x is healthy"
