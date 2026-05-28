@@ -22,18 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - server_ip_prefix: "34"
-            project_id: project-30b3b95e-ed2b-4573-98a
-            region: us-central1
-            cluster_name: argus-gke-34
-            registry: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
-          - server_ip_prefix: "35"
-            project_id: project-30b3b95e-ed2b-4573-98a
-            region: us-central1
-            cluster_name: argus-gke-35
-            registry: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
+    matrix:
+      include:
+        - project_id: project-30b3b95e-ed2b-4573-98a
+          region: us-central1
+          cluster_name: argus-gke
+          cluster_zone: us-central1-a
+          server_ip_prefix: "35"
+          registry: us-central1-docker.pkg.dev/project-30b3b95e-ed2b-4573-98a/argus
     steps:
       - uses: actions/checkout@v4
 
@@ -89,7 +85,7 @@ jobs:
       - name: Configure kubectl
         run: |
           gcloud container clusters get-credentials "${{ matrix.cluster_name }}" \
-            --zone "${{ matrix.region }}-a" --project "${{ matrix.project_id }}"
+            --zone "${{ matrix.cluster_zone }}" --project "${{ matrix.project_id }}"
 
       - name: Deploy updated web image
         run: |
