@@ -1,0 +1,108 @@
+.agd {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.agd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line-1);
+  flex-shrink: 0;
+}
+
+.agd-search {
+  background: var(--bg-2);
+  border: 1px solid var(--line-1);
+  border-radius: 3px;
+  color: var(--fg-1);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  outline: none;
+  width: 140px;
+}
+
+.agd-search:focus { border-color: var(--accent); }
+.agd-search::placeholder { color: var(--fg-3); }
+
+.agd-count {
+  font-size: 10px;
+  color: var(--fg-3);
+  margin-left: auto;
+}
+.agd-count-sep { color: var(--line-1); padding: 0 2px; }
+
+.agd-head {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--bg-2);
+}
+
+.agd-head-row {
+  display: flex;
+}
+
+.agd-th {
+  padding: 5px 8px;
+  font-size: 9.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.agd-th.agd-sortable { cursor: pointer; }
+.agd-th.agd-sortable:hover { color: var(--fg-1); background: var(--bg-3); }
+.agd-th.agd-asc::after { content: " \2191"; }
+.agd-th.agd-desc::after { content: " \2193"; }
+
+.agd-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.agd-row {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  border-bottom: 1px solid var(--line-0);
+  cursor: pointer;
+}
+
+.agd-row:hover { background: var(--bg-1); }
+.agd-row.agd-sel { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+.agd-td {
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.agd-td.agd-primary { color: var(--fg-1); font-weight: 500; }
+
+.agd-empty {
+  padding: 24px 16px;
+  color: var(--fg-3);
+  font-size: 11px;
+}
+
+/* width classes used as grid templates */
+.agd-th, .agd-td {
+  box-sizing: border-box;
+}

@@ -1,0 +1,138 @@
+@typeparam TItem
+
+<div class="agd">
+    <div class="agd-toolbar">
+        @if (ShowToolbar)
+        {
+            @if (EnableSearch)
+            {
+                <input class="agd-search" type="search" placeholder="filter…" value="@_search" @oninput="OnSearch" />
+            }
+            <span class="agd-count">@_filtered.Count<span class="agd-count-sep">/</span>@Items.Count</span>
+        }
+        @if (ToolbarContent is not null)
+        {
+            @ToolbarContent
+        }
+    </div>
+
+    <div class="agd-head">
+        <div class="agd-head-row">
+            @foreach (var col in Columns)
+            {
+                <div class="agd-th @(col.Width ?? "1fr") @(col.Sortable ? "agd-sortable" : "") @(_sortCol == col.Key ? (_sortAsc ? "agd-asc" : "agd-desc") : "")"
+                     style="@(GetColStyle(col))"
+                     @onclick="() => Sort(col)">
+                    @col.Header
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="agd-body">
+        <Virtualize Items="_filtered" ItemSize="26" OverscanCount="10" Context="item">
+            <div class="agd-row @(SelectedItem?.Equals(item) == true ? "agd-sel" : "") @(RowClass?.Invoke(item) ?? "")"
+                 @onclick="() => ClickRow(item)"
+                 @oncontextmenu="e => HandleContextMenu(item, e)"
+                 @oncontextmenu:preventDefault="@(OnRowContextMenu is not null)">
+                @foreach (var col in Columns)
+                {
+                    <div class="agd-td @(col.Width ?? "1fr") @(col.IsPrimary ? "agd-primary" : "")" style="@(GetColStyle(col))">
+                        @if (col.CellTemplate is not null)
+                        {
+                            @col.CellTemplate(item)
+                        }
+                        else
+                        {
+                            @col.Value?.Invoke(item)
+                        }
+                    </div>
+                }
+            </div>
+        </Virtualize>
+        @if (_filtered.Count == 0)
+        {
+            <div class="agd-empty">@(EmptyMessage ?? "// no data")</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<TItem> Items { get; set; } = [];
+    [Parameter, EditorRequired] public List<ArgusGridColumnDef> Columns { get; set; } = [];
+    [Parameter] public TItem? SelectedItem { get; set; }
+    [Parameter] public Func<TItem, string>? RowClass { get; set; }
+    [Parameter] public string? EmptyMessage { get; set; }
+    [Parameter] public RenderFragment? ToolbarContent { get; set; }
+    [Parameter] public bool ShowToolbar { get; set; } = true;
+    [Parameter] public bool EnableSearch { get; set; } = false;
+    [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
+    [Parameter] public EventCallback<(TItem Item, MouseEventArgs Args)>? OnRowContextMenu { get; set; }
+
+    string _search = "";
+    string? _sortCol;
+    bool _sortAsc = true;
+    List<TItem> _filtered = [];
+
+    protected override void OnParametersSet()
+    {
+        ApplyFilterSort();
+    }
+
+    private void ApplyFilterSort()
+    {
+        IEnumerable<TItem> rows = Items;
+
+        if (!string.IsNullOrEmpty(_search) && EnableSearch)
+        {
+            var q = _search;
+            rows = rows.Where(item => Columns.Any(c =>
+                c.Value?.Invoke(item)?.Contains(q, StringComparison.OrdinalIgnoreCase) == true));
+        }
+
+        if (_sortCol is not null)
+        {
+            var col = Columns.FirstOrDefault(c => c.Key == _sortCol);
+            if (col?.Value is not null)
+            {
+                rows = _sortAsc
+                    ? rows.OrderBy(col.Value, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderByDescending(col.Value, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        _filtered = rows.ToList();
+    }
+
+    private void OnSearch(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        ApplyFilterSort();
+    }
+
+    private void Sort(ArgusGridColumnDef col)
+    {
+        if (!col.Sortable || col.Value is null) return;
+        if (_sortCol == col.Key) _sortAsc = !_sortAsc;
+        else { _sortCol = col.Key; _sortAsc = true; }
+        ApplyFilterSort();
+    }
+
+    private static string GetColStyle(ArgusGridColumnDef col)
+    {
+        if (!string.IsNullOrEmpty(col.Width))
+        {
+            if (col.Width.EndsWith("px") || col.Width.EndsWith("fr") || col.Width.EndsWith("%"))
+                return $"width:{col.Width};min-width:{col.Width}";
+        }
+        return "";
+    }
+
+    private void ClickRow(TItem item) => OnRowClick.InvokeAsync(item);
+
+    private async Task HandleContextMenu(TItem item, MouseEventArgs e)
+    {
+        if (OnRowContextMenu is not null)
+            await OnRowContextMenu.Value.Invoke((item, e));
+    }
+}
