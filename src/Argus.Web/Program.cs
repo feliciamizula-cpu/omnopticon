@@ -164,7 +164,7 @@ app.MapPost("/ui/programs/{programId:guid}/scopes", async (
                 {
                     ["programId"]          = programId,
                     ["scopeId"]            = scopeId,
-                    ["type"]               = (int)AssetType.Domain,
+                    ["type"]               = (int)Argus.Contracts.Assets.AssetType.Domain,
                     ["value"]              = rootDomain,
                     ["subtype"]            = "ScopeRoot",
                     ["confidence"]         = 1.0,
