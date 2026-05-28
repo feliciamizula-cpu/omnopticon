@@ -72,6 +72,13 @@
 
 <PageTitle>Operations</PageTitle>
 
+@* ── Diagnostic probe – remove once grids are confirmed working ── *@
+<div style="background:#1a0030;border:2px solid #cc00ff;color:#cc00ff;padding:8px 12px;font-size:11px;font-family:monospace;margin-bottom:4px;line-height:1.6;">
+    DIAG rendered=@DateTime.UtcNow.ToString("HH:mm:ss") UTC |
+    programs=@_programs.Count | assets=@_assets.Count |
+    prog-cols=@_programColumns.Count | asset-cols=@_assetColumns.Count
+</div>
+
 <div class="ops-layout">
 
     @* ── Programs panel ── *@
@@ -80,6 +87,10 @@
             <span class="ops-panel-title">Programs</span>
             <span class="ops-panel-count">@_programs.Count</span>
             <button class="btn btn-sm" style="margin-left:auto;" @onclick="OpenNewProgramForm">+ New</button>
+        </div>
+        @* DIAG: basic HTML renders here? *@
+        <div style="background:#002a00;border:1px solid #00ff88;color:#00ff88;padding:4px 8px;font-size:10px;font-family:monospace;flex-shrink:0;">
+            DIAG-INNER: @_programs.Count program(s) loaded, @_programColumns.Count col(s) defined
         </div>
         <ArgusGrid TItem="ProgramItem"
                    Items="_programs"
