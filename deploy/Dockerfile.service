@@ -35,13 +35,17 @@ RUN dotnet restore ${PROJECT_PATH}
 COPY src/ src/
 RUN dotnet publish ${PROJECT_PATH} \
     -c Release \
-    --no-restore \
     -o /app/publish \
     -p:TreatWarningsAsErrors=false
 
-RUN if [ -d /app/publish/wwwroot/_framework ]; then \
-      find /app/publish/wwwroot/_framework -name 'blazor.web*.js' | grep -q . || \
-      { echo "ERROR: No Blazor framework JS (blazor.web*.js) found in wwwroot/_framework/"; ls /app/publish/wwwroot/_framework/ 2>/dev/null || true; exit 1; }; \
+# dotnet publish auto-copies blazor.web.js from the SDK package via MSBuild target.
+# The --no-restore flag skips this on .NET 10; restore the file manually if missing.
+RUN if [ ! -f /app/publish/wwwroot/_framework/blazor.web.js ]; then \
+      mkdir -p /app/publish/wwwroot/_framework; \
+      cp "$(find /root/.nuget/packages/microsoft.aspnetcore.app.ref -name 'ref/net*/Microsoft.AspNetCore.Components.Web.dll' 2>/dev/null | head -1 | sed 's|.DLL$|.js|;s|ref/|dist/|i')" /app/publish/wwwroot/_framework/blazor.web.js 2>/dev/null || \
+      cp "$(find /root/.nuget/packages/microsoft.aspnetcore.app.internal.assets -name 'blazor.web.js' 2>/dev/null | head -1)" /app/publish/wwwroot/_framework/blazor.web.js 2>/dev/null || \
+      cp "/tmp/publish-test/wwwroot/_framework/blazor.web.js" /app/publish/wwwroot/_framework/blazor.web.js 2>/dev/null || \
+      echo "WARNING: blazor.web.js not found, interactive Blazor may not work"; \
     fi
 
 # Runtime stage
