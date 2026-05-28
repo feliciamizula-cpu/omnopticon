@@ -1,4 +1,5 @@
 @typeparam TItem
+@using System.Linq
 
 <div class="agd">
     <div class="agd-toolbar">
@@ -40,7 +41,7 @@
                     <div class="agd-td @(col.Width ?? "1fr") @(col.IsPrimary ? "agd-primary" : "")" style="@(GetColStyle(col))">
                         @if (col.CellTemplate is not null)
                         {
-                            @col.CellTemplate(item)
+                            @(col.CellTemplate(item))
                         }
                         else
                         {
@@ -67,7 +68,7 @@
     [Parameter] public bool ShowToolbar { get; set; } = true;
     [Parameter] public bool EnableSearch { get; set; } = false;
     [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
-    [Parameter] public EventCallback<(TItem Item, MouseEventArgs Args)>? OnRowContextMenu { get; set; }
+    [Parameter] public EventCallback<TItem>? OnRowContextMenu { get; set; }
 
     string _search = "";
     string? _sortCol;
@@ -95,9 +96,10 @@
             var col = Columns.FirstOrDefault(c => c.Key == _sortCol);
             if (col?.Value is not null)
             {
+                var sortVal = col.Value;
                 rows = _sortAsc
-                    ? rows.OrderBy(col.Value, StringComparer.OrdinalIgnoreCase)
-                    : rows.OrderByDescending(col.Value, StringComparer.OrdinalIgnoreCase);
+                    ? rows.OrderBy(sortVal, StringComparer.OrdinalIgnoreCase)
+                    : rows.OrderByDescending(sortVal, StringComparer.OrdinalIgnoreCase);
             }
         }
 
@@ -132,7 +134,7 @@
 
     private async Task HandleContextMenu(TItem item, MouseEventArgs e)
     {
-        if (OnRowContextMenu is not null)
-            await OnRowContextMenu.Value.Invoke((item, e));
+        if (OnRowContextMenu.HasDelegate)
+            await OnRowContextMenu.InvokeAsync(item);
     }
 }
