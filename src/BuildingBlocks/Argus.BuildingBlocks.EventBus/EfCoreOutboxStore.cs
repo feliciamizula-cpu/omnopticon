@@ -39,11 +39,11 @@ public sealed class EfCoreOutboxStore<TDbContext> : IOutboxStore
             messages = await _dbContext.Set<OutboxMessage>()
                 .FromSqlRaw(
                     @"SELECT * FROM outbox_messages
-                      WHERE source_service = {0}
-                        AND processed_at IS NULL
-                        AND (next_attempt_at IS NULL OR next_attempt_at <= {1})
-                        AND (locked_until IS NULL OR locked_until <= {1})
-                      ORDER BY occurred_at
+                      WHERE ""SourceService"" = {0}
+                        AND ""ProcessedAt"" IS NULL
+                        AND (""NextAttemptAt"" IS NULL OR ""NextAttemptAt"" <= {1})
+                        AND (""LockedUntil"" IS NULL OR ""LockedUntil"" <= {1})
+                      ORDER BY ""OccurredAt""
                       LIMIT {2}
                       FOR UPDATE SKIP LOCKED",
                     sourceService,
@@ -56,11 +56,11 @@ public sealed class EfCoreOutboxStore<TDbContext> : IOutboxStore
             messages = await _dbContext.Set<OutboxMessage>()
                 .FromSqlRaw(
                     @"SELECT TOP ({2}) * FROM outbox_messages WITH (ROWLOCK, READPAST)
-                      WHERE source_service = {0}
-                        AND processed_at IS NULL
-                        AND (next_attempt_at IS NULL OR next_attempt_at <= {1})
-                        AND (locked_until IS NULL OR locked_until <= {1})
-                      ORDER BY occurred_at",
+                      WHERE [SourceService] = {0}
+                        AND [ProcessedAt] IS NULL
+                        AND ([NextAttemptAt] IS NULL OR [NextAttemptAt] <= {1})
+                        AND ([LockedUntil] IS NULL OR [LockedUntil] <= {1})
+                      ORDER BY [OccurredAt]",
                     sourceService,
                     now,
                     limit)
@@ -69,13 +69,18 @@ public sealed class EfCoreOutboxStore<TDbContext> : IOutboxStore
         else
         {
             messages = await _dbContext.Set<OutboxMessage>()
-                .Where(m =>
-                    m.SourceService == sourceService
-                    && m.ProcessedAt == null
-                    && (m.NextAttemptAt == null || m.NextAttemptAt <= now)
-                    && (m.LockedUntil == null || m.LockedUntil <= now))
-                .OrderBy(m => m.OccurredAt)
-                .Take(limit)
+                .FromSqlRaw(
+                    @"SELECT * FROM outbox_messages
+                      WHERE ""SourceService"" = {0}
+                        AND ""ProcessedAt"" IS NULL
+                        AND (""NextAttemptAt"" IS NULL OR ""NextAttemptAt"" <= {1})
+                        AND (""LockedUntil"" IS NULL OR ""LockedUntil"" <= {1})
+                      ORDER BY ""OccurredAt""
+                      LIMIT {2}
+                      FOR UPDATE SKIP LOCKED",
+                    sourceService,
+                    now,
+                    limit)
                 .ToArrayAsync(cancellationToken);
         }
 
