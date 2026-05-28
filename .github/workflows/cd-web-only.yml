@@ -20,6 +20,8 @@ concurrency:
 jobs:
   build-and-deploy-web:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
 
