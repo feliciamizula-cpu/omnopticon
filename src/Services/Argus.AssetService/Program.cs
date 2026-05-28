@@ -1,4 +1,5 @@
 using Argus.AssetService.Data;
+using Argus.AssetService.Search;
 using Argus.AssetService.Stores;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Assets;
@@ -27,6 +28,7 @@ if (!string.IsNullOrWhiteSpace(argusDbConnectionString))
     builder.Services.AddHealthChecks()
         .AddNpgSql(argusDbConnectionString, name: "argusdb", tags: ["db", "sql", "postgres"]);
 
+    builder.Services.AddSingleton<AssetSearchService>();
     builder.Services.AddScoped<IAssetStore, EfAssetStore>();
     builder.Services.AddScoped<TaskCompletedConsumer>();
     builder.Services.AddScoped<IIntegrationEventConsumer<TaskCompleted>>(provider => provider.GetRequiredService<TaskCompletedConsumer>());
