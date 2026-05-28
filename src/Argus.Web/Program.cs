@@ -9,6 +9,7 @@ using Argus.Web;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
+using Argus.Contracts.Assets;
 
 var builder = WebApplication.CreateBuilder(args);
 
