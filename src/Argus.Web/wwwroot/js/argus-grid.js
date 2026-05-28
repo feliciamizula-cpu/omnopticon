@@ -1,7 +1,7 @@
 window.ArgusGrid = {
     _instances: {},
 
-    create: function (id, options) {
+    create: function (id, dotnetRef, options) {
         if (this._instances[id]) {
             this._instances[id].destroy();
             delete this._instances[id];
@@ -21,27 +21,9 @@ window.ArgusGrid = {
             rowSelection: { mode: 'singleRow' },
             enableCellTextSelection: true,
             suppressMovableColumns: true,
+            columnDefs: options.columnDefs || [],
+            rowData: options.rowData || [],
         };
-
-        if (options.columnDefs) {
-            gridOptions.columnDefs = options.columnDefs;
-        }
-        if (options.rowData) {
-            gridOptions.rowData = options.rowData;
-        }
-
-        if (options.onRowClicked) {
-            gridOptions.onRowClicked = options.onRowClicked;
-        }
-        if (options.onRowDoubleClicked) {
-            gridOptions.onRowDoubleClicked = options.onRowDoubleClicked;
-        }
-        if (options.onCellContextMenu) {
-            gridOptions.onCellContextMenu = options.onCellContextMenu;
-        }
-        if (options.onSelectionChanged) {
-            gridOptions.onSelectionChanged = options.onSelectionChanged;
-        }
 
         if (typeof agGrid !== 'undefined') {
             this._instances[id] = agGrid.createGrid(gridDiv, gridOptions);
@@ -52,7 +34,39 @@ window.ArgusGrid = {
             return null;
         }
 
-        return this._instances[id];
+        var self = this;
+        var api = this._instances[id];
+
+        api.addEventListener('rowClicked', function(event) {
+            if (event.data && dotnetRef) {
+                dotnetRef.invokeMethodAsync('OnGridRowClicked', event.data);
+            }
+        });
+
+        api.addEventListener('rowDoubleClicked', function(event) {
+            if (event.data && dotnetRef) {
+                dotnetRef.invokeMethodAsync('OnGridRowDoubleClicked', event.data);
+            }
+        });
+
+        api.addEventListener('cellContextMenu', function(event) {
+            if (event.data && event.event && dotnetRef) {
+                dotnetRef.invokeMethodAsync('OnGridCellContextMenu',
+                    event.event.clientX,
+                    event.event.clientY,
+                    event.data
+                );
+            }
+        });
+
+        api.addEventListener('selectionChanged', function(event) {
+            var selected = event.api.getSelectedRows();
+            if (selected && selected.length > 0 && dotnetRef) {
+                dotnetRef.invokeMethodAsync('OnGridSelectionChanged', selected[0]);
+            }
+        });
+
+        return api;
     },
 
     destroy: function (id) {

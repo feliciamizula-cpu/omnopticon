@@ -299,6 +299,7 @@
         {
             new GridColumn<ProgramItem>
             {
+                Field = "Name",
                 Header = "Name",
                 Value = p => p.Name,
                 Primary = true,
@@ -306,6 +307,7 @@
             },
             new GridColumn<ProgramItem>
             {
+                Field = "ScopeCount",
                 Header = "Scopes",
                 Value = p => p.ScopeCount.ToString(),
                 Sortable = true,
@@ -317,12 +319,14 @@
         {
             new GridColumn<AssetItem>
             {
+                Field = "Type",
                 Header = "Type",
                 Value = a => a.Type,
                 Width = "100px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "Value",
                 Header = "Value",
                 Value = a => a.Value,
                 Primary = true,
@@ -330,24 +334,28 @@
             },
             new GridColumn<AssetItem>
             {
+                Field = "Status",
                 Header = "Status",
                 Value = a => a.Status,
                 Width = "100px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "RiskScore",
                 Header = "Risk",
                 Value = a => a.RiskScore.HasValue ? a.RiskScore.Value.ToString("F1") : "—",
                 Width = "80px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "FirstSeenAt",
                 Header = "First Seen",
                 Value = a => FmtAgo(a.FirstSeenAt),
                 Width = "120px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "LastSeenAt",
                 Header = "Last Seen",
                 Value = a => FmtAgo(a.LastSeenAt),
                 Width = "120px"

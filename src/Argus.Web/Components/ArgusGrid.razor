@@ -1,11 +1,13 @@
+@typeparam TItem
 @using Microsoft.JSInterop
 @implements IDisposable
+@inject IJSRuntime JS
 
 <div id="@_gridId" class="argus-grid-container" style="@(string.IsNullOrEmpty(Height) ? "" : $"height:{Height}")"></div>
 
 @code {
-    [Parameter, EditorRequired] public List<object> Items { get; set; } = [];
-    [Parameter, EditorRequired] public List<AgGridColumn> Columns { get; set; } = [];
+    [Parameter, EditorRequired] public List<TItem> Items { get; set; } = [];
+    [Parameter, EditorRequired] public List<GridColumn<TItem>> Columns { get; set; } = [];
     [Parameter] public object? SelectedItem { get; set; }
     [Parameter] public EventCallback<object> OnRowClicked { get; set; }
     [Parameter] public EventCallback<object> OnRowDoubleClicked { get; set; }
@@ -14,23 +16,20 @@
 
     private string _gridId = $"ag-grid-{Guid.NewGuid():N}";
     private bool _initialized;
-    private bool _needsRefresh;
+    private DotNetObjectReference<ArgusGrid<TItem>>? _dotNetRef;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            _dotNetRef = DotNetObjectReference.Create(this);
             await InitializeGrid();
-        }
-        else if (_needsRefresh)
-        {
-            _needsRefresh = false;
         }
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_initialized)
+        if (_initialized && _dotNetRef != null)
         {
             await UpdateData();
         }
@@ -38,21 +37,15 @@
 
     private async Task InitializeGrid()
     {
-        var columnDefs = Columns.Select(c => c.ToDict()).ToList();
-        var rowData = Items.Cast<dynamic?>().Where(x => x != null).Select(x => (object)x!).ToList();
+        var columnDefs = Columns.Select(c => c.ToAgGridColumn().ToDict()).ToList();
+        var rowData = Items.Cast<object>().ToList();
 
-        var dotnetRef = DotNetObjectReference.Create(this);
-
-        await JS.InvokeVoidAsync("ArgusGrid.create", _gridId, new
+        await JS.InvokeVoidAsync("ArgusGrid.create", _gridId, _dotNetRef, new
         {
             rowHeight = 28,
             headerHeight = 32,
             columnDefs,
-            rowData,
-            onRowClicked = EventCallback.Factory.Create<dynamic>(this, OnRowClickedHandler),
-            onRowDoubleClicked = EventCallback.Factory.Create<dynamic>(this, OnRowDoubleClickedHandler),
-            onCellContextMenu = EventCallback.Factory.Create<dynamic>(this, OnCellContextMenuHandler),
-            onSelectionChanged = EventCallback.Factory.Create(this, OnSelectionChangedHandler)
+            rowData
         });
 
         _initialized = true;
@@ -62,53 +55,40 @@
     {
         if (!_initialized) return;
 
-        var rowData = Items.Cast<dynamic?>().Where(x => x != null).Select(x => (object)x!).ToList();
+        var rowData = Items.Cast<object>().ToList();
         await JS.InvokeVoidAsync("ArgusGrid.setRowData", _gridId, rowData);
-
-        var columnDefs = Columns.Select(c => c.ToDict()).ToList();
-        await JS.InvokeVoidAsync("ArgusGrid.setColumnDefs", _gridId, columnDefs);
     }
 
     [JSInvokable]
-    public async Task OnRowClickedHandler(dynamic rowData)
+    public void OnGridRowClicked(object rowData)
+    {
+        SelectedItem = rowData;
+        _ = OnRowClicked.InvokeAsync(rowData);
+    }
+
+    [JSInvokable]
+    public void OnGridRowDoubleClicked(object rowData)
+    {
+        _ = OnRowDoubleClicked.InvokeAsync(rowData);
+    }
+
+    [JSInvokable]
+    public void OnGridCellContextMenu(int mouseX, int mouseY, object rowData)
+    {
+        _ = OnCellContextMenu.InvokeAsync(new AgGridContextMenuEvent
+        {
+            Data = rowData,
+            MouseX = mouseX,
+            MouseY = mouseY
+        });
+    }
+
+    [JSInvokable]
+    public void OnGridSelectionChanged(object? rowData)
     {
         if (rowData != null)
         {
             SelectedItem = rowData;
-            await OnRowClicked.InvokeAsync(rowData);
-        }
-    }
-
-    [JSInvokable]
-    public async Task OnRowDoubleClickedHandler(dynamic rowData)
-    {
-        if (rowData != null)
-        {
-            await OnRowDoubleClicked.InvokeAsync(rowData);
-        }
-    }
-
-    [JSInvokable]
-    public async Task OnCellContextMenuHandler(dynamic e)
-    {
-        if (e?.data != null && e.event != null)
-        {
-            await OnCellContextMenu.InvokeAsync(new AgGridContextMenuEvent
-            {
-                Data = e.data,
-                MouseX = (int)e.event.clientX,
-                MouseY = (int)e.event.clientY
-            });
-        }
-    }
-
-    [JSInvokable]
-    public async Task OnSelectionChangedHandler()
-    {
-        var selected = await JS.InvokeAsync<object>("ArgusGrid.getSelectedRow", _gridId);
-        if (selected != null)
-        {
-            SelectedItem = selected;
         }
     }
 
@@ -134,60 +114,6 @@
         {
             _ = JS.InvokeVoidAsync("ArgusGrid.destroy", _gridId);
         }
+        _dotNetRef?.Dispose();
     }
-}
-
-public class AgGridColumn
-{
-    public required string Field { get; set; }
-    public string Header { get; set; } = "";
-    public string? Width { get; set; }
-    public int? Flex { get; set; }
-    public bool Sortable { get; set; } = true;
-    public bool Filter { get; set; } = false;
-    public string? CellClass { get; set; }
-    public Func<object, string>? ValueFormatter { get; set; }
-    public bool Hide { get; set; } = false;
-
-    public object ToDict()
-    {
-        var dict = new Dictionary<string, object>
-        {
-            ["field"] = Field,
-            ["headerName"] = string.IsNullOrEmpty(Header) ? Field : Header,
-            ["sortable"] = Sortable,
-            ["filter"] = Filter,
-            ["hide"] = Hide
-        };
-
-        if (!string.IsNullOrEmpty(Width))
-        {
-            dict["width"] = Width;
-        }
-
-        if (Flex.HasValue)
-        {
-            dict["flex"] = Flex.Value;
-        }
-
-        if (!string.IsNullOrEmpty(CellClass))
-        {
-            dict["cellClass"] = CellClass;
-        }
-
-        if (ValueFormatter != null)
-        {
-            var formatter = ValueFormatter;
-            dict["valueFormatter"] = (Func<dynamic, dynamic>)((p) => formatter(p.data ?? p));
-        }
-
-        return dict;
-    }
-}
-
-public class AgGridContextMenuEvent
-{
-    public object Data { get; set; } = null!;
-    public int MouseX { get; set; }
-    public int MouseY { get; set; }
 }

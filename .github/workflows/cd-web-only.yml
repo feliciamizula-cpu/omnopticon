@@ -14,7 +14,7 @@ env:
   DEPLOY_IMAGE_TAG: staging
 
 concurrency:
-  group: deploy-gke-web-only-${{ matrix.server_ip_prefix }}
+  group: deploy-gke-web-only
   cancel-in-progress: false
 
 jobs:
