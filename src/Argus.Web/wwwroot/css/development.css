@@ -2322,54 +2322,36 @@ textarea.dev-input {
   overflow: hidden;
 }
 
-.ops-programs-panel,
-.ops-assets-panel,
-.ops-activity-panel {
-  background: var(--bg-1);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.ops-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border-radius: 0 !important;
+}
+
+.ops-panel-wide {
+  /* no extra rules needed; grid auto-sizes from template */
+}
+
+.ops-panel-narrow {
+  /* no extra rules needed; grid auto-sizes from template */
 }
 
 .ops-panel-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line-1);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-2);
+  flex-shrink: 0;
 }
 
 .ops-panel-title {
   color: var(--fg-3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.ops-panel-count {
-  background: var(--line-1);
-  color: var(--fg-3);
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-}
-
-.ops-live-badge {
-  background: var(--red);
-  color: white;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .ops-log {
@@ -2383,25 +2365,29 @@ textarea.dev-input {
   padding: 4px 6px;
   border-radius: 4px;
   margin-bottom: 4px;
-  background: var(--bg-2);
+}
+
+.ops-log-time {
+  color: var(--fg-3);
+  font-size: 10px;
+  margin-right: 6px;
 }
 
 .ops-log-error {
-  background: rgba(255, 80, 80, 0.1);
+  background: rgba(248, 114, 114, 0.1);
   color: var(--red);
 }
 
 .ops-log-success {
-  background: rgba(0, 201, 167, 0.1);
+  background: rgba(54, 211, 153, 0.1);
   color: var(--green);
 }
-
 
 .ops-layout .row-new {
   animation: flash-row 2.5s ease-out;
 }
 
 @keyframes flash-row {
-  0% { background: rgba(0, 201, 167, 0.2); }
+  0% { background: rgba(54, 211, 153, 0.2); }
   100% { background: transparent; }
 }
