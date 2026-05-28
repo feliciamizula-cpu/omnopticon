@@ -1,0 +1,22 @@
+{
+  "profiles": {
+    "Argus.Web": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:5173",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ARGUS_PROGRAM_SCOPE_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_ASSET_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_ARTIFACT_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_FINDING_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_TASK_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_AGENT_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_RATE_LIMIT_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_REALTIME_SERVICE": "http://34.63.95.161:8081",
+        "ARGUS_EVENT_ROUTER_SERVICE": "http://34.63.95.161:8081"
+      }
+    }
+  }
+}
