@@ -1,0 +1,105 @@
+# Argus Recon Platform: Architectural Overview
+
+Welcome to Argus. This document provides a concise architectural guide for developers joining the project. Argus is a distributed bug-bounty reconnaissance platform designed to discover, process, and classify assets at scale while strictly adhering to program safety rules.
+
+## High-Level Architecture
+
+Argus is built on **.NET 10** and uses **Microsoft .NET Aspire** for orchestration, telemetry, and service discovery.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                         Argus.AppHost                           │
+│                    (Aspire Orchestrator)                        │
+└─────────────────────────────────────────────────────────────────┘
+         │                 │                  │
+         ▼                 ▼                  ▼
+┌────────────────┐ ┌────────────────┐ ┌──────────────────────────┐
+│   Argus.Web    │ │ Argus.ApiGateway│ │ Workers                  │
+│   Command UI   │ │ YARP Gateway    │ │ (Distributed Agents)     │
+└────────────────┘ └────────────────┘ └──────────────────────────┘
+         │                 │                  │
+         └─────────────────┴──────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Domain Services: ProgramScope, Asset, Task, RateLimit, etc.     │
+└─────────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Infrastructure: PostgreSQL + pgvector, Redis, RabbitMQ           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Technology Stack
+
+*   **Runtime:** .NET 10
+*   **Orchestration:** .NET Aspire
+*   **Database:** PostgreSQL (with `pgvector` for enrichment)
+*   **Messaging:** RabbitMQ (with Outbox/Inbox pattern for reliability)
+*   **Caching/Leasing:** Redis
+*   **API Gateway:** YARP (Yet Another Reverse Proxy)
+*   **Frontend:** Blazor WebAssembly (hosted in Argus.Web)
+
+## Core Domain Concepts
+
+### 1. Assets
+Assets are the primary entities in Argus. Everything from a `Domain` and `Subdomain` to an `IpAddress`, `Url`, or `Finding` is an Asset. 
+*   **Relationships:** Assets are linked together (e.g., a `Domain` *owns* a `Subdomain`, a `Subdomain` *resolves to* an `IpAddress`).
+*   **Natural Keys:** Assets use natural keys (like a normalized URL or domain name) to prevent duplication across different tools.
+
+### 2. Workers & Tasks
+Workers are independent agents that perform specific reconnaissance tasks.
+*   **Capabilities:** Each worker project (e.g., `Argus.Workers.HttpProbe`) registers specific capabilities.
+*   **Tasks:** Work is distributed via `TaskService`. Workers *lease* tasks, report *progress*, and eventually *complete* or *fail* them.
+*   **Checkpointing:** Long-running workers can save checkpoints to resume work if interrupted.
+
+### 3. Rate Limiting (Safety First)
+Safety is paramount. Every HTTP-capable worker **must** consult the `RateLimitService` before making external requests.
+*   **Tiers:** Rate limits are enforced at multiple levels: Program, Scope, and Host/IP.
+*   **Distributed:** Redis provides the global state for rate-limit buckets across all worker instances.
+
+### 4. Event-Driven Discovery
+Discovery is a cascading process driven by integration events:
+1.  `AssetDiscovered (Domain)` -> `AmassWorker` -> `SubdomainAssetDiscovered`
+2.  `SubdomainAssetDiscovered` -> `HttpProbeWorker` -> `UrlAssetDiscovered`
+3.  `UrlAssetDiscovered` -> `HtmlDomSpider` -> `ApiEndpointAssetDiscovered`
+
+## Service Responsibilities
+
+| Service | Responsibility |
+| :--- | :--- |
+| **ProgramScopeService** | Manages bug-bounty program definitions, inclusion/exclusion scopes, and safety rules. |
+| **AssetService** | The central repository for all discovered entities and their relationships. |
+| **TaskService** | Manages the lifecycle of work items, leasing, and durability. |
+| **RateLimitService** | Enforces distributed rate limits to ensure compliance with bug-bounty rules. |
+| **ScanOrchestratorService** | Orchestrates high-level workflows (e.g., "Start Full Domain Discovery"). |
+| **RealtimeService** | Provides SSE (Server-Sent Events) to the UI for live updates. |
+
+## Development Workflow
+
+### Local Setup
+1.  Ensure Docker Desktop and .NET 10 SDK are installed.
+2.  Run `dotnet run --project src/Argus.AppHost/Argus.AppHost.csproj`.
+3.  Access the Aspire Dashboard for logs, traces, and service URLs.
+
+### Adding a New Worker
+1.  Create a new project in `src/Workers/`.
+2.  Reference `Argus.BuildingBlocks.Workers`.
+3.  Implement `IReconWorker` or inherit from `ArgusWorkerBackgroundService`.
+4.  Register the worker in `Argus.AppHost/Program.cs`.
+
+### Testing Strategy
+*   **Unit Tests:** For business logic in services.
+*   **Integration Tests:** Use `WorkerTestHarness` for testing workers with fixture data.
+*   **Smoke Tests:** Use Playwright (in `e2e/`) for end-to-end flow validation.
+
+## Hard Rules for Contributors
+
+1.  **Scope Validation:** Workers must validate that every discovered asset is within the permitted program scope before publishing it.
+2.  **Rate Limiting:** Never bypass the `RateLimitService`.
+3.  **Idempotency:** Use the provided Outbox/Inbox patterns for all inter-service communication.
+4.  **No Secrets:** Never commit API keys or credentials. Use the Aspire configuration system.
+
+---
+*For deeper technical details, refer to `docs/ARGUS_IMPLEMENTATION_HANDOFF.md`.*
