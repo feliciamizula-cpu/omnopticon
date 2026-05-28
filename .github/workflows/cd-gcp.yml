@@ -478,8 +478,8 @@ jobs:
 
       - name: Verify deployment health
         run: |
-          kubectl -n argus wait --for=condition=available deployment/${DEPLOYMENT} --timeout=120s
-          echo "Deployment ${DEPLOYMENT} is healthy"
+          kubectl -n argus wait --for=condition=available deployment/argus-web --timeout=120s
+          echo "Deployment argus-web is healthy"
 
       - name: Targeted deployment summary
         run: |
