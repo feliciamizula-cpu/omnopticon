@@ -1,0 +1,124 @@
+<h2>ArgusGrid Wrapper: 3 Approaches</h2>
+<p class="subtitle">How should the wrapper expose MudBlazor DataGrid to callers?</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Model-Driven Columns (Thin Facade)</h3>
+      <p>Keep a <code>GridColumn&lt;T&gt;</code> model. The wrapper translates it to MudDataGrid internally. Callers don't write any MudBlazor markup.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Familiar — same pattern as current code</li>
+            <li>Callers need zero MudBlazor knowledge</li>
+            <li>Consistent usage across all pages</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Custom cell renderers need model extensions</li>
+            <li>Every new MudDataGrid feature requires wrapper updates</li>
+            <li>Leaky abstraction over time</li>
+          </ul>
+        </div>
+      </div>
+      <div class="section">
+        <span class="label">Example usage</span>
+        <pre style="background:var(--bg-3,#111);padding:10px;border-radius:6px;font-size:11px;margin-top:6px;overflow:auto">&lt;ArgusGrid TItem="ProgramItem"
+           Items="_programs"
+           Columns="_programColumns"
+           OnRowClick="SelectProgram"
+           ContextMenuItems="_programMenu" /&gt;
+
+// Columns defined in code-behind:
+new GridColumn&lt;ProgramItem&gt; {
+    Header = "Name",
+    Value = p =&gt; p.Name,
+    Width = "1fr"
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>RenderFragment Columns <span style="font-size:12px;color:var(--accent,#4fc3f7);font-weight:600">✦ Recommended</span></h3>
+      <p>ArgusGrid accepts MudBlazor column components as child content. The wrapper adds: theme, context menus, empty state, row click. Callers write standard MudDataGrid column markup.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Full MudDataGrid power (custom renderers, grouping, footers)</li>
+            <li>Wrapper stays thin and stable</li>
+            <li>Future MudDataGrid features work automatically</li>
+            <li>No model translation layer to maintain</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Callers need basic MudBlazor column knowledge</li>
+            <li>More verbose in markup than model approach</li>
+          </ul>
+        </div>
+      </div>
+      <div class="section">
+        <span class="label">Example usage</span>
+        <pre style="background:var(--bg-3,#111);padding:10px;border-radius:6px;font-size:11px;margin-top:6px;overflow:auto">&lt;ArgusGrid TItem="ProgramItem"
+           Items="_programs"
+           OnRowClick="SelectProgram"
+           ContextMenuItems="_programMenu"&gt;
+  &lt;PropertyColumn Property="p =&gt; p.Name" Title="Name" /&gt;
+  &lt;PropertyColumn Property="p =&gt; p.ScopeCount" Title="Scopes" /&gt;
+  &lt;TemplateColumn Title="Status"&gt;
+    &lt;CellTemplate&gt;...custom render...&lt;/CellTemplate&gt;
+  &lt;/TemplateColumn&gt;
+&lt;/ArgusGrid&gt;</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Model + Slot</h3>
+      <p>Provide both: simple <code>Columns</code> parameter for the common case, plus a <code>ColumnsTemplate</code> RenderFragment slot for complex custom columns.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Best of both — simple when possible, powerful when needed</li>
+            <li>Gradual migration path</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Two patterns for callers to learn</li>
+            <li>Larger, more complex wrapper</li>
+            <li>Model translation AND RenderFragment paths both need maintenance</li>
+          </ul>
+        </div>
+      </div>
+      <div class="section">
+        <span class="label">Example usage</span>
+        <pre style="background:var(--bg-3,#111);padding:10px;border-radius:6px;font-size:11px;margin-top:6px;overflow:auto">// Simple case (model-driven):
+&lt;ArgusGrid TItem="AssetItem" Items="_assets"
+           Columns="_assetColumns" /&gt;
+
+// Complex case (template slot):
+&lt;ArgusGrid TItem="AssetItem" Items="_assets"&gt;
+  &lt;ColumnsTemplate&gt;
+    &lt;TemplateColumn ...&gt;...&lt;/TemplateColumn&gt;
+  &lt;/ColumnsTemplate&gt;
+&lt;/ArgusGrid&gt;</pre>
+      </div>
+    </div>
+  </div>
+
+</div>

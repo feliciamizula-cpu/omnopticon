@@ -1,119 +1,111 @@
 @typeparam TItem
-@using Microsoft.JSInterop
-@implements IDisposable
-@inject IJSRuntime JS
 
-<div id="@_gridId" class="argus-grid-container" style="@(string.IsNullOrEmpty(Height) ? "" : $"height:{Height}")"></div>
+<div class="argus-grid-wrap" @oncontextmenu:preventDefault="true">
+    <MudDataGrid T="TItem"
+                 Items="Items"
+                 Dense="Dense"
+                 Loading="Loading"
+                 Filterable="Filterable"
+                 Virtualize="Virtualize"
+                 Height="@(Virtualize ? Height : null)"
+                 SortMode="SortMode.Single"
+                 Hover="true"
+                 MultiSelection="false"
+                 SelectOnRowClick="false"
+                 RowClassFunc="ComputeRowClass"
+                 RowClick="HandleRowClick"
+                 RowContextMenuClick="HandleContextMenuClick"
+                 Elevation="0"
+                 Style="height:100%;min-height:0">
+        <Columns>
+            @if (Columns is { Count: > 0 })
+            {
+                @foreach (var col in Columns)
+                {
+                    var c = col;
+                    <TemplateColumn T="TItem" Title="@c.Header" Sortable="@c.Sortable">
+                        <CellTemplate>
+                            <span class="@(c.Primary ? "argus-cell-primary" : "")">
+                                @c.Value?.Invoke(context.Item)
+                            </span>
+                        </CellTemplate>
+                    </TemplateColumn>
+                }
+            }
+            @ChildContent
+        </Columns>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Color="Color.Tertiary" Class="pa-4">@EmptyMessage</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+</div>
+
+@if (ContextMenuItems is not null)
+{
+    <div style="position:fixed;left:@(_ctxX)px;top:@(_ctxY)px;width:1px;height:1px;pointer-events:none">
+        <MudMenu @ref="_contextMenu"
+                 AnchorOrigin="Origin.TopLeft"
+                 TransformOrigin="Origin.TopLeft"
+                 Dense="true">
+            <ActivatorContent>
+                <span style="display:block;width:1px;height:1px;pointer-events:all" />
+            </ActivatorContent>
+            <ChildContent>
+                @foreach (var item in _ctxItems)
+                {
+                    var action = item.Action;
+                    <MudMenuItem OnClick="@(async () => await action())">@item.Label</MudMenuItem>
+                }
+            </ChildContent>
+        </MudMenu>
+    </div>
+}
 
 @code {
-    [Parameter, EditorRequired] public List<TItem> Items { get; set; } = [];
-    [Parameter, EditorRequired] public List<GridColumn<TItem>> Columns { get; set; } = [];
-    [Parameter] public object? SelectedItem { get; set; }
-    [Parameter] public EventCallback<object> OnRowClicked { get; set; }
-    [Parameter] public EventCallback<object> OnRowDoubleClicked { get; set; }
-    [Parameter] public EventCallback<AgGridContextMenuEvent> OnCellContextMenu { get; set; }
+    [Parameter, EditorRequired] public IEnumerable<TItem> Items { get; set; } = [];
+    [Parameter] public List<GridColumn<TItem>>? Columns { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public TItem? SelectedItem { get; set; }
+    [Parameter] public EventCallback<TItem?> SelectedItemChanged { get; set; }
+    [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
+    [Parameter] public Func<TItem, List<ArgusMenuItem>>? ContextMenuItems { get; set; }
+    [Parameter] public Func<TItem, int, string>? RowClassFunc { get; set; }
+    [Parameter] public string EmptyMessage { get; set; } = "No records";
+    [Parameter] public bool Dense { get; set; } = true;
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Filterable { get; set; }
+    [Parameter] public bool Virtualize { get; set; }
     [Parameter] public string Height { get; set; } = "100%";
 
-    private string _gridId = $"ag-grid-{Guid.NewGuid():N}";
-    private bool _initialized;
-    private DotNetObjectReference<ArgusGrid<TItem>>? _dotNetRef;
+    private MudMenu? _contextMenu;
+    private double _ctxX;
+    private double _ctxY;
+    private List<ArgusMenuItem> _ctxItems = [];
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private string ComputeRowClass(TItem item, int index)
     {
-        if (firstRender)
-        {
-            _dotNetRef = DotNetObjectReference.Create(this);
-            await InitializeGrid();
-        }
+        var custom = RowClassFunc?.Invoke(item, index) ?? "";
+        var selected = SelectedItem is not null && EqualityComparer<TItem>.Default.Equals(item, SelectedItem)
+            ? "argus-row-selected"
+            : "";
+        return $"{custom} {selected}".Trim();
     }
 
-    protected override async Task OnParametersSetAsync()
+    private async Task HandleRowClick(DataGridRowClickEventArgs<TItem> args)
     {
-        if (_initialized && _dotNetRef != null)
-        {
-            await UpdateData();
-        }
+        await SelectedItemChanged.InvokeAsync(args.Item);
+        await OnRowClick.InvokeAsync(args.Item);
     }
 
-    private async Task InitializeGrid()
+    private async Task HandleContextMenuClick(DataGridRowClickEventArgs<TItem> args)
     {
-        var columnDefs = Columns.Select(c => c.ToAgGridColumn().ToDict()).ToList();
-        var rowData = Items.Cast<object>().ToList();
-
-        await JS.InvokeVoidAsync("ArgusGrid.create", _gridId, _dotNetRef, new
-        {
-            rowHeight = 28,
-            headerHeight = 32,
-            columnDefs,
-            rowData
-        });
-
-        _initialized = true;
-    }
-
-    private async Task UpdateData()
-    {
-        if (!_initialized) return;
-
-        var rowData = Items.Cast<object>().ToList();
-        await JS.InvokeVoidAsync("ArgusGrid.setRowData", _gridId, rowData);
-    }
-
-    [JSInvokable]
-    public void OnGridRowClicked(object rowData)
-    {
-        SelectedItem = rowData;
-        _ = OnRowClicked.InvokeAsync(rowData);
-    }
-
-    [JSInvokable]
-    public void OnGridRowDoubleClicked(object rowData)
-    {
-        _ = OnRowDoubleClicked.InvokeAsync(rowData);
-    }
-
-    [JSInvokable]
-    public void OnGridCellContextMenu(int mouseX, int mouseY, object rowData)
-    {
-        _ = OnCellContextMenu.InvokeAsync(new AgGridContextMenuEvent
-        {
-            Data = rowData,
-            MouseX = mouseX,
-            MouseY = mouseY
-        });
-    }
-
-    [JSInvokable]
-    public void OnGridSelectionChanged(object? rowData)
-    {
-        if (rowData != null)
-        {
-            SelectedItem = rowData;
-        }
-    }
-
-    public async Task RefreshAsync()
-    {
-        if (_initialized)
-        {
-            await JS.InvokeVoidAsync("ArgusGrid.refreshCells", _gridId);
-        }
-    }
-
-    public async Task SizeColumnsToFitAsync()
-    {
-        if (_initialized)
-        {
-            await JS.InvokeVoidAsync("ArgusGrid.sizeColumnsToFit", _gridId);
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_initialized)
-        {
-            _ = JS.InvokeVoidAsync("ArgusGrid.destroy", _gridId);
-        }
-        _dotNetRef?.Dispose();
+        if (ContextMenuItems is null) return;
+        _ctxX = args.MouseEventArgs.ClientX;
+        _ctxY = args.MouseEventArgs.ClientY;
+        _ctxItems = ContextMenuItems(args.Item);
+        if (_ctxItems.Count == 0) return;
+        StateHasChanged();
+        if (_contextMenu is not null)
+            await _contextMenu.OpenMenuAsync(EventArgs.Empty, false);
     }
 }

@@ -3,6 +3,11 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
+<MudThemeProvider Theme="ArgusTheme.Instance" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
 <div class="app-shell">
   <SidebarNav Collapsed="@_sidebarCollapsed" OnToggle="ToggleSidebar" />
   

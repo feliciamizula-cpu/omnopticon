@@ -1,0 +1,179 @@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject HttpClient Http
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_name"
+                          Label="Name"
+                          Required="true"
+                          Placeholder="e.g. ACME Corp Bug Bounty"
+                          Immediate="true" />
+            <MudTextField @bind-Value="_source"
+                          Label="Source"
+                          Required="true"
+                          Placeholder="HackerOne / Bugcrowd / Manual"
+                          Immediate="true" />
+            <MudTextField @bind-Value="_externalUrl"
+                          Label="External URL"
+                          Placeholder="https://hackerone.com/program"
+                          Immediate="true" />
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">In-Scope Domains</MudText>
+
+            @for (var i = 0; i < _scopes.Count; i++)
+            {
+                var idx = i;
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudTextField Value="@_scopes[idx].Pattern"
+                                  ValueChanged="@((string v) => _scopes[idx].Pattern = v)"
+                                  Placeholder="example.com or *.example.com"
+                                  Immediate="true"
+                                  Class="flex-grow-1" />
+                    <MudSelect Value="@_scopes[idx].ScopeType"
+                               ValueChanged="@((string v) => _scopes[idx].ScopeType = v)"
+                               Style="min-width:160px">
+                        <MudSelectItem Value="@("Domain")">Domain</MudSelectItem>
+                        <MudSelectItem Value="@("WildcardDomain")">Wildcard Domain</MudSelectItem>
+                        <MudSelectItem Value="@("Url")">URL</MudSelectItem>
+                        <MudSelectItem Value="@("Cidr")">CIDR</MudSelectItem>
+                        <MudSelectItem Value="@("IpRange")">IP Range</MudSelectItem>
+                    </MudSelect>
+                    <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                   Size="Size.Small"
+                                   OnClick="@(() => RemoveScope(idx))"
+                                   Disabled="@(_scopes.Count <= 1)" />
+                </MudStack>
+            }
+
+            <MudButton StartIcon="@Icons.Material.Filled.Add"
+                       Size="Size.Small"
+                       Variant="Variant.Text"
+                       Class="align-self-start"
+                       OnClick="AddScope">
+                Add Domain
+            </MudButton>
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="@_saving">Cancel</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="CreateAsync"
+                   Disabled="@(_saving || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_source))">
+            @(_saving ? "Creating…" : "Create Program")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private sealed class ScopeEntry
+    {
+        public string Pattern { get; set; } = "";
+        public string ScopeType { get; set; } = "Domain";
+    }
+
+    private string _name = "";
+    private string _source = "";
+    private string _externalUrl = "";
+    private List<ScopeEntry> _scopes = [new()];
+    private string _error = "";
+    private bool _saving;
+
+    private void AddScope() => _scopes.Add(new ScopeEntry());
+
+    private void RemoveScope(int index)
+    {
+        if (_scopes.Count > 1 && index >= 0 && index < _scopes.Count)
+            _scopes.RemoveAt(index);
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task CreateAsync()
+    {
+        _error = "";
+        var validScopes = _scopes.Where(s => !string.IsNullOrWhiteSpace(s.Pattern)).ToList();
+        if (validScopes.Count == 0)
+        {
+            _error = "Add at least one domain scope.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var createBody = new JsonObject
+            {
+                ["name"]        = _name.Trim(),
+                ["source"]      = _source.Trim(),
+                ["externalUrl"] = string.IsNullOrWhiteSpace(_externalUrl) ? null : _externalUrl.Trim()
+            };
+
+            using var programResp = await Http.PostAsJsonAsync("/ui/programs", createBody);
+            if (!programResp.IsSuccessStatusCode)
+            {
+                _error = await ExtractError(programResp, "create program");
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(await programResp.Content.ReadAsStringAsync());
+            if (!doc.RootElement.TryGetProperty("programId", out var pidEl))
+            {
+                _error = "Server response missing programId.";
+                return;
+            }
+            var programId = pidEl.GetGuid();
+
+            foreach (var scope in validScopes)
+            {
+                var scopeBody = new JsonObject
+                {
+                    ["scopeType"] = scope.ScopeType,
+                    ["pattern"]   = scope.Pattern.Trim(),
+                    ["action"]    = "Include",
+                    ["notes"]     = null
+                };
+                await Http.PostAsJsonAsync($"/ui/programs/{programId}/scopes", scopeBody);
+            }
+
+            MudDialog.Close(DialogResult.Ok(programId));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static async Task<string> ExtractError(HttpResponseMessage resp, string operation)
+    {
+        var status = (int)resp.StatusCode;
+        try
+        {
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                var detail = doc.RootElement.TryGetProperty("detail", out var d) ? d.GetString() :
+                             doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() :
+                             doc.RootElement.TryGetProperty("title", out var t) ? t.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(detail))
+                    return $"Failed to {operation} ({status}): {(detail!.Length > 200 ? detail[..200] + "…" : detail)}";
+            }
+        }
+        catch { }
+        return $"Failed to {operation} ({status}).";
+    }
+}

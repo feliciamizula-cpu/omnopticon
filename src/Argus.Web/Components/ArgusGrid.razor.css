@@ -1,0 +1,21 @@
+.argus-grid-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+/* selected row highlight — matches the existing amber accent */
+::deep .mud-table-row.argus-row-selected td {
+    background-color: rgba(245, 165, 36, 0.12);
+}
+
+::deep .mud-table-row.argus-row-selected:hover td {
+    background-color: rgba(245, 165, 36, 0.18);
+}
+
+/* primary cell text */
+::deep .argus-cell-primary {
+    color: var(--mud-palette-text-primary);
+    font-weight: 500;
+}
