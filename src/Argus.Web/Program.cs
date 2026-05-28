@@ -163,7 +163,7 @@ app.MapPost("/ui/programs/{programId:guid}/scopes", async (
                 {
                     ["programId"]          = programId,
                     ["scopeId"]            = scopeId,
-                    ["type"]               = "Domain",
+                    ["type"]               = (int)AssetType.Domain,
                     ["value"]              = rootDomain,
                     ["subtype"]            = "ScopeRoot",
                     ["confidence"]         = 1.0,
