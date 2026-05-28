@@ -40,27 +40,27 @@ RUN dotnet publish ${PROJECT_PATH} \
     -p:TreatWarningsAsErrors=false
 
 RUN if [ -d /app/publish/wwwroot/_framework ]; then \
-      find /app/publish/wwwroot/_framework -name 'blazor.web*.js' | grep -q . || \
+      find /app/publish/wwwroot/_framework -name 'blazor.server*.js' | grep -q . || \
       { echo "ERROR: No Blazor framework JS found in wwwroot/_framework/"; ls /app/publish/wwwroot/_framework/ 2>/dev/null || true; exit 1; }; \
     fi
 
-# Ensure blazor.web.js exists at the plain (non-fingerprinted) path so UseStaticFiles()
-# can serve /_framework/blazor.web.js. When the SDK omits this from the static assets
+# Ensure blazor.server.js exists at the plain (non-fingerprinted) path so UseStaticFiles()
+# can serve /_framework/blazor.server.js. When the SDK omits this from the static assets
 # manifest, @Assets returns the plain path and the browser needs a physical file at that URL.
 RUN if [ "$ASSEMBLY_NAME" = "Argus.Web" ]; then \
       mkdir -p /app/publish/wwwroot/_framework; \
-      if [ ! -f /app/publish/wwwroot/_framework/blazor.web.js ]; then \
-        FINGERPRINTED=$(find /app/publish/wwwroot/_framework -name 'blazor.web*.js' 2>/dev/null | head -1); \
+      if [ ! -f /app/publish/wwwroot/_framework/blazor.server.js ]; then \
+        FINGERPRINTED=$(find /app/publish/wwwroot/_framework -name 'blazor.server*.js' 2>/dev/null | head -1); \
         if [ -n "$FINGERPRINTED" ]; then \
-          cp "$FINGERPRINTED" /app/publish/wwwroot/_framework/blazor.web.js; \
-          echo "Copied $FINGERPRINTED → blazor.web.js"; \
+          cp "$FINGERPRINTED" /app/publish/wwwroot/_framework/blazor.server.js; \
+          echo "Copied $FINGERPRINTED → blazor.server.js"; \
         else \
-          NUGET_SRC=$(find /root/.nuget -name 'blazor.web.js' 2>/dev/null | head -1); \
+          NUGET_SRC=$(find /root/.nuget -name 'blazor.server.js' 2>/dev/null | head -1); \
           if [ -n "$NUGET_SRC" ]; then \
-            cp "$NUGET_SRC" /app/publish/wwwroot/_framework/blazor.web.js; \
-            echo "Copied blazor.web.js from NuGet cache: $NUGET_SRC"; \
+            cp "$NUGET_SRC" /app/publish/wwwroot/_framework/blazor.server.js; \
+            echo "Copied blazor.server.js from NuGet cache: $NUGET_SRC"; \
           else \
-            echo "WARNING: blazor.web.js not found; _framework directory will be empty"; \
+            echo "WARNING: blazor.server.js not found; _framework directory will be empty"; \
           fi; \
         fi; \
       fi; \

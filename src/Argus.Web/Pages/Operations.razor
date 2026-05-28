@@ -72,13 +72,6 @@
 
 <PageTitle>Operations</PageTitle>
 
-@* ── Diagnostic probe – remove once grids are confirmed working ── *@
-<div style="background:#1a0030;border:2px solid #cc00ff;color:#cc00ff;padding:8px 12px;font-size:11px;font-family:monospace;margin-bottom:4px;line-height:1.6;">
-    DIAG rendered=@DateTime.UtcNow.ToString("HH:mm:ss") UTC |
-    programs=@_programs.Count | assets=@_assets.Count |
-    prog-cols=@_programColumns.Count | asset-cols=@_assetColumns.Count
-</div>
-
 <div class="ops-layout">
 
     @* ── Programs panel ── *@
@@ -87,10 +80,6 @@
             <span class="ops-panel-title">Programs</span>
             <span class="ops-panel-count">@_programs.Count</span>
             <button class="btn btn-sm" style="margin-left:auto;" @onclick="OpenNewProgramForm">+ New</button>
-        </div>
-        @* DIAG: basic HTML renders here? *@
-        <div style="background:#002a00;border:1px solid #00ff88;color:#00ff88;padding:4px 8px;font-size:10px;font-family:monospace;flex-shrink:0;">
-            DIAG-INNER: @_programs.Count program(s) loaded, @_programColumns.Count col(s) defined
         </div>
         <ArgusGrid TItem="ProgramItem"
                    Items="_programs"
@@ -310,6 +299,7 @@
         {
             new GridColumn<ProgramItem>
             {
+                Field = "Name",
                 Header = "Name",
                 Value = p => p.Name,
                 Primary = true,
@@ -317,6 +307,7 @@
             },
             new GridColumn<ProgramItem>
             {
+                Field = "ScopeCount",
                 Header = "Scopes",
                 Value = p => p.ScopeCount.ToString(),
                 Sortable = true,
@@ -328,12 +319,14 @@
         {
             new GridColumn<AssetItem>
             {
+                Field = "Type",
                 Header = "Type",
                 Value = a => a.Type,
                 Width = "100px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "Value",
                 Header = "Value",
                 Value = a => a.Value,
                 Primary = true,
@@ -341,24 +334,28 @@
             },
             new GridColumn<AssetItem>
             {
+                Field = "Status",
                 Header = "Status",
                 Value = a => a.Status,
                 Width = "100px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "RiskScore",
                 Header = "Risk",
                 Value = a => a.RiskScore.HasValue ? a.RiskScore.Value.ToString("F1") : "—",
                 Width = "80px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "FirstSeenAt",
                 Header = "First Seen",
                 Value = a => FmtAgo(a.FirstSeenAt),
                 Width = "120px"
             },
             new GridColumn<AssetItem>
             {
+                Field = "LastSeenAt",
                 Header = "Last Seen",
                 Value = a => FmtAgo(a.LastSeenAt),
                 Width = "120px"
@@ -382,17 +379,41 @@
         try
         {
             using var resp = await Http.GetAsync("/ui/programs");
-            if (!resp.IsSuccessStatusCode) return;
+            if (!resp.IsSuccessStatusCode)
+            {
+                AddLog($"Programs endpoint failed ({resp.StatusCode})", error: true);
+                return;
+            }
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            _programs = doc.RootElement.EnumerateArray()
-                .Select(e => new ProgramItem(
-                    e.TryGetProperty("programId", out var id) ? id.GetGuid() : Guid.Empty,
-                    e.TryGetProperty("name",      out var n)  ? n.GetString() ?? "" : "",
-                    e.TryGetProperty("scopes",    out var sc) ? sc.GetArrayLength() : 0))
+
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().ToList()
+                : root.TryGetProperty("items", out var items)
+                    ? items.EnumerateArray().ToList()
+                    : [];
+
+            _programs = arr.Select(e => new ProgramItem(
+                e.TryGetProperty("programId", out var id) ? id.GetGuid() :
+                e.TryGetProperty("id", out var id2) ? id2.GetGuid() : Guid.Empty,
+                e.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+                e.TryGetProperty("scopes", out var sc) ? sc.GetArrayLength() : 0))
                 .Where(p => p.ProgramId != Guid.Empty)
                 .ToList();
+
+            if (_programs.Count == 0)
+            {
+                AddLog("No programs returned from server", error: true);
+            }
+            else if (_selectedProgram is null)
+            {
+                await SelectProgram(_programs[0]);
+            }
         }
-        catch (Exception ex) { Logger.LogDebug(ex, "Load programs failed"); }
+        catch (Exception ex)
+        {
+            AddLog($"Load programs error: {ex.Message}", error: true);
+        }
     }
 
     async Task LoadAssetsAsync()
@@ -402,7 +423,11 @@
         {
             var url = $"/ui/ops/assets?programId={programId}&take=500";
             using var resp = await Http.GetAsync(url);
-            if (!resp.IsSuccessStatusCode) return;
+            if (!resp.IsSuccessStatusCode)
+            {
+                AddLog($"Assets endpoint failed ({resp.StatusCode})", error: true);
+                return;
+            }
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
 
             var root = doc.RootElement;
@@ -428,7 +453,7 @@
                 });
             }
         }
-        catch (Exception ex) { Logger.LogDebug(ex, "Load assets failed"); }
+        catch (Exception ex) { AddLog($"Load assets error: {ex.Message}", error: true); }
     }
 
     static AssetItem? ParseAsset(JsonElement e)

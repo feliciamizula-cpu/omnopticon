@@ -7,11 +7,16 @@
   <title>Omnopticon</title>
   <link rel="stylesheet" href="@Assets["css/app-shell.css"]" />
   <link rel="stylesheet" href="@Assets["css/development.css"]" />
+  <link rel="stylesheet" href="@Assets["css/argus-grid-display.css"]" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.2/styles/ag-grid.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.2/styles/ag-theme-alpine.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.2/dist/ag-grid-community.min.js"></script>
   <GlobalGridStyles />
   <HeadOutlet />
 </head>
 <body>
   <Routes />
   <script src="@Assets["_framework/blazor.server.js"]"></script>
+  <script src="@Assets["js/argus-grid.js"]"></script>
 </body>
 </html>

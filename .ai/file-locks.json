@@ -1,0 +1,4 @@
+{
+  "description": "File lock mapping: file paths to lock info. Agents must add an entry before editing a file and remove it after the edit is complete.",
+  "locks": {}
+}

@@ -1,362 +1,119 @@
 @typeparam TItem
-@implements IAsyncDisposable
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JS
 
-<CascadingValue Value="this" IsFixed="true">
-<div class="ag" style="@_rootStyle">
-    @ChildContent
-
-    @* ── Toolbar ── *@
-    <div class="ag-bar">
-        <input class="ag-search" type="search" placeholder="search…"
-               value="@_search" @oninput="OnSearch" />
-        @if (_hasFilterable)
-        {
-            <button class="ag-icon-btn @(_showFilters ? "active" : "")"
-                    title="Toggle column filters" @onclick="ToggleFilters">⊟</button>
-        }
-        @if (_groupable.Count > 1)
-        {
-            <select class="ag-select" value="@(_groupBy ?? "")" @onchange="OnGroupChange" title="Group by">
-                <option value="">group…</option>
-                @foreach (var h in _groupable)
-                {
-                    <option value="@h">@h</option>
-                }
-            </select>
-        }
-        @if (ToolbarContent is not null)
-        {
-            @ToolbarContent
-        }
-        <span class="ag-count">@_processed.Count<span class="ag-count-sep">/</span>@Items.Count</span>
-    </div>
-
-    @* ── Scrollable region: sticky header + virtual rows ── *@
-    <div class="ag-scroll">
-
-        @* Sticky header *@
-        <div class="ag-head ag-row-grid">
-            @foreach (var col in ActiveColumns)
-            {
-                var c = col;
-                <div class="ag-th @HeadCls(c)" @onclick="() => ClickSort(c)" title="@c.Header">@c.Header</div>
-            }
-        </div>
-
-        @* Optional per-column filter row *@
-        @if (_showFilters)
-        {
-            <div class="ag-filter-row ag-row-grid">
-                @foreach (var col in ActiveColumns)
-                {
-                    var c = col;
-                    <div class="ag-fc">
-                        @if (c.Searchable && c.Value is not null)
-                        {
-                            <input class="ag-fi"
-                                   value="@GetFilter(c)"
-                                   @oninput="e => SetFilter(c, e.Value?.ToString())"
-                                   placeholder="…" />
-                        }
-                    </div>
-                }
-            </div>
-        }
-
-        @* Virtualized body (no grouping) *@
-        @if (_groupBy is null)
-        {
-            <Virtualize Items="_processed" ItemSize="28" OverscanCount="8" Context="item">
-                <div class="ag-row ag-row-grid @(IsSelected(item) ? "ag-sel" : "") @(RowClass?.Invoke(item) ?? "")"
-                     @onclick="() => ClickRow(item)"
-                     @oncontextmenu="e => HandleContextMenu(item, e)"
-                     @oncontextmenu:preventDefault="@(OnRowContextMenu is not null)">
-                    @foreach (var col in ActiveColumns)
-                    {
-                        var c = col;
-                        <div class="ag-td @(c.Primary ? "ag-primary" : "")">
-                            @if (c.Cell is not null) { @c.Cell(item) }
-                            else { @c.Value?.Invoke(item) }
-                        </div>
-                    }
-                </div>
-            </Virtualize>
-        }
-        else
-        {
-            @* Grouped body: sorted by group key, visual group-header rows *@
-            string? lastGroup = null;
-            @foreach (var item in _processed)
-            {
-                var groupKey = _groupCol?.Value?.Invoke(item) ?? "";
-                @if (groupKey != lastGroup)
-                {
-                    lastGroup = groupKey;
-                    var gk = groupKey;
-                    var gcount = _processed.Count(r => (_groupCol?.Value?.Invoke(r) ?? "") == gk);
-                    <div class="ag-group-row ag-row-grid">
-                        <div class="ag-group-cell" style="grid-column: 1 / -1">
-                            <span class="ag-group-key">@(string.IsNullOrEmpty(gk) ? "—" : gk)</span>
-                            <span class="ag-group-count">@gcount</span>
-                        </div>
-                    </div>
-                }
-                var it = item;
-                <div class="ag-row ag-row-grid @(IsSelected(it) ? "ag-sel" : "") @(RowClass?.Invoke(it) ?? "")"
-                     @onclick="() => ClickRow(it)"
-                     @oncontextmenu="e => HandleContextMenu(it, e)"
-                     @oncontextmenu:preventDefault="@(OnRowContextMenu is not null)">
-                    @foreach (var col in ActiveColumns)
-                    {
-                        var c = col;
-                        <div class="ag-td @(c.Primary ? "ag-primary" : "")">
-                            @if (c.Cell is not null) { @c.Cell(it) }
-                            else { @c.Value?.Invoke(it) }
-                        </div>
-                    }
-                </div>
-            }
-        }
-
-        @if (_processed.Count == 0)
-        {
-            <div class="ag-empty">@(EmptyMessage ?? "// no results")</div>
-        }
-    </div>
-</div>
-</CascadingValue>
+<div id="@_gridId" class="argus-grid-container" style="@(string.IsNullOrEmpty(Height) ? "" : $"height:{Height}")"></div>
 
 @code {
     [Parameter, EditorRequired] public List<TItem> Items { get; set; } = [];
     [Parameter, EditorRequired] public List<GridColumn<TItem>> Columns { get; set; } = [];
-    [Parameter] public RenderFragment? ChildContent { get; set; }
-    [Parameter] public string? Style { get; set; }
+    [Parameter] public object? SelectedItem { get; set; }
+    [Parameter] public EventCallback<object> OnRowClicked { get; set; }
+    [Parameter] public EventCallback<object> OnRowDoubleClicked { get; set; }
+    [Parameter] public EventCallback<AgGridContextMenuEvent> OnCellContextMenu { get; set; }
+    [Parameter] public string Height { get; set; } = "100%";
 
-    string _rootStyle => string.IsNullOrEmpty(Style)
-        ? $"--ag-cols: {_colsTemplate}"
-        : $"--ag-cols: {_colsTemplate}; {Style}";
+    private string _gridId = $"ag-grid-{Guid.NewGuid():N}";
+    private bool _initialized;
+    private DotNetObjectReference<ArgusGrid<TItem>>? _dotNetRef;
 
-    /// <summary>Highlighted row. Uses ItemKey for comparison when set, otherwise reference equality.</summary>
-    [Parameter] public TItem? SelectedItem { get; set; }
-
-    /// <summary>Extracts a stable key for identity comparison across reloads (e.g. a => a.Id).</summary>
-    [Parameter] public Func<TItem, object?>? ItemKey { get; set; }
-
-    [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
-
-    /// <summary>Invoked on right-click. Receives the item and mouse event (coordinates for positioning a menu).</summary>
-    [Parameter] public Func<TItem, MouseEventArgs, Task>? OnRowContextMenu { get; set; }
-
-    /// <summary>Optional extra CSS class(es) to apply to each row. Return empty string for no class.</summary>
-    [Parameter] public Func<TItem, string>? RowClass { get; set; }
-
-    [Parameter] public string? EmptyMessage { get; set; }
-
-    /// <summary>Renders inside the toolbar, after the built-in controls.</summary>
-    [Parameter] public RenderFragment? ToolbarContent { get; set; }
-
-    /// <summary>Seconds between live-refresh ticks. 0 = disabled.</summary>
-    [Parameter] public int LiveRefreshSeconds { get; set; }
-
-    /// <summary>Invoked every LiveRefreshSeconds. Parent should reload Items and re-render.</summary>
-    [Parameter] public EventCallback OnLiveRefresh { get; set; }
-
-    // ── Column metadata (stable across re-renders until Columns changes) ──
-    private string _colsTemplate = "";
-    private bool _hasFilterable;
-    private List<string> _groupable = [];
-    private GridColumn<TItem>? _groupCol;
-
-    // ── Interaction state ──
-    private string _search = "";
-    private bool _showFilters;
-    private string? _sortCol;
-    private bool _sortAsc = true;
-    private string? _groupBy;
-    private readonly Dictionary<string, string> _colFilters = new(StringComparer.Ordinal);
-
-    // ── Cached result (rebuilt only on state changes, not every render) ──
-    private List<TItem> _processed = [];
-    private readonly List<GridColumn<TItem>> _registeredColumns = [];
-
-    // ── Live-refresh timer ──
-    private PeriodicTimer? _timer;
-    private CancellationTokenSource? _cts;
-
-    private IReadOnlyList<GridColumn<TItem>> ActiveColumns =>
-        Columns.Count > 0 ? Columns : _registeredColumns;
-
-    protected override void OnParametersSet()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var activeColumns = ActiveColumns;
-
-        // Column metadata — cheap to recompute; guards against column list changes
-        var newTemplate = string.Join(" ", activeColumns.Select(c => c.Width ?? "minmax(0, 1fr)"));
-        if (newTemplate != _colsTemplate)
+        if (firstRender)
         {
-            _colsTemplate = newTemplate;
-            _hasFilterable = activeColumns.Any(c => c.Searchable && c.Value is not null);
-            _groupable = activeColumns.Where(c => c.Sortable && c.Value is not null).Select(c => c.Header).ToList();
-        }
-        _groupCol = _groupBy is not null ? activeColumns.FirstOrDefault(c => c.Header == _groupBy) : null;
-
-        Recompute();
-
-        // Start timer once (idempotent)
-        if (LiveRefreshSeconds > 0 && _timer is null)
-        {
-            _cts = new CancellationTokenSource();
-            _timer = new PeriodicTimer(TimeSpan.FromSeconds(LiveRefreshSeconds));
-            _ = RunTimerAsync(_cts.Token);
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await InitializeGrid();
         }
     }
 
-    // ── Pipeline ─────────────────────────────────────────────────────────────────
-
-    private void Recompute()
+    protected override async Task OnParametersSetAsync()
     {
-        var activeColumns = ActiveColumns;
-        IEnumerable<TItem> rows = Items;
-
-        // 1. Global search
-        if (_search.Length > 0)
+        if (_initialized && _dotNetRef != null)
         {
-            var q = _search;
-            rows = rows.Where(item => activeColumns.Any(c =>
-                c.Searchable && c.Value?.Invoke(item)
-                    ?.Contains(q, StringComparison.OrdinalIgnoreCase) == true));
-        }
-
-        // 2. Per-column filters
-        foreach (var (header, filter) in _colFilters)
-        {
-            if (filter.Length == 0) continue;
-            var col = activeColumns.FirstOrDefault(c => c.Header == header);
-            if (col?.Value is null) continue;
-            var fv = filter;
-            rows = rows.Where(item =>
-                col.Value(item)?.Contains(fv, StringComparison.OrdinalIgnoreCase) == true);
-        }
-
-        // 3. Sort
-        if (_sortCol is not null)
-        {
-            var col = activeColumns.FirstOrDefault(c => c.Header == _sortCol);
-            if (col?.Value is not null)
-            {
-                rows = _sortAsc
-                    ? rows.OrderBy(col.Value, StringComparer.OrdinalIgnoreCase)
-                    : rows.OrderByDescending(col.Value, StringComparer.OrdinalIgnoreCase);
-            }
-        }
-
-        // 4. Group sort (appended; preserves explicit sort within groups)
-        if (_groupBy is not null && _groupCol?.Value is { } gv)
-        {
-            rows = _sortCol is null
-                ? rows.OrderBy(gv, StringComparer.OrdinalIgnoreCase)
-                : ((IOrderedEnumerable<TItem>)rows).ThenBy(gv, StringComparer.OrdinalIgnoreCase);
-        }
-
-        _processed = rows.ToList();
-    }
-
-    // ── Timer ─────────────────────────────────────────────────────────────────────
-
-    private async Task RunTimerAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested && _timer is not null)
-        {
-            try
-            {
-                if (!await _timer.WaitForNextTickAsync(ct)) break;
-                await OnLiveRefresh.InvokeAsync();
-            }
-            catch (OperationCanceledException) { break; }
-            catch { /* swallow transient errors; timer keeps running */ }
+            await UpdateData();
         }
     }
 
-    // ── Event handlers ────────────────────────────────────────────────────────────
-
-    private void OnSearch(ChangeEventArgs e) { _search = e.Value?.ToString() ?? ""; Recompute(); }
-    private void ToggleFilters() => _showFilters = !_showFilters;
-
-    private void OnGroupChange(ChangeEventArgs e)
+    private async Task InitializeGrid()
     {
-        var v = e.Value?.ToString();
-        _groupBy = string.IsNullOrEmpty(v) ? null : v;
-        _groupCol = _groupBy is not null ? ActiveColumns.FirstOrDefault(c => c.Header == _groupBy) : null;
-        Recompute();
-    }
+        var columnDefs = Columns.Select(c => c.ToAgGridColumn().ToDict()).ToList();
+        var rowData = Items.Cast<object>().ToList();
 
-    public void RegisterColumn(ArgusGridColumn<TItem> column)
-    {
-        var mapped = new GridColumn<TItem>
+        await JS.InvokeVoidAsync("ArgusGrid.create", _gridId, _dotNetRef, new
         {
-            Header = column.Header,
-            Value = column.Value,
-            Cell = column.CellTemplate,
-            Width = column.Width,
-            Sortable = column.Sortable,
-            Searchable = column.Searchable
-        };
+            rowHeight = 28,
+            headerHeight = 32,
+            columnDefs,
+            rowData
+        });
 
-        _registeredColumns.RemoveAll(c => c.Header == column.Header);
-        _registeredColumns.Add(mapped);
+        _initialized = true;
     }
 
-    public void RemoveColumn(ArgusGridColumn<TItem> column)
+    private async Task UpdateData()
     {
-        _registeredColumns.RemoveAll(c => c.Header == column.Header);
+        if (!_initialized) return;
+
+        var rowData = Items.Cast<object>().ToList();
+        await JS.InvokeVoidAsync("ArgusGrid.setRowData", _gridId, rowData);
     }
 
-    private string GetFilter(GridColumn<TItem> col) =>
-        _colFilters.TryGetValue(col.Header, out var v) ? v : "";
-
-    private void SetFilter(GridColumn<TItem> col, string? value)
+    [JSInvokable]
+    public void OnGridRowClicked(object rowData)
     {
-        if (string.IsNullOrWhiteSpace(value)) _colFilters.Remove(col.Header);
-        else _colFilters[col.Header] = value;
-        Recompute();
+        SelectedItem = rowData;
+        _ = OnRowClicked.InvokeAsync(rowData);
     }
 
-    private void ClickSort(GridColumn<TItem> col)
+    [JSInvokable]
+    public void OnGridRowDoubleClicked(object rowData)
     {
-        if (!col.Sortable || col.Value is null) return;
-        if (_sortCol == col.Header) _sortAsc = !_sortAsc;
-        else { _sortCol = col.Header; _sortAsc = true; }
-        Recompute();
+        _ = OnRowDoubleClicked.InvokeAsync(rowData);
     }
 
-    private async Task ClickRow(TItem item) => await OnRowClick.InvokeAsync(item);
-
-    private async Task HandleContextMenu(TItem item, MouseEventArgs args)
+    [JSInvokable]
+    public void OnGridCellContextMenu(int mouseX, int mouseY, object rowData)
     {
-        if (OnRowContextMenu is not null)
+        _ = OnCellContextMenu.InvokeAsync(new AgGridContextMenuEvent
         {
-            await OnRowContextMenu.Invoke(item, args);
+            Data = rowData,
+            MouseX = mouseX,
+            MouseY = mouseY
+        });
+    }
+
+    [JSInvokable]
+    public void OnGridSelectionChanged(object? rowData)
+    {
+        if (rowData != null)
+        {
+            SelectedItem = rowData;
         }
     }
 
-    private bool IsSelected(TItem item)
+    public async Task RefreshAsync()
     {
-        if (SelectedItem is null) return false;
-        if (ItemKey is not null) return Equals(ItemKey(item), ItemKey(SelectedItem));
-        return EqualityComparer<TItem>.Default.Equals(item, SelectedItem);
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("ArgusGrid.refreshCells", _gridId);
+        }
     }
 
-    private string HeadCls(GridColumn<TItem> col)
+    public async Task SizeColumnsToFitAsync()
     {
-        if (!col.Sortable || col.Value is null) return "";
-        if (_sortCol != col.Header) return "ag-sortable";
-        return _sortAsc ? "ag-sortable ag-asc" : "ag-sortable ag-desc";
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("ArgusGrid.sizeColumnsToFit", _gridId);
+        }
     }
 
-    public async ValueTask DisposeAsync()
+    public void Dispose()
     {
-        if (_cts is not null) { await _cts.CancelAsync(); _cts.Dispose(); }
-        _timer?.Dispose();
-        _timer = null;
+        if (_initialized)
+        {
+            _ = JS.InvokeVoidAsync("ArgusGrid.destroy", _gridId);
+        }
+        _dotNetRef?.Dispose();
     }
 }
