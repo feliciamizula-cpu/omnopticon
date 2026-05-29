@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <NoWarn>NU1510</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="DiffPlex" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Polly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.EventBus\Argus.BuildingBlocks.EventBus.csproj" />
+    <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

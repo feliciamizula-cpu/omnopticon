@@ -61,7 +61,8 @@ app.MapGet("/", () => Results.Ok(new
         new { Name = "event-routes", Path = "/event-routes", Service = "event-router", Description = "Event route management" },
         new { Name = "rate-limits", Path = "/rate-limits", Service = "rate-limit", Description = "Rate limit configuration" },
         new { Name = "settings", Path = "/settings", Service = "program-scope", Description = "System settings" },
-        new { Name = "provider-usage", Path = "/provider-usage", Service = "agent", Description = "Development provider usage monitoring" }
+        new { Name = "provider-usage", Path = "/provider-usage", Service = "agent", Description = "Development provider usage monitoring" },
+        new { Name = "request-tool", Path = "/request-tool", Service = "request-tool", Description = "HTTP request/response viewer and repeater" }
     }
 })).RequireCors(CorsPolicyName);
 
@@ -88,6 +89,7 @@ MapService(app, "/event-routes", endpoints.EventRouter);
 MapService(app, "/rate-limits", endpoints.RateLimit);
 MapService(app, "/settings", endpoints.ProgramScope);
 MapService(app, "/provider-usage", endpoints.Agent);
+MapService(app, "/request-tool", endpoints.RequestTool);
 
 app.Run();
 
@@ -106,7 +108,8 @@ internal sealed record ArgusServiceEndpoints(
     string Agent,
     string RateLimit,
     string Realtime,
-    string EventRouter)
+    string EventRouter,
+    string RequestTool)
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) => new(
         configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
@@ -117,5 +120,6 @@ internal sealed record ArgusServiceEndpoints(
         configuration["ARGUS_AGENT_SERVICE"] ?? "https+http://agent-service",
         configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
         configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service",
-        configuration["ARGUS_EVENT_ROUTER_SERVICE"] ?? "https+http://event-router-service");
+        configuration["ARGUS_EVENT_ROUTER_SERVICE"] ?? "https+http://event-router-service",
+        configuration["ARGUS_REQUEST_TOOL_SERVICE"] ?? "https+http://request-tool-service");
 }

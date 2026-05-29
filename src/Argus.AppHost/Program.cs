@@ -83,6 +83,22 @@ var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("pro
     .WithReference(rabbitMq)
     .WaitFor(rabbitMq);
 
+var requestTool = builder.AddProject<Projects.Argus_RequestToolService>("request-tool-service")
+    .PublishAsArgusImage("src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj", "Argus.RequestToolService")
+    .WithReference(argusDb)
+    .WithReference(rabbitMq)
+    .WithReference(asset)
+    .WithReference(artifact)
+    .WithReference(programScope)
+    .WithReference(rateLimit)
+    .WithReference(proxyRegistry)
+    .WithReference(realtime)
+    .WaitFor(rabbitMq)
+    .WaitFor(asset)
+    .WaitFor(artifact)
+    .WaitFor(programScope)
+    .WaitFor(rateLimit);
+
 var agentService = builder.AddProject<Projects.Argus_AgentService>("agent-service")
     .PublishAsArgusImage("src/Services/Argus.AgentService/Argus.AgentService.csproj", "Argus.AgentService")
     .WithReference(argusDb)
@@ -301,7 +317,8 @@ builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .WithReference(orchestrator)
     .WithReference(realtime)
     .WithReference(agentService)
-    .WithReference(eventRouter);
+    .WithReference(eventRouter)
+    .WithReference(requestTool);
 
 builder.AddProject<Projects.Argus_Web>("argus-web")
     .PublishAsArgusImage("src/Argus.Web/Argus.Web.csproj", "Argus.Web")
@@ -315,8 +332,11 @@ builder.AddProject<Projects.Argus_Web>("argus-web")
     .WithReference(orchestrator)
     .WithReference(realtime)
     .WithReference(agentService)
-    .WithReference(eventRouter);
+    .WithReference(eventRouter)
+    .WithReference(requestTool);
 
 redis.WithParentRelationship(rateLimit);
+
+requestTool.WithReference(realtime);
 
 builder.Build().Run();

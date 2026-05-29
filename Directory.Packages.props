@@ -93,6 +93,8 @@
     <PackageVersion Include="Grpc.Tools" Version="2.78.0" PrivateAssets="All" />
     <!-- Miscellaneous -->
     <PackageVersion Include="Dapper" Version="2.1.35" />
+    <PackageVersion Include="DiffPlex" Version="1.9.0" />
+    <PackageVersion Include="Polly" Version="8.5.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(DotnetPackagesVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="$(DotnetPackagesVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="$(DotnetPackagesVersion)" />

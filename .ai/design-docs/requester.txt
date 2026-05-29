@@ -1,0 +1,2640 @@
+
+# SPEC-1-HTTP-Request-Response-Tool
+
+## Background
+
+Argus needs a production-ready HTTP Request/Response Tool inside `Argus.Web`.
+
+The tool must behave like a repeater/viewer for HTTP evidence linked to Argus assets. Any eligible asset should be configurable to show a `Send to Request Tool` context-menu action. Selecting that action navigates to a dedicated page that shows the original HTTP request/response pair used to confirm that asset. The page must support all request/response pairs linked to that asset as tabs. User-generated replays must also appear as new tabs. Users must be able to edit and resend requests, compare requests or responses, and preserve all history as durable evidence.
+
+This design intentionally defers the scripting engine to a future phase, but the MVP must be structured so future scripted request chains can reuse the same session, exchange, storage, audit, diff, and execution infrastructure.
+
+Confirmed product decisions:
+
+- Do not hard-block out-of-scope requests in the MVP.
+- Do not require a per-send confirmation for out-of-scope or unknown targets.
+- Compute and store scope status anyway.
+- Implement a new bounded backend service named `Argus.RequestToolService`.
+- Store recent (24h) request/response bodies inline in PostgreSQL.
+- Store older request/response bodies through the existing artifact/storage pattern.
+- Implement this as a page in `Argus.Web`.
+- Use tabbed request/response history per asset.
+- Future scripting is out of scope, but the schema and APIs must be scripting-ready.
+
+---
+
+## Requirements
+
+### Must Have
+
+- Add a new `Argus.RequestToolService` backend service.
+- Add new request-tool contracts under `src/Contracts/Argus.Contracts/RequestTool/`.
+- Add a new `Argus.Web` page at `/request-tool/{assetId:guid}`.
+- Any eligible asset can expose `Send to Request Tool`.
+- The first implementation must add this action to the existing Assets page row actions.
+- The action must be policy-driven so additional asset pages can opt in later.
+- Opening the tool for an asset must create or load a durable session for that asset.
+- The tool must display the original request/response pair used to confirm the asset whenever available.
+- If the original pair cannot be reconstructed, create an editable synthetic request from asset URL metadata.
+- The window must show every request/response exchange for the selected asset in a tabbed interface.
+- Sending a request from the UI must create a new immutable exchange tab.
+- Users must be able to edit:
+  - Method
+  - URL
+  - Query string
+  - Headers
+  - Cookies
+  - Body text
+  - Content type
+  - Follow-redirects flag
+  - Proxy selection, if proxy data is available
+- Users must be able to add, remove, and change headers.
+- Users must be able to add, remove, and change cookies.
+- Users must be able to edit body text directly.
+- Users must be able to clone any existing exchange into a new editable draft.
+- Users must be able to resend cloned or manually edited drafts.
+- Users must be able to compare two requests.
+- Users must be able to compare two responses.
+- Comparison must support:
+  - Request headers
+  - Request body
+  - Full raw request
+  - Response headers
+  - Response body
+  - Full raw response
+- Every request execution must be server-side.
+- Every execution must call rate-limit logic before sending.
+- The service must compute scope status, but must not block `OutOfScope` or `Unknown`.
+- Every execution must write an audit row.
+- Every execution must capture:
+  - Target URL
+  - Normalized URL parts
+  - Method
+  - Request headers
+  - Request cookies
+  - Request body or request body artifact reference
+  - Response status
+  - Response headers
+  - Response cookies
+  - Response body or response body artifact reference
+  - Duration
+  - Redirect chain
+  - Network error, if any
+  - Scope status
+  - Rate-limit key
+  - Proxy ID, if used
+  - Parent exchange ID, if cloned/replayed from an existing exchange
+  - Actor/user identifier when available
+  - Timestamps
+- Preserve immutable history. Editing a historical exchange must never mutate the original exchange.
+- The UI must clearly distinguish:
+  - Original evidence
+  - User replay
+  - Draft
+  - Failed send
+  - Imported exchange, if added later
+  - Future scripted exchange, if added later
+- Redact secrets in audit/log/preview surfaces by default.
+- Store raw bodies safely with configurable limits.
+- Add unit and integration tests for service logic.
+- Add web UI tests or bUnit tests for the main interaction flow.
+- Use a two-pane layout:
+  - Left pane: request editor
+  - Right pane: response viewer
+- Use Monaco Editor for raw request/body editing and diff viewing.
+- Use MudBlazor controls for tabs, forms, tables, buttons, dialogs, and snackbars.
+- Use DiffPlex on the backend for deterministic text diff results.
+- Add pretty rendering for:
+  - JSON
+  - XML
+  - HTML
+  - URL-encoded forms
+  - Plain text
+- Display response summary:
+  - Status code
+  - Reason phrase
+  - Duration
+  - Size
+  - Content type
+  - Redirect count
+  - Scope status
+  - Sent/completed time
+- Allow tab rename.
+- Allow pinning important tabs.
+- Allow downloading raw request and raw response.
+- Allow copy-as-cURL.
+- Allow import-from-cURL if implementation time permits.
+- Save reusable request templates.
+- Add user comments/notes per exchange.
+- Add WebSocket/SSE support in a later phase.
+- Add scripting execution groups in a later phase.
+- Add multi-step workflows in a later phase.
+
+---
+
+## Method
+
+### Architecture Overview
+
+Add `Argus.RequestToolService` as a new service in the existing Aspire architecture.
+
+The service owns:
+
+- Request-tool sessions
+- HTTP exchanges
+- Replay execution
+- Scope classification result storage
+- Diff generation
+- Request/response raw rendering
+- Audit rows
+- Large-body artifact integration
+- Future scripting extension points
+
+It depends on existing platform services:
+
+- `AssetService` to load asset context
+- `ArtifactService` to store large bodies and reconstruct evidence when possible
+- `ProgramScopeService` to classify scope
+- `RateLimitService` to enforce rate limits
+- `ProxyRegistryService` to resolve proxies
+- `RealtimeService` or RabbitMQ event publication for UI notifications if already used consistently elsewhere
+- PostgreSQL `argusdb` for normalized metadata
+- Redis if needed for transient locks/cache, though the MVP can rely on RateLimitService for throttling
+
+### Component Diagram
+
+```plantuml
+@startuml
+actor Analyst
+
+rectangle "Argus.Web" {
+  component "Assets.razor"
+  component "Asset Context Action"
+  component "RequestTool.razor"
+  component "RequestToolTabs"
+  component "RequestEditor"
+  component "ResponseViewer"
+  component "CompareDialog"
+  component "Monaco JS Interop"
+}
+
+rectangle "Argus.ApiGateway" {
+  component "/request-tool forwarder"
+}
+
+rectangle "Argus.RequestToolService" {
+  component "RequestTool Endpoints"
+  component "SessionService"
+  component "ExchangeRepository"
+  component "HttpReplayExecutor"
+  component "ScopeClassifier"
+  component "RateLimitAdapter"
+  component "ProxyResolver"
+  component "BodyStorageService"
+  component "RawHttpRenderer"
+  component "DiffService"
+  component "RedactionService"
+  component "AuditService"
+}
+
+rectangle "Existing Services" {
+  component "AssetService"
+  component "ArtifactService"
+  component "ProgramScopeService"
+  component "RateLimitService"
+  component "ProxyRegistryService"
+  component "RealtimeService"
+}
+
+database "PostgreSQL argusdb" {
+  entity "request_tool_sessions"
+  entity "http_exchanges"
+  entity "http_exchange_audit"
+}
+
+Analyst --> "Assets.razor"
+"Assets.razor" --> "Asset Context Action"
+"Asset Context Action" --> "RequestTool.razor" : navigate /request-tool/{assetId}
+
+"RequestTool.razor" --> "/request-tool forwarder"
+"/request-tool forwarder" --> "RequestTool Endpoints"
+
+"RequestTool Endpoints" --> "SessionService"
+"SessionService" --> "AssetService"
+"SessionService" --> "ExchangeRepository"
+"SessionService" --> "ArtifactService"
+
+"RequestEditor" --> "RequestTool Endpoints" : send/clone
+"RequestTool Endpoints" --> "HttpReplayExecutor"
+"HttpReplayExecutor" --> "ScopeClassifier"
+"HttpReplayExecutor" --> "RateLimitAdapter"
+"HttpReplayExecutor" --> "ProxyResolver"
+"HttpReplayExecutor" --> "BodyStorageService"
+"HttpReplayExecutor" --> "AuditService"
+
+"ScopeClassifier" --> "ProgramScopeService"
+"RateLimitAdapter" --> "RateLimitService"
+"ProxyResolver" --> "ProxyRegistryService"
+"BodyStorageService" --> "ArtifactService"
+"ExchangeRepository" --> "PostgreSQL argusdb"
+"AuditService" --> "PostgreSQL argusdb"
+
+"CompareDialog" --> "DiffService"
+"DiffService" --> "ExchangeRepository"
+
+"RequestTool Endpoints" --> "RealtimeService" : optional exchange-created event
+@enduml
+```
+
+---
+
+## Repository Changes
+
+### Add Projects
+
+Create:
+
+```text
+src/Services/Argus.RequestToolService/
+src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj
+src/Services/Argus.RequestToolService/Program.cs
+src/Services/Argus.RequestToolService/Data/
+src/Services/Argus.RequestToolService/Endpoints/
+src/Services/Argus.RequestToolService/Services/
+src/Services/Argus.RequestToolService/Http/
+src/Services/Argus.RequestToolService/Migrations/
+src/Services/Argus.RequestToolService/Options/
+src/Services/Argus.RequestToolService/Validation/
+src/Services/Argus.RequestToolService/Events/
+
+src/Contracts/Argus.Contracts/RequestTool/
+src/Contracts/Argus.Contracts/RequestTool/RequestToolContracts.cs
+src/Contracts/Argus.Contracts/RequestTool/RequestToolEvents.cs
+
+src/Argus.Web/Pages/RequestTool.razor
+src/Argus.Web/Components/RequestTool/RequestToolTabs.razor
+src/Argus.Web/Components/RequestTool/RequestEditor.razor
+src/Argus.Web/Components/RequestTool/HeaderEditor.razor
+src/Argus.Web/Components/RequestTool/CookieEditor.razor
+src/Argus.Web/Components/RequestTool/ResponseViewer.razor
+src/Argus.Web/Components/RequestTool/CompareDialog.razor
+src/Argus.Web/Components/RequestTool/AssetRequestToolAction.razor
+src/Argus.Web/Services/RequestToolApiClient.cs
+src/Argus.Web/wwwroot/js/monaco-request-tool.js
+```
+
+### Update Solution
+
+Add the new service project to `eShop.slnx`.
+
+Also update generated Aspire project references if this repo uses generated `Projects.*` types. After adding the project, run a build so Aspire project metadata is regenerated.
+
+### Update `Directory.Packages.props`
+
+Add package versions centrally if this repo uses central package management:
+
+```xml
+<PackageVersion Include="DiffPlex" Version="1.9.0" />
+```
+
+For Monaco, use static web assets or npm depending on the repo frontend tooling. Preferred MVP approach:
+
+```text
+Use Monaco Editor 0.55.1 via npm/package.json and copy required files to wwwroot during build, or use an approved static asset strategy already present in the repo.
+```
+
+Do not use a Blazor wrapper unless it is verified compatible with `net10.0`.
+
+### Update `Argus.AppHost/Program.cs`
+
+Add the request-tool service after dependencies are declared:
+
+```csharp
+var requestTool = builder.AddProject<Projects.Argus_RequestToolService>("request-tool-service")
+    .PublishAsArgusImage("src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj", "Argus.RequestToolService")
+    .WithReference(argusDb)
+    .WithReference(redis)
+    .WithReference(rabbitMq)
+    .WithReference(asset)
+    .WithReference(artifact)
+    .WithReference(programScope)
+    .WithReference(rateLimit)
+    .WithReference(proxyRegistry)
+    .WithReference(realtime)
+    .WaitFor(rabbitMq)
+    .WaitFor(asset)
+    .WaitFor(artifact)
+    .WaitFor(programScope)
+    .WaitFor(rateLimit);
+
+requestTool.WithReference(realtime);
+```
+
+Also ensure `Argus.Web` can reach the gateway or direct request-tool endpoint using the same pattern as the rest of the app.
+
+### Update `Argus.ApiGateway/Program.cs`
+
+Add route metadata:
+
+```csharp
+new { Name = "request-tool", Path = "/request-tool", Service = "request-tool", Description = "HTTP request/response viewer and repeater" },
+```
+
+Add mapping:
+
+```csharp
+MapService(app, "/request-tool", endpoints.RequestTool);
+```
+
+Extend `ArgusServiceEndpoints`:
+
+```csharp
+internal sealed record ArgusServiceEndpoints(
+    string ProgramScope,
+    string Asset,
+    string Artifact,
+    string Finding,
+    string Task,
+    string Agent,
+    string RateLimit,
+    string Realtime,
+    string EventRouter,
+    string RequestTool)
+{
+    public static ArgusServiceEndpoints From(IConfiguration configuration) => new(
+        configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? "https+http://program-scope-service",
+        configuration["ARGUS_ASSET_SERVICE"] ?? "https+http://asset-service",
+        configuration["ARGUS_ARTIFACT_SERVICE"] ?? "https+http://artifact-service",
+        configuration["ARGUS_FINDING_SERVICE"] ?? "https+http://finding-service",
+        configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
+        configuration["ARGUS_AGENT_SERVICE"] ?? "https+http://agent-service",
+        configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
+        configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service",
+        configuration["ARGUS_EVENT_ROUTER_SERVICE"] ?? "https+http://event-router-service",
+        configuration["ARGUS_REQUEST_TOOL_SERVICE"] ?? "https+http://request-tool-service");
+}
+```
+
+---
+
+## Domain Model
+
+### Terms
+
+- Session: durable request-tool workspace for one asset.
+- Exchange: immutable request/response pair.
+- Draft: UI-only editable request derived from an exchange or constructed from scratch.
+- Original evidence: exchange reconstructed from the request/response pair that confirmed the asset.
+- Replay: user-sent request.
+- Parent exchange: previous exchange used as the source for a clone/replay.
+- Body artifact: external artifact reference for large request/response body storage.
+- Scope status: classification of the requested target at send time.
+
+### Exchange Lifecycle
+
+```plantuml
+@startuml
+[*] --> Draft
+
+Draft --> Sending : user clicks Send
+Sending --> Completed : response captured
+Sending --> Failed : network error / timeout / rate-limit denial
+
+Completed --> ClonedDraft : clone
+Failed --> ClonedDraft : clone
+ClonedDraft --> Sending : user edits and sends
+
+Completed --> Compared : compare selected
+Failed --> Compared : compare selected
+Compared --> Completed
+
+Completed --> Pinned : pin
+Pinned --> Completed : unpin
+
+Completed --> [*]
+Failed --> [*]
+@enduml
+```
+
+### Origins
+
+```csharp
+public enum RequestToolExchangeOrigin
+{
+    OriginalEvidence = 0,
+    UserReplay = 1,
+    Imported = 2,
+    FutureScript = 3,
+    Synthetic = 4
+}
+```
+
+### Scope Status
+
+```csharp
+public enum RequestToolScopeStatus
+{
+    Unknown = 0,
+    InScope = 1,
+    OutOfScope = 2,
+    Excluded = 3,
+    NeedsReview = 4
+}
+```
+
+### Exchange Outcome
+
+```csharp
+public enum RequestToolExchangeOutcome
+{
+    Draft = 0,
+    Completed = 1,
+    NetworkError = 2,
+    RateLimited = 3,
+    ValidationError = 4,
+    StorageError = 5,
+    Cancelled = 6
+}
+```
+
+---
+
+## Contracts
+
+Create `src/Contracts/Argus.Contracts/RequestTool/RequestToolContracts.cs`.
+
+```csharp
+namespace Argus.Contracts.RequestTool;
+
+public enum RequestToolExchangeOrigin
+{
+    OriginalEvidence = 0,
+    UserReplay = 1,
+    Imported = 2,
+    FutureScript = 3,
+    Synthetic = 4
+}
+
+public enum RequestToolScopeStatus
+{
+    Unknown = 0,
+    InScope = 1,
+    OutOfScope = 2,
+    Excluded = 3,
+    NeedsReview = 4
+}
+
+public enum RequestToolExchangeOutcome
+{
+    Draft = 0,
+    Completed = 1,
+    NetworkError = 2,
+    RateLimited = 3,
+    ValidationError = 4,
+    StorageError = 5,
+    Cancelled = 6
+}
+
+public enum RequestToolCompareTarget
+{
+    RequestHeaders = 0,
+    RequestBody = 1,
+    RawRequest = 2,
+    ResponseHeaders = 3,
+    ResponseBody = 4,
+    RawResponse = 5
+}
+
+public sealed record RequestToolSessionDto(
+    Guid SessionId,
+    Guid AssetId,
+    Guid ProgramId,
+    Guid? ScopeId,
+    string Title,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<HttpExchangeSummaryDto> Exchanges);
+
+public sealed record HttpExchangeSummaryDto(
+    Guid ExchangeId,
+    Guid SessionId,
+    Guid AssetId,
+    Guid ProgramId,
+    Guid? ParentExchangeId,
+    RequestToolExchangeOrigin Origin,
+    RequestToolExchangeOutcome Outcome,
+    string TabTitle,
+    bool IsPinned,
+    string RequestMethod,
+    string RequestUrl,
+    string RequestHost,
+    RequestToolScopeStatus ScopeStatus,
+    int? ResponseStatusCode,
+    string? ResponseReasonPhrase,
+    string? ResponseContentType,
+    long? ResponseBodySizeBytes,
+    int? DurationMs,
+    string? NetworkError,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? SentAt,
+    DateTimeOffset? CompletedAt);
+
+public sealed record HttpExchangeDetailDto(
+    Guid ExchangeId,
+    Guid SessionId,
+    Guid AssetId,
+    Guid ProgramId,
+    Guid? ParentExchangeId,
+    RequestToolExchangeOrigin Origin,
+    RequestToolExchangeOutcome Outcome,
+    string TabTitle,
+    bool IsPinned,
+
+    string RequestMethod,
+    string RequestUrl,
+    string RequestScheme,
+    string RequestHost,
+    int? RequestPort,
+    string RequestPath,
+    string? RequestQuery,
+    string? RequestHttpVersion,
+    IReadOnlyDictionary<string, string[]> RequestHeaders,
+    IReadOnlyDictionary<string, string> RequestCookies,
+    string? RequestBody,
+    Guid? RequestBodyArtifactId,
+    string? RequestBodySha256,
+    long? RequestBodySizeBytes,
+    string? RequestContentType,
+
+    int? ResponseStatusCode,
+    string? ResponseReasonPhrase,
+    string? ResponseHttpVersion,
+    IReadOnlyDictionary<string, string[]>? ResponseHeaders,
+    IReadOnlyDictionary<string, string>? ResponseCookies,
+    string? ResponseBody,
+    Guid? ResponseBodyArtifactId,
+    string? ResponseBodySha256,
+    long? ResponseBodySizeBytes,
+    string? ResponseContentType,
+
+    int? DurationMs,
+    IReadOnlyList<RedirectHopDto> RedirectChain,
+    TlsInfoDto? TlsInfo,
+    string? NetworkError,
+
+    RequestToolScopeStatus ScopeStatus,
+    string? RateLimitKey,
+    string? ProxyId,
+
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? SentAt,
+    DateTimeOffset? CompletedAt);
+
+public sealed record RedirectHopDto(
+    int Order,
+    string Url,
+    int? StatusCode,
+    string? Location,
+    long? DurationMs);
+
+public sealed record TlsInfoDto(
+    string? Protocol,
+    string? CipherSuite,
+    string? CertificateSubject,
+    string? CertificateIssuer,
+    DateTimeOffset? NotBefore,
+    DateTimeOffset? NotAfter,
+    string? Thumbprint);
+
+public sealed record CreateOrGetRequestToolSessionRequest(
+    Guid AssetId);
+
+public sealed record SendHttpRequestToolRequest(
+    Guid? ParentExchangeId,
+    string Method,
+    string Url,
+    IReadOnlyDictionary<string, string[]> Headers,
+    IReadOnlyDictionary<string, string> Cookies,
+    string? Body,
+    string? ContentType,
+    bool FollowRedirects,
+    string? ProxyId,
+    string? TabTitle);
+
+public sealed record CloneHttpExchangeRequest(
+    string? TabTitle);
+
+public sealed record RenameHttpExchangeRequest(
+    string TabTitle);
+
+public sealed record PinHttpExchangeRequest(
+    bool IsPinned);
+
+public sealed record CompareHttpExchangeRequest(
+    Guid LeftExchangeId,
+    Guid RightExchangeId,
+    RequestToolCompareTarget Target);
+
+public sealed record CompareHttpExchangeResponse(
+    Guid LeftExchangeId,
+    Guid RightExchangeId,
+    RequestToolCompareTarget Target,
+    string LeftTitle,
+    string RightTitle,
+    string LeftText,
+    string RightText,
+    string UnifiedDiff,
+    object? SideBySideDiff);
+
+public sealed record RawHttpMessageDto(
+    Guid ExchangeId,
+    string ContentType,
+    string Text,
+    bool IsTruncated,
+    long? FullSizeBytes,
+    Guid? BodyArtifactId);
+```
+
+Create `src/Contracts/Argus.Contracts/RequestTool/RequestToolEvents.cs`.
+
+```csharp
+namespace Argus.Contracts.RequestTool;
+
+public sealed record RequestToolExchangeCreatedEvent(
+    Guid ExchangeId,
+    Guid SessionId,
+    Guid AssetId,
+    Guid ProgramId,
+    RequestToolExchangeOrigin Origin,
+    RequestToolExchangeOutcome Outcome,
+    string RequestMethod,
+    string RequestUrl,
+    int? ResponseStatusCode,
+    int? DurationMs,
+    DateTimeOffset CreatedAt);
+
+public sealed record RequestToolExchangeUpdatedEvent(
+    Guid ExchangeId,
+    Guid SessionId,
+    Guid AssetId,
+    string ChangeType,
+    DateTimeOffset UpdatedAt);
+```
+
+---
+
+## Database Schema
+
+Create migration SQL for `Argus.RequestToolService`.
+
+Use the existing migration approach in the repo. If services currently initialize schema directly at startup, follow that pattern; otherwise add proper migrations.
+
+### Tables
+
+```sql
+create table if not exists request_tool_sessions (
+    session_id uuid primary key,
+    asset_id uuid not null,
+    program_id uuid not null,
+    scope_id uuid null,
+
+    title text not null,
+    created_by text null,
+    created_at timestamptz not null,
+    updated_at timestamptz not null,
+    archived_at timestamptz null,
+
+    constraint uq_request_tool_sessions_asset unique (asset_id)
+);
+
+create table if not exists http_exchanges (
+    exchange_id uuid primary key,
+    session_id uuid not null references request_tool_sessions(session_id) on delete cascade,
+    asset_id uuid not null,
+    program_id uuid not null,
+    parent_exchange_id uuid null references http_exchanges(exchange_id),
+
+    origin text not null,
+    outcome text not null,
+    tab_title text not null,
+    is_pinned boolean not null default false,
+
+    request_method text not null,
+    request_url text not null,
+    request_scheme text not null,
+    request_host text not null,
+    request_port int null,
+    request_path text not null,
+    request_query text null,
+    request_http_version text null,
+
+    request_headers jsonb not null default '{}'::jsonb,
+    request_cookies jsonb not null default '{}'::jsonb,
+    request_body_inline text null,
+    request_body_artifact_id uuid null,
+    request_body_sha256 text null,
+    request_body_size_bytes bigint null,
+    request_content_type text null,
+
+    response_status_code int null,
+    response_reason_phrase text null,
+    response_http_version text null,
+    response_headers jsonb null,
+    response_cookies jsonb null,
+    response_body_inline text null,
+    response_body_artifact_id uuid null,
+    response_body_sha256 text null,
+    response_body_size_bytes bigint null,
+    response_content_type text null,
+
+    duration_ms int null,
+    redirect_chain jsonb not null default '[]'::jsonb,
+    tls_info jsonb null,
+    network_error text null,
+
+    scope_status text not null default 'Unknown',
+    rate_limit_key text null,
+    proxy_id text null,
+
+    request_sha256 text null,
+    response_sha256 text null,
+
+    created_by text null,
+    created_at timestamptz not null,
+    sent_at timestamptz null,
+    completed_at timestamptz null,
+
+    constraint ck_http_exchanges_origin check (origin in ('OriginalEvidence', 'UserReplay', 'Imported', 'FutureScript', 'Synthetic')),
+    constraint ck_http_exchanges_outcome check (outcome in ('Draft', 'Completed', 'NetworkError', 'RateLimited', 'ValidationError', 'StorageError', 'Cancelled')),
+    constraint ck_http_exchanges_scope_status check (scope_status in ('Unknown', 'InScope', 'OutOfScope', 'Excluded', 'NeedsReview'))
+);
+
+create table if not exists http_exchange_audit (
+    audit_id uuid primary key,
+    exchange_id uuid null references http_exchanges(exchange_id) on delete set null,
+    session_id uuid null references request_tool_sessions(session_id) on delete set null,
+    asset_id uuid null,
+    program_id uuid null,
+
+    actor text null,
+    action text not null,
+    target_url text null,
+    request_method text null,
+    scope_status text null,
+    request_sha256 text null,
+    response_sha256 text null,
+    outcome text not null,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null
+);
+
+create index if not exists ix_request_tool_sessions_asset_id
+    on request_tool_sessions(asset_id);
+
+create index if not exists ix_request_tool_sessions_program_id
+    on request_tool_sessions(program_id);
+
+create index if not exists ix_http_exchanges_session_created
+    on http_exchanges(session_id, created_at desc);
+
+create index if not exists ix_http_exchanges_asset_created
+    on http_exchanges(asset_id, created_at desc);
+
+create index if not exists ix_http_exchanges_program_created
+    on http_exchanges(program_id, created_at desc);
+
+create index if not exists ix_http_exchanges_host
+    on http_exchanges(request_host);
+
+create index if not exists ix_http_exchanges_parent
+    on http_exchanges(parent_exchange_id);
+
+create index if not exists ix_http_exchange_audit_exchange
+    on http_exchange_audit(exchange_id);
+
+create index if not exists ix_http_exchange_audit_asset_created
+    on http_exchange_audit(asset_id, created_at desc);
+```
+
+### Body Storage Thresholds
+
+Add config options:
+
+```json
+{
+  "RequestTool": {
+    "InlineBodyThresholdBytes": 65536,
+    "PreviewBodyThresholdBytes": 1048576,
+    "MaxBodyBytes": 26214400,
+    "DefaultTimeoutSeconds": 30,
+    "MaxRedirects": 10,
+    "AllowOutOfScopeSend": true,
+    "RequireOutOfScopeConfirmation": false,
+    "RedactSecretsInAudit": true,
+    "UserAgent": "Argus-RequestTool/1.0"
+  }
+}
+```
+
+Rules:
+
+- If body size <= `InlineBodyThresholdBytes`, store body inline.
+- If body size > `InlineBodyThresholdBytes`, store body as an artifact and store only artifact ID/hash/size in `http_exchanges`.
+- If body size > `PreviewBodyThresholdBytes`, return truncated preview in detail endpoints unless raw endpoint is explicitly called.
+- If body size > `MaxBodyBytes`, abort reading further, store truncated body artifact if useful, mark metadata as truncated, and surface warning.
+- Never store unbounded response streams in memory.
+
+---
+
+## RequestToolService Design
+
+### Project File
+
+`src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj`
+
+Use the same package/reference style as existing service projects.
+
+Minimum references:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <NoWarn>NU1510</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="DiffPlex" />
+    <PackageReference Include="Polly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Argus.ServiceDefaults\Argus.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\Contracts\Argus.Contracts\Argus.Contracts.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+If the repo uses EF Core instead of Dapper for services, match existing service style. Do not introduce EF Core only for this service if the existing microservices use Dapper/raw SQL.
+
+### Program.cs
+
+```csharp
+using Argus.ServiceDefaults;
+using Argus.RequestToolService.Data;
+using Argus.RequestToolService.Services;
+using Argus.RequestToolService.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.AddServiceDefaults();
+
+builder.Services.AddProblemDetails();
+builder.Services.Configure<RequestToolOptions>(
+    builder.Configuration.GetSection(RequestToolOptions.SectionName));
+
+builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("request-tool-replay")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectTimeout = TimeSpan.FromSeconds(10)
+    });
+
+builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddScoped<RequestToolDb>();
+builder.Services.AddScoped<IRequestToolRepository, RequestToolRepository>();
+builder.Services.AddScoped<ISessionService, SessionService>();
+builder.Services.AddScoped<IHttpReplayExecutor, HttpReplayExecutor>();
+builder.Services.AddScoped<IBodyStorageService, BodyStorageService>();
+builder.Services.AddScoped<IRedactionService, RedactionService>();
+builder.Services.AddScoped<IRawHttpRenderer, RawHttpRenderer>();
+builder.Services.AddScoped<IRequestToolDiffService, RequestToolDiffService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IAssetEvidenceHydrator, AssetEvidenceHydrator>();
+builder.Services.AddHttpClient<IAssetServiceClient, AssetServiceClient>();
+builder.Services.AddHttpClient<IArtifactServiceClient, ArtifactServiceClient>();
+builder.Services.AddHttpClient<IProgramScopeServiceClient, ProgramScopeServiceClient>();
+builder.Services.AddHttpClient<IRateLimitServiceClient, RateLimitServiceClient>();
+builder.Services.AddHttpClient<IProxyRegistryServiceClient, ProxyRegistryServiceClient>();
+
+var app = builder.Build();
+
+app.MapDefaultEndpoints();
+
+await app.Services.ApplyRequestToolSchemaAsync();
+
+app.MapRequestToolEndpoints();
+
+app.Run();
+```
+
+### Options
+
+```csharp
+namespace Argus.RequestToolService.Options;
+
+public sealed class RequestToolOptions
+{
+    public const string SectionName = "RequestTool";
+
+    public int InlineBodyThresholdBytes { get; init; } = 64 * 1024;
+    public int PreviewBodyThresholdBytes { get; init; } = 1024 * 1024;
+    public int MaxBodyBytes { get; init; } = 25 * 1024 * 1024;
+    public int DefaultTimeoutSeconds { get; init; } = 30;
+    public int MaxRedirects { get; init; } = 10;
+    public bool AllowOutOfScopeSend { get; init; } = true;
+    public bool RequireOutOfScopeConfirmation { get; init; } = false;
+    public bool RedactSecretsInAudit { get; init; } = true;
+    public string UserAgent { get; init; } = "Argus-RequestTool/1.0";
+}
+```
+
+---
+
+## API Endpoints
+
+Implement minimal APIs under `/request-tool`.
+
+### Route Summary
+
+```http
+GET    /request-tool/assets/{assetId:guid}/session
+POST   /request-tool/assets/{assetId:guid}/session
+GET    /request-tool/sessions/{sessionId:guid}
+GET    /request-tool/sessions/{sessionId:guid}/exchanges
+GET    /request-tool/exchanges/{exchangeId:guid}
+POST   /request-tool/exchanges/{exchangeId:guid}/clone
+PATCH  /request-tool/exchanges/{exchangeId:guid}/title
+PATCH  /request-tool/exchanges/{exchangeId:guid}/pin
+POST   /request-tool/sessions/{sessionId:guid}/send
+POST   /request-tool/compare
+GET    /request-tool/exchanges/{exchangeId:guid}/raw-request
+GET    /request-tool/exchanges/{exchangeId:guid}/raw-response
+GET    /request-tool/health
+```
+
+### Endpoint Behavior
+
+#### `GET /request-tool/assets/{assetId}/session`
+
+- Return existing session by asset ID.
+- If session does not exist, return 404.
+- UI can call POST to create.
+
+#### `POST /request-tool/assets/{assetId}/session`
+
+- Load asset from `AssetService`.
+- Create session if not exists.
+- Try to hydrate original evidence.
+- Return session with exchange summaries.
+
+Hydration priority:
+
+1. Existing `http_exchanges` for asset.
+2. Asset metadata containing original request/response.
+3. Artifacts linked to asset:
+   - `RawResponse`
+   - `HarFile`
+   - `FindingEvidence`
+   - `TextLog`
+   - `JsonReport`
+4. Asset URL metadata.
+5. Synthetic `GET` request if only a URL can be inferred.
+
+#### `GET /request-tool/sessions/{sessionId}`
+
+- Return session plus exchange summaries.
+
+#### `GET /request-tool/exchanges/{exchangeId}`
+
+- Return full exchange detail.
+- Include inline body if inline.
+- Include preview body if artifact body is small enough or preview exists.
+- Do not return huge artifact body by default.
+
+#### `POST /request-tool/exchanges/{exchangeId}/clone`
+
+- Load exchange.
+- Create a new UI draft DTO from that exchange.
+- Do not persist the draft as an exchange unless the user sends it.
+- Return `HttpExchangeDetailDto`-compatible draft object with a temporary client-side ID if needed.
+- Alternative acceptable implementation: return `SendHttpRequestToolRequest` initialized from the exchange.
+
+#### `POST /request-tool/sessions/{sessionId}/send`
+
+- Validate request.
+- Normalize URL.
+- Classify scope.
+- Call rate-limit service.
+- Send request server-side if rate limit allows.
+- Persist immutable exchange.
+- Audit.
+- Return `HttpExchangeDetailDto`.
+
+Important: Do not block out-of-scope/unknown scope in MVP.
+
+#### `POST /request-tool/compare`
+
+- Load left and right exchanges.
+- Render selected target to comparable text.
+- Use DiffPlex to produce unified and side-by-side diff.
+- Return both raw compared text and diff models.
+
+#### Raw endpoints
+
+- `GET /raw-request` returns canonical raw HTTP request text.
+- `GET /raw-response` returns canonical raw HTTP response text.
+- Support query parameter `download=true` to set attachment headers.
+
+---
+
+## HTTP Replay Algorithm
+
+```plantuml
+@startuml
+start
+:Receive SendHttpRequestToolRequest;
+:Validate session exists;
+:Validate method, URL, headers, cookies, body size;
+:Normalize URL into scheme/host/port/path/query;
+:Load session asset/program;
+:Classify scope via ProgramScopeService;
+note right
+MVP rule:
+Do not block OutOfScope or Unknown.
+Store the classification only.
+end note
+
+:Build rate-limit key;
+:Call RateLimitService;
+if (allowed?) then (yes)
+  :Resolve proxy if ProxyId is provided;
+  :Create HttpRequestMessage;
+  :Apply headers and cookies;
+  :Attach body if method allows body;
+  :Set timeout/cancellation;
+  :Send using HttpClient;
+  :Capture status, headers, response body stream, timing;
+  if (redirect and FollowRedirects) then (yes)
+    :Follow redirect up to MaxRedirects;
+    :Capture each RedirectHop;
+  endif
+  if (body size <= InlineBodyThreshold) then (yes)
+    :Store body inline;
+  else (no)
+    :Store body through ArtifactService;
+    :Persist artifact id, size, sha256;
+  endif
+  :Persist http_exchange with Completed outcome;
+  :Write audit row;
+  :Publish RequestToolExchangeCreatedEvent;
+  :Return detail DTO;
+else (no)
+  :Persist failed exchange with RateLimited outcome;
+  :Write audit row;
+  :Return 429 with retry metadata and exchange id;
+endif
+stop
+@enduml
+```
+
+### Send Validation Rules
+
+- Allowed methods:
+  - GET
+  - POST
+  - PUT
+  - PATCH
+  - DELETE
+  - HEAD
+  - OPTIONS
+  - TRACE may be disabled by default unless config allows it.
+- URL must be absolute HTTP or HTTPS.
+- Reject non-HTTP schemes.
+- Reject CRLF injection in method, URL, header names, and header values.
+- Reject invalid header names.
+- Reject request body over configured `MaxBodyBytes`.
+- Allow request body for all methods except HEAD. Do not artificially block body on GET because some testing workflows require it, but show no special warning.
+- Do not allow users to set hop-by-hop transport headers directly if `HttpClient` owns them:
+  - Connection
+  - Keep-Alive
+  - Transfer-Encoding
+  - Upgrade
+  - Proxy-Connection
+- Handle `Host` specially:
+  - If user sets Host, use it as request Host header if supported.
+  - The TCP target still comes from the URL unless future proxy/raw-socket support is added.
+- Ensure cookies are merged into a single `Cookie` header unless user has manually set a `Cookie` header; in that case, preserve manual header and show cookies grid as derived/locked.
+
+### Redirect Handling
+
+Use manual redirect handling so each hop is captured.
+
+Rules:
+
+- `FollowRedirects = false`: store only first response.
+- `FollowRedirects = true`: follow up to `MaxRedirects`.
+- Store redirect chain as JSONB.
+- For 301/302/303, convert non-GET/HEAD to GET unless preserving method is explicitly configured.
+- For 307/308, preserve method and body.
+- Resolve relative `Location` against previous URL.
+- Do not drop audit data for intermediate responses.
+- For MVP, persist final response body only and persist redirect chain metadata. Later enhancement can persist each hop as child exchanges.
+
+### Timeout Handling
+
+- Default request timeout: 30 seconds.
+- Use cancellation tokens.
+- Store `NetworkError` outcome for timeout.
+- Store error message redacted and normalized.
+- Do not throw unhandled exceptions to UI.
+
+### TLS Metadata
+
+Capture if available:
+
+- Protocol
+- Cipher suite, if available
+- Certificate subject
+- Certificate issuer
+- NotBefore
+- NotAfter
+- Thumbprint
+
+If unavailable, leave `tls_info` null.
+
+---
+
+## Scope Classification
+
+The MVP must compute scope but not block sending.
+
+### Rules
+
+- Call existing program-scope/scope-validation endpoint if available.
+- If the endpoint is unavailable, classify as `Unknown`.
+- If classification fails due to transient service error, classify as `Unknown` and continue.
+- Persist result in `http_exchanges.scope_status`.
+- Show scope status in UI.
+- Do not show a confirmation dialog.
+- Do not block out-of-scope sends.
+
+### Pseudocode
+
+```csharp
+public async Task<RequestToolScopeStatus> ClassifyAsync(Guid programId, Uri uri, CancellationToken ct)
+{
+    try
+    {
+        var result = await programScopeClient.ValidateTargetAsync(programId, uri.ToString(), ct);
+        return result.Status switch
+        {
+            "InScope" => RequestToolScopeStatus.InScope,
+            "OutOfScope" => RequestToolScopeStatus.OutOfScope,
+            "Excluded" => RequestToolScopeStatus.Excluded,
+            "NeedsReview" => RequestToolScopeStatus.NeedsReview,
+            _ => RequestToolScopeStatus.Unknown
+        };
+    }
+    catch
+    {
+        return RequestToolScopeStatus.Unknown;
+    }
+}
+```
+
+---
+
+## Rate Limiting
+
+Even though out-of-scope is not blocked, sending must still pass through distributed rate limiting.
+
+### Rate-Limit Key
+
+Suggested key:
+
+```text
+request-tool:{programId}:{host}:{method}
+```
+
+Fallback if program ID unknown:
+
+```text
+request-tool:unknown:{host}:{method}
+```
+
+### Behavior
+
+- If allowed: continue sending.
+- If denied:
+  - Persist an exchange with `RateLimited` outcome.
+  - Persist audit row.
+  - Return HTTP 429 with retry metadata.
+- UI displays snackbar and failed tab.
+
+---
+
+## Body Storage Service
+
+### Interface
+
+```csharp
+public interface IBodyStorageService
+{
+    Task<StoredBodyResult> StoreRequestBodyAsync(
+        Guid programId,
+        Guid assetId,
+        string? contentType,
+        string? body,
+        CancellationToken ct);
+
+    Task<StoredBodyResult> StoreResponseBodyAsync(
+        Guid programId,
+        Guid assetId,
+        string? contentType,
+        Stream bodyStream,
+        CancellationToken ct);
+
+    Task<string?> GetBodyPreviewAsync(
+        Guid? artifactId,
+        string? inlineBody,
+        int previewLimitBytes,
+        CancellationToken ct);
+
+    Task<string?> GetFullBodyAsync(
+        Guid? artifactId,
+        string? inlineBody,
+        CancellationToken ct);
+}
+
+public sealed record StoredBodyResult(
+    string? InlineBody,
+    Guid? ArtifactId,
+    string? Sha256,
+    long SizeBytes,
+    bool IsTruncated);
+```
+
+### Artifact Types
+
+Use:
+
+- `ArtifactType.RawResponse` for response bodies.
+- `ArtifactType.TextLog` or `ArtifactType.Other` for request bodies if no existing type fits.
+- If permitted, add new artifact types:
+  - `RawHttpRequest`
+  - `RawHttpResponse`
+
+Preferred addition:
+
+```csharp
+public enum ArtifactType
+{
+    Screenshot,
+    HarFile,
+    JsonReport,
+    XmlReport,
+    TextLog,
+    PcapFile,
+    Certificate,
+    RawResponse,
+    RawHttpRequest,
+    RawHttpResponse,
+    ScriptOutput,
+    ConfigFile,
+    Credentials,
+    FindingEvidence,
+    RemediationPlan,
+    Other
+}
+```
+
+If changing existing enum is risky, use `RawResponse` for responses and `TextLog` for requests with metadata identifying request-tool usage.
+
+### Hashing
+
+- Compute SHA-256 for request body and response body.
+- Store hash regardless of inline/artifact storage.
+- Compute canonical request hash and canonical response hash:
+  - Request hash includes method, URL, normalized headers, and body hash.
+  - Response hash includes status, normalized headers, and body hash.
+
+---
+
+## Redaction
+
+### Redaction Targets
+
+Redact in logs, audit metadata, previews, and UI copy operations where appropriate:
+
+Headers:
+
+```text
+Authorization
+Proxy-Authorization
+Cookie
+Set-Cookie
+X-Api-Key
+X-Amz-Security-Token
+X-Csrf-Token
+X-Auth-Token
+Api-Key
+Authentication
+```
+
+Patterns:
+
+```text
+Bearer <token>
+Basic <base64>
+JWT-like values: header.payload.signature
+AWS access key IDs
+Long hex/base64 secrets over 32 chars when associated with key/token/password names
+password=...
+token=...
+secret=...
+apikey=...
+api_key=...
+```
+
+### Important Storage Rule
+
+The canonical exchange may store raw values if evidence-retention policy allows it. Audit rows must always store redacted metadata.
+
+### Redaction Interface
+
+```csharp
+public interface IRedactionService
+{
+    IReadOnlyDictionary<string, string[]> RedactHeaders(IReadOnlyDictionary<string, string[]> headers);
+    IReadOnlyDictionary<string, string> RedactCookies(IReadOnlyDictionary<string, string> cookies);
+    string? RedactText(string? value);
+}
+```
+
+---
+
+## Raw HTTP Rendering
+
+### Raw Request Format
+
+```text
+{METHOD} {pathAndQuery} HTTP/1.1
+Host: {host}
+Header-Name: value
+
+{body}
+```
+
+Rules:
+
+- Use `request_path + request_query` for request target.
+- Include Host.
+- Include headers in original order if order is captured. If not, sort by header name for deterministic output.
+- Do not include body for empty body.
+- Preserve CRLF in raw output.
+
+### Raw Response Format
+
+```text
+HTTP/{version} {statusCode} {reasonPhrase}
+Header-Name: value
+
+{body}
+```
+
+Rules:
+
+- Use stored response HTTP version.
+- Include all captured response headers.
+- Include body preview or full body depending on endpoint.
+
+---
+
+## Diff Service
+
+Use DiffPlex.
+
+### Interface
+
+```csharp
+public interface IRequestToolDiffService
+{
+    Task<CompareHttpExchangeResponse> CompareAsync(
+        CompareHttpExchangeRequest request,
+        CancellationToken ct);
+}
+```
+
+### Behavior
+
+- Load both exchanges.
+- Render selected target to text.
+- For headers, render deterministic sorted lines:
+  - `Header-Name: value`
+  - Multi-value headers render one line per value.
+- For JSON bodies, optionally pretty-print before diff if content type is JSON.
+- For HTML/XML, optionally format if safe and cheap.
+- Generate:
+  - Unified diff string
+  - Side-by-side diff model
+- Return both source text and diff results.
+
+### Compare Targets
+
+```csharp
+private async Task<string> RenderTargetAsync(HttpExchange exchange, RequestToolCompareTarget target, CancellationToken ct)
+{
+    return target switch
+    {
+        RequestToolCompareTarget.RequestHeaders => RenderHeaders(exchange.RequestHeaders),
+        RequestToolCompareTarget.RequestBody => await bodyStorage.GetFullBodyAsync(exchange.RequestBodyArtifactId, exchange.RequestBodyInline, ct) ?? "",
+        RequestToolCompareTarget.RawRequest => await rawRenderer.RenderRequestAsync(exchange, ct),
+        RequestToolCompareTarget.ResponseHeaders => RenderHeaders(exchange.ResponseHeaders),
+        RequestToolCompareTarget.ResponseBody => await bodyStorage.GetFullBodyAsync(exchange.ResponseBodyArtifactId, exchange.ResponseBodyInline, ct) ?? "",
+        RequestToolCompareTarget.RawResponse => await rawRenderer.RenderResponseAsync(exchange, ct),
+        _ => throw new ArgumentOutOfRangeException(nameof(target))
+    };
+}
+```
+
+---
+
+## Asset Context Menu Integration
+
+### Policy Model
+
+Add a reusable policy in `Argus.Web`:
+
+```csharp
+public sealed record AssetContextActionPolicy(
+    string ActionKey,
+    string Label,
+    IReadOnlySet<string> EnabledAssetTypes,
+    bool RequiresHttpEvidence,
+    string RouteTemplate);
+```
+
+Default policy:
+
+```csharp
+public static readonly AssetContextActionPolicy SendToRequestToolPolicy = new(
+    ActionKey: "send-to-request-tool",
+    Label: "Send to Request Tool",
+    EnabledAssetTypes: new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Url",
+        "HttpResponse",
+        "HtmlPage",
+        "ApiEndpoint",
+        "Form",
+        "JsonDocument",
+        "FindingCandidate",
+        "Finding"
+    },
+    RequiresHttpEvidence: false,
+    RouteTemplate: "/request-tool/{assetId}");
+```
+
+### Assets Page Change
+
+On the existing Assets page, add row action:
+
+```razor
+<MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert">
+    <MudMenuItem OnClick="@(() => SendToRequestTool(asset.AssetId))">
+        Send to Request Tool
+    </MudMenuItem>
+</MudMenu>
+```
+
+Navigation method:
+
+```csharp
+private void SendToRequestTool(Guid assetId)
+{
+    NavigationManager.NavigateTo($"/request-tool/{assetId}");
+}
+```
+
+Later, extract to:
+
+```text
+src/Argus.Web/Components/Assets/AssetContextMenu.razor
+```
+
+---
+
+## Argus.Web Request Tool UI
+
+### Page Route
+
+`src/Argus.Web/Pages/RequestTool.razor`
+
+```razor
+@page "/request-tool/{AssetId:guid}"
+@inject RequestToolApiClient RequestToolApi
+@inject ISnackbar Snackbar
+
+<PageTitle>HTTP Request Tool</PageTitle>
+
+<RequestToolShell AssetId="AssetId" />
+
+@code {
+    [Parameter] public Guid AssetId { get; set; }
+}
+```
+
+If this repo does not use a shell component style, keep all orchestration in `RequestTool.razor`.
+
+### UI Layout
+
+```text
+RequestTool.razor
+├── Loading/error state
+├── Asset summary bar
+│   ├── Asset display name
+│   ├── Asset type
+│   ├── Program
+│   ├── Scope status for selected exchange
+│   └── Open asset link
+├── Toolbar
+│   ├── Send
+│   ├── Clone
+│   ├── Compare
+│   ├── Copy as cURL
+│   ├── Raw request
+│   └── Raw response
+├── RequestToolTabs
+│   ├── Original evidence tab
+│   ├── User replay tab(s)
+│   ├── Failed send tab(s)
+│   └── Pinned tabs first
+└── Split pane
+    ├── RequestEditor
+    │   ├── Method dropdown
+    │   ├── URL input
+    │   ├── Headers grid
+    │   ├── Cookies grid
+    │   ├── Body editor
+    │   ├── Follow redirects switch
+    │   └── Proxy selector
+    └── ResponseViewer
+        ├── Status summary
+        ├── Headers
+        ├── Cookies
+        ├── Body viewer
+        ├── Pretty/raw toggle
+        └── Redirect chain
+```
+
+### UI State Model
+
+```csharp
+public sealed class RequestToolViewModel
+{
+    public RequestToolSessionDto? Session { get; set; }
+    public List<HttpExchangeDetailDto> LoadedExchanges { get; } = [];
+    public HttpExchangeDetailDto? SelectedExchange { get; set; }
+    public RequestDraftModel Draft { get; set; } = new();
+    public bool IsDirty { get; set; }
+    public bool IsSending { get; set; }
+    public bool IsComparing { get; set; }
+}
+
+public sealed class RequestDraftModel
+{
+    public Guid? ParentExchangeId { get; set; }
+    public string Method { get; set; } = "GET";
+    public string Url { get; set; } = "";
+    public List<HeaderRow> Headers { get; set; } = [];
+    public List<CookieRow> Cookies { get; set; } = [];
+    public string? Body { get; set; }
+    public string? ContentType { get; set; }
+    public bool FollowRedirects { get; set; } = true;
+    public string? ProxyId { get; set; }
+    public string? TabTitle { get; set; }
+}
+
+public sealed class HeaderRow
+{
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+}
+
+public sealed class CookieRow
+{
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+}
+```
+
+### Tab Behavior
+
+- Load exchange detail lazily when tab selected.
+- Original evidence tab should be first.
+- Pinned tabs should appear before unpinned tabs after original evidence.
+- Failed send tabs should remain visible.
+- Unsaved edits are UI-only drafts.
+- Switching tabs with dirty draft should show a lightweight confirmation dialog:
+  - `Discard changes`
+  - `Stay`
+- Sending creates a new persisted exchange and selects the new tab.
+
+### Request Editor Behavior
+
+Fields:
+
+- Method dropdown
+- URL text field
+- Headers table:
+  - Enabled checkbox
+  - Name
+  - Value
+  - Delete
+  - Add header
+- Cookies table:
+  - Enabled checkbox
+  - Name
+  - Value
+  - Delete
+  - Add cookie
+- Body editor:
+  - Monaco for raw text
+  - Plain textarea fallback
+- Content type selector/input
+- Follow redirects switch
+- Proxy selector
+
+Actions:
+
+- Send
+- Clone
+- Reset draft from selected exchange
+- Clear body
+- Format body
+- Copy as cURL
+
+### Response Viewer Behavior
+
+Show:
+
+- Status chip
+- Duration
+- Size
+- Content type
+- Scope status
+- Network error banner when failed
+- Response headers table
+- Response cookies table
+- Redirect chain table
+- Body viewer with:
+  - Pretty
+  - Raw
+  - Search
+  - Copy
+  - Download
+
+### Compare Dialog
+
+Flow:
+
+1. User clicks Compare.
+2. Dialog lets user select:
+   - Left exchange
+   - Right exchange
+   - Target
+3. Call `POST /request-tool/compare`.
+4. Render side-by-side diff using Monaco diff editor if available.
+5. Fallback to server-rendered line diff if Monaco fails.
+
+---
+
+## Monaco Integration
+
+### Use Cases
+
+- Request body editor
+- Response body viewer
+- Raw request viewer
+- Raw response viewer
+- Diff viewer
+
+### Static JS File
+
+Create `src/Argus.Web/wwwroot/js/monaco-request-tool.js`.
+
+Required functions:
+
+```javascript
+window.argusRequestToolMonaco = {
+  editors: {},
+
+  createEditor: function (elementId, value, language, readOnly) {
+    const el = document.getElementById(elementId);
+    if (!el || !window.monaco) return false;
+
+    if (this.editors[elementId]) {
+      this.editors[elementId].dispose();
+    }
+
+    this.editors[elementId] = monaco.editor.create(el, {
+      value: value || "",
+      language: language || "plaintext",
+      readOnly: !!readOnly,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      wordWrap: "on"
+    });
+
+    return true;
+  },
+
+  getValue: function (elementId) {
+    const editor = this.editors[elementId];
+    return editor ? editor.getValue() : null;
+  },
+
+  setValue: function (elementId, value) {
+    const editor = this.editors[elementId];
+    if (editor) editor.setValue(value || "");
+  },
+
+  createDiffEditor: function (elementId, left, right, language) {
+    const el = document.getElementById(elementId);
+    if (!el || !window.monaco) return false;
+
+    if (this.editors[elementId]) {
+      this.editors[elementId].dispose();
+    }
+
+    const diffEditor = monaco.editor.createDiffEditor(el, {
+      automaticLayout: true,
+      readOnly: true,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false
+    });
+
+    const original = monaco.editor.createModel(left || "", language || "plaintext");
+    const modified = monaco.editor.createModel(right || "", language || "plaintext");
+    diffEditor.setModel({ original, modified });
+
+    this.editors[elementId] = diffEditor;
+    return true;
+  },
+
+  dispose: function (elementId) {
+    const editor = this.editors[elementId];
+    if (editor) {
+      editor.dispose();
+      delete this.editors[elementId];
+    }
+  }
+};
+```
+
+### Language Detection
+
+```csharp
+public static string DetectMonacoLanguage(string? contentType, string? url)
+{
+    if (contentType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true) return "json";
+    if (contentType?.Contains("html", StringComparison.OrdinalIgnoreCase) == true) return "html";
+    if (contentType?.Contains("xml", StringComparison.OrdinalIgnoreCase) == true) return "xml";
+    if (contentType?.Contains("javascript", StringComparison.OrdinalIgnoreCase) == true) return "javascript";
+    if (contentType?.Contains("css", StringComparison.OrdinalIgnoreCase) == true) return "css";
+    if (contentType?.Contains("x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) == true) return "plaintext";
+    if (url?.EndsWith(".js", StringComparison.OrdinalIgnoreCase) == true) return "javascript";
+    if (url?.EndsWith(".css", StringComparison.OrdinalIgnoreCase) == true) return "css";
+    return "plaintext";
+}
+```
+
+---
+
+## API Client in Argus.Web
+
+Create `src/Argus.Web/Services/RequestToolApiClient.cs`.
+
+```csharp
+using System.Net.Http.Json;
+using Argus.Contracts.RequestTool;
+
+public sealed class RequestToolApiClient(HttpClient httpClient)
+{
+    public async Task<RequestToolSessionDto> CreateOrGetSessionAsync(Guid assetId, CancellationToken ct = default)
+    {
+        var response = await httpClient.PostAsJsonAsync($"/request-tool/assets/{assetId}/session", new CreateOrGetRequestToolSessionRequest(assetId), ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<RequestToolSessionDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Request-tool session response was empty.");
+    }
+
+    public async Task<RequestToolSessionDto> GetSessionAsync(Guid sessionId, CancellationToken ct = default)
+    {
+        return await httpClient.GetFromJsonAsync<RequestToolSessionDto>($"/request-tool/sessions/{sessionId}", ct)
+            ?? throw new InvalidOperationException("Request-tool session response was empty.");
+    }
+
+    public async Task<HttpExchangeDetailDto> GetExchangeAsync(Guid exchangeId, CancellationToken ct = default)
+    {
+        return await httpClient.GetFromJsonAsync<HttpExchangeDetailDto>($"/request-tool/exchanges/{exchangeId}", ct)
+            ?? throw new InvalidOperationException("HTTP exchange response was empty.");
+    }
+
+    public async Task<HttpExchangeDetailDto> SendAsync(Guid sessionId, SendHttpRequestToolRequest request, CancellationToken ct = default)
+    {
+        var response = await httpClient.PostAsJsonAsync($"/request-tool/sessions/{sessionId}/send", request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<HttpExchangeDetailDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Send response was empty.");
+    }
+
+    public async Task<SendHttpRequestToolRequest> CloneAsync(Guid exchangeId, CancellationToken ct = default)
+    {
+        var response = await httpClient.PostAsJsonAsync($"/request-tool/exchanges/{exchangeId}/clone", new CloneHttpExchangeRequest(null), ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<SendHttpRequestToolRequest>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Clone response was empty.");
+    }
+
+    public async Task<CompareHttpExchangeResponse> CompareAsync(CompareHttpExchangeRequest request, CancellationToken ct = default)
+    {
+        var response = await httpClient.PostAsJsonAsync("/request-tool/compare", request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<CompareHttpExchangeResponse>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Compare response was empty.");
+    }
+}
+```
+
+Register in `Argus.Web` service setup:
+
+```csharp
+builder.Services.AddHttpClient<RequestToolApiClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Argus:ApiGatewayBaseUrl"] ?? "http://localhost:8081");
+});
+```
+
+Match the repo's existing client registration pattern if different.
+
+---
+
+## Evidence Hydration
+
+When opening an asset for the first time, the service must try to populate the original exchange.
+
+### Hydration Algorithm
+
+```plantuml
+@startuml
+start
+:Load asset by assetId;
+if (session exists?) then (yes)
+  :Return session;
+  stop
+endif
+
+:Create session;
+:Search existing request-tool exchanges;
+if (found?) then (yes)
+  :Attach summaries;
+  :Return session;
+  stop
+endif
+
+:Inspect asset metadata for request/response evidence;
+if (complete request/response found?) then (yes)
+  :Create OriginalEvidence exchange;
+  :Return session;
+  stop
+endif
+
+:Search artifacts linked to asset;
+if (HAR found?) then (yes)
+  :Parse first matching HAR entry;
+  :Create OriginalEvidence exchange;
+  :Return session;
+  stop
+endif
+
+if (RawResponse found?) then (yes)
+  :Create response-only OriginalEvidence;
+  :Infer request from asset URL;
+  :Return session;
+  stop
+endif
+
+if (URL can be inferred?) then (yes)
+  :Create Synthetic GET exchange without response;
+  :Return session;
+  stop
+else (no)
+  :Return session with no exchanges and UI error;
+  stop
+endif
+@enduml
+```
+
+### Asset URL Inference
+
+Try fields in order:
+
+1. Asset metadata URL field.
+2. Asset display name if absolute URL.
+3. Asset value if absolute URL.
+4. For host/subdomain asset, synthesize `https://{host}/`.
+5. Otherwise no synthetic request.
+
+### HAR Parsing
+
+If an artifact of type `HarFile` exists:
+
+- Parse JSON.
+- Locate first entry matching asset URL/host.
+- Extract:
+  - Request method
+  - URL
+  - Headers
+  - Cookies
+  - Body
+  - Response status
+  - Response headers
+  - Response body text if present
+  - Timings
+- Store as `OriginalEvidence`.
+
+---
+
+## Security and Safety
+
+### SSRF Risk
+
+This is a server-side HTTP sender and therefore creates SSRF risk.
+
+MVP decision says do not hard-block out-of-scope targets. However, the implementation must still protect Argus infrastructure.
+
+Hard-block these targets even in MVP:
+
+- `localhost`
+- `127.0.0.0/8`
+- `::1`
+- Link-local ranges
+- RFC1918 private ranges unless config explicitly allows internal testing
+- Cloud metadata endpoints:
+  - `169.254.169.254`
+  - IPv6 metadata equivalents
+- Docker bridge ranges unless explicitly allowed
+- Kubernetes service ranges unless explicitly allowed
+
+Add config:
+
+```json
+{
+  "RequestTool": {
+    "AllowPrivateNetworkTargets": false,
+    "AllowLocalhostTargets": false,
+    "AllowCloudMetadataTargets": false
+  }
+}
+```
+
+Rationale: This does not conflict with the product decision not to block out-of-scope public targets. It prevents the Request Tool from being abused to attack Argus itself or its cloud runtime.
+
+### DNS Rebinding Defense
+
+Before sending:
+
+- Resolve host.
+- Check resolved IPs against blocked ranges.
+- Use the resolved IP information for decisioning.
+- Re-check after redirects.
+- If the host resolves to blocked IP ranges, block with `ValidationError`.
+
+### Header Injection Defense
+
+Reject header names/values containing raw CR or LF.
+
+### Response Handling Defense
+
+- Do not render HTML response bodies as live DOM.
+- Show HTML as text in Monaco/editor.
+- If adding preview iframe later, sandbox it with no scripts and no network.
+- Avoid storing huge unbounded bodies.
+- Do not decompress zip bombs beyond max byte limit.
+- Sanitize filenames for downloads.
+
+### Audit
+
+Audit actions:
+
+```text
+SessionOpened
+SessionCreated
+OriginalEvidenceHydrated
+SyntheticRequestCreated
+ExchangeCloned
+RequestSent
+RequestRateLimited
+RequestFailed
+ExchangeCompared
+ExchangePinned
+ExchangeRenamed
+RawRequestDownloaded
+RawResponseDownloaded
+```
+
+Audit metadata must be redacted.
+
+---
+
+## Implementation
+
+### Phase 1: Contracts and Service Skeleton
+
+1. Add request-tool contracts under `Argus.Contracts`.
+2. Add `Argus.RequestToolService` project.
+3. Add service defaults.
+4. Add health endpoint.
+5. Add options binding.
+6. Add database connection helper using the repo's existing pattern.
+7. Add schema migration/startup initializer.
+8. Add AppHost registration.
+9. Add gateway route.
+10. Confirm `dotnet build eShop.slnx` passes.
+
+Acceptance:
+
+- `Argus.RequestToolService` starts in Aspire.
+- Gateway root route lists `request-tool`.
+- `/request-tool/health` returns OK.
+
+### Phase 2: Database and Repository
+
+Implement repository:
+
+```csharp
+public interface IRequestToolRepository
+{
+    Task<RequestToolSessionDto?> GetSessionByAssetIdAsync(Guid assetId, CancellationToken ct);
+    Task<RequestToolSessionDto?> GetSessionAsync(Guid sessionId, CancellationToken ct);
+    Task<RequestToolSessionDto> CreateSessionAsync(CreateSessionCommand command, CancellationToken ct);
+    Task<IReadOnlyList<HttpExchangeSummaryDto>> GetExchangeSummariesAsync(Guid sessionId, CancellationToken ct);
+    Task<HttpExchangeDetailDto?> GetExchangeAsync(Guid exchangeId, CancellationToken ct);
+    Task<HttpExchangeDetailDto> InsertExchangeAsync(InsertExchangeCommand command, CancellationToken ct);
+    Task RenameExchangeAsync(Guid exchangeId, string title, CancellationToken ct);
+    Task PinExchangeAsync(Guid exchangeId, bool isPinned, CancellationToken ct);
+    Task InsertAuditAsync(InsertAuditCommand command, CancellationToken ct);
+}
+```
+
+Acceptance:
+
+- Repository can create session.
+- Repository can insert completed exchange.
+- Repository can load summaries and details.
+- Integration tests cover schema and repository.
+
+### Phase 3: Evidence Hydration
+
+Implement `IAssetEvidenceHydrator`.
+
+Acceptance:
+
+- URL asset creates synthetic GET if no original evidence exists.
+- HAR artifact can create original exchange.
+- Raw response artifact creates response-linked exchange with inferred request.
+- Duplicate calls do not create duplicate original evidence.
+
+### Phase 4: HTTP Replay
+
+Implement:
+
+- Request validation
+- SSRF defense
+- Scope classification
+- Rate-limit adapter
+- Proxy resolver
+- Manual redirect handling
+- Body storage
+- Audit
+- Exchange persistence
+
+Acceptance:
+
+- Sending `GET https://example.com/` creates completed exchange.
+- Sending invalid URL returns validation error.
+- Rate-limited request persists failed exchange.
+- Network timeout persists failed exchange.
+- Large body uses artifact storage.
+- Out-of-scope/unknown scope does not block send.
+
+### Phase 5: Diff and Raw Rendering
+
+Implement:
+
+- Raw request renderer
+- Raw response renderer
+- DiffPlex compare service
+- Compare endpoint
+- Raw endpoints
+
+Acceptance:
+
+- Compare two response bodies.
+- Compare two header sets.
+- Raw request is deterministic.
+- Raw response is deterministic.
+- Tests cover JSON pretty-print and plain text diff.
+
+### Phase 6: Argus.Web API Client
+
+Implement `RequestToolApiClient`.
+
+Acceptance:
+
+- Web can create/load session.
+- Web can load exchange detail.
+- Web can send request.
+- Web can compare exchanges.
+
+### Phase 7: Request Tool Page
+
+Implement:
+
+- `/request-tool/{assetId}`
+- Loading state
+- Error state
+- Asset/session summary
+- Tabs
+- Request editor
+- Response viewer
+- Send action
+- Clone action
+- Compare dialog
+- Dirty draft guard
+
+Acceptance:
+
+- Clicking URL manually opens tool.
+- Original evidence or synthetic request appears.
+- Sending creates a new tab.
+- Cloning populates editable draft.
+- Compare dialog shows diff.
+
+### Phase 8: Asset Context Menu
+
+Modify `Assets.razor`:
+
+- Add per-row action menu if not present.
+- Add `Send to Request Tool`.
+- Hide action for unsupported asset types if policy says unsupported.
+- Navigate to `/request-tool/{assetId}`.
+
+Acceptance:
+
+- User can open Request Tool from eligible asset.
+- Route loads correct asset session.
+
+### Phase 9: Monaco Integration
+
+Implement Monaco static asset loading and JS interop.
+
+Acceptance:
+
+- Body editor renders.
+- Body value can be read before send.
+- Diff editor renders.
+- Plain textarea fallback works if Monaco fails.
+
+### Phase 10: Production Hardening
+
+Add:
+
+- Logging
+- Metrics
+- OpenTelemetry spans
+- Structured error responses
+- Retry policies for internal service calls
+- Config docs
+- Deployment env vars
+- Tests
+- Redaction tests
+- SSRF tests
+- Body limit tests
+
+Acceptance:
+
+- No unhandled exceptions for expected failures.
+- Audit rows exist for all send attempts.
+- Sensitive values do not appear in audit metadata.
+- Private network target protections work.
+
+---
+
+## Testing Plan
+
+### Unit Tests
+
+Create test project:
+
+```text
+tests/Argus.RequestToolService.Tests/
+```
+
+Test:
+
+- URL normalization
+- Header validation
+- Cookie merging
+- Redaction
+- Raw request rendering
+- Raw response rendering
+- Diff target rendering
+- Scope classification fallback
+- Body threshold behavior
+- SSRF blocked IP detection
+- Redirect method behavior
+- Request hash determinism
+- Response hash determinism
+
+### Integration Tests
+
+Test with testcontainers or existing repo pattern:
+
+- Schema initialization
+- Session create/load
+- Exchange insert/load
+- Audit insert
+- Send against local test HTTP server
+- Redirect chain capture
+- Timeout handling
+- Large body artifact path
+- Rate-limit denial path using fake client
+
+### UI Tests
+
+Use existing Playwright setup if available.
+
+Scenarios:
+
+1. Open Assets page.
+2. Click row menu.
+3. Click `Send to Request Tool`.
+4. Verify route changes.
+5. Verify request editor is populated.
+6. Edit header.
+7. Click Send.
+8. Verify new tab appears.
+9. Select compare.
+10. Verify diff appears.
+
+### Manual QA Checklist
+
+- Request with no body.
+- Request with JSON body.
+- Request with URL-encoded body.
+- Request with custom Host header.
+- Request with cookies.
+- Response with large body.
+- Response with gzip.
+- Redirect chain.
+- 404/500 responses.
+- TLS failure.
+- DNS failure.
+- Timeout.
+- Out-of-scope public URL.
+- Unknown-scope URL.
+- Private network target blocked.
+- Clone and resend.
+- Compare original vs replay.
+- Rename tab.
+- Pin tab.
+- Download raw response.
+
+---
+
+## Observability
+
+### Logs
+
+Log events:
+
+- Session created
+- Original evidence hydrated
+- Send requested
+- Scope classified
+- Rate-limit allowed/denied
+- Request completed
+- Request failed
+- Body stored inline/artifact
+- Compare requested
+
+Never log raw sensitive headers or full bodies.
+
+### Metrics
+
+Add counters/histograms:
+
+```text
+request_tool_sessions_created_total
+request_tool_exchanges_created_total
+request_tool_sends_total
+request_tool_sends_failed_total
+request_tool_sends_rate_limited_total
+request_tool_send_duration_ms
+request_tool_response_body_bytes
+request_tool_body_artifact_writes_total
+request_tool_compare_total
+```
+
+Labels:
+
+```text
+program_id
+scope_status
+method
+host
+outcome
+```
+
+Avoid high-cardinality labels if the platform metrics backend cannot handle host/program labels.
+
+### Tracing
+
+Create spans:
+
+```text
+RequestTool.CreateSession
+RequestTool.HydrateEvidence
+RequestTool.Send
+RequestTool.ScopeClassify
+RequestTool.RateLimit
+RequestTool.HttpSend
+RequestTool.StoreBody
+RequestTool.PersistExchange
+RequestTool.Compare
+```
+
+---
+
+## API Error Model
+
+Return RFC-style problem details.
+
+Examples:
+
+### Invalid URL
+
+```json
+{
+  "type": "https://argus.local/problems/request-tool/invalid-url",
+  "title": "Invalid request URL",
+  "status": 400,
+  "detail": "Only absolute HTTP and HTTPS URLs are supported."
+}
+```
+
+### Blocked Internal Target
+
+```json
+{
+  "type": "https://argus.local/problems/request-tool/blocked-target",
+  "title": "Blocked target",
+  "status": 400,
+  "detail": "The target resolves to a protected internal network address."
+}
+```
+
+### Rate Limited
+
+```json
+{
+  "type": "https://argus.local/problems/request-tool/rate-limited",
+  "title": "Rate limited",
+  "status": 429,
+  "detail": "Request Tool send was denied by the rate-limit service.",
+  "extensions": {
+    "retryAfterSeconds": 30,
+    "exchangeId": "..."
+  }
+}
+```
+
+---
+
+## Data Retention
+
+Add config:
+
+```json
+{
+  "RequestTool": {
+    "RetentionDays": 180,
+    "DeleteArchivedSessionsAfterDays": 365
+  }
+}
+```
+
+MVP does not need a cleanup worker, but schema must support cleanup:
+
+- `request_tool_sessions.archived_at`
+- `http_exchanges.created_at`
+- Artifact links for large bodies
+
+Future cleanup process:
+
+1. Find archived sessions older than retention.
+2. Delete exchange rows.
+3. Delete linked body artifacts if no other entity references them.
+4. Delete audit rows according to audit-retention policy.
+
+---
+
+## Future Scripting Readiness
+
+Do not implement scripting now.
+
+The MVP must leave extension points:
+
+Existing fields:
+
+```text
+http_exchanges.parent_exchange_id
+http_exchanges.origin = FutureScript
+request_tool_sessions.session_id
+http_exchanges.created_by
+http_exchanges.created_at
+```
+
+Future tables:
+
+```sql
+create table request_tool_scripts (
+    script_id uuid primary key,
+    program_id uuid not null,
+    asset_id uuid null,
+    name text not null,
+    language text not null,
+    source_artifact_id uuid null,
+    source_inline text null,
+    created_by text null,
+    created_at timestamptz not null,
+    updated_at timestamptz not null
+);
+
+create table request_tool_script_runs (
+    run_id uuid primary key,
+    script_id uuid not null references request_tool_scripts(script_id),
+    session_id uuid null references request_tool_sessions(session_id),
+    status text not null,
+    started_by text null,
+    started_at timestamptz not null,
+    completed_at timestamptz null,
+    error text null
+);
+
+create table request_tool_script_run_steps (
+    step_id uuid primary key,
+    run_id uuid not null references request_tool_script_runs(run_id),
+    exchange_id uuid null references http_exchanges(exchange_id),
+    step_order int not null,
+    status text not null,
+    input jsonb not null default '{}'::jsonb,
+    output jsonb not null default '{}'::jsonb,
+    error text null,
+    started_at timestamptz null,
+    completed_at timestamptz null
+);
+```
+
+---
+
+## Milestones
+
+### Milestone 1: Service Foundation
+
+- Contracts added.
+- RequestToolService project added.
+- AppHost registration complete.
+- Gateway route complete.
+- Health endpoint works.
+- Build passes.
+
+### Milestone 2: Persistence
+
+- Schema created.
+- Repository implemented.
+- Sessions and exchanges persist.
+- Audit rows persist.
+- Integration tests pass.
+
+### Milestone 3: Evidence Hydration
+
+- Open asset creates/loads session.
+- Original evidence hydration works from metadata/artifacts when available.
+- Synthetic request fallback works.
+
+### Milestone 4: Replay Engine
+
+- User can send server-side HTTP requests.
+- Response captured.
+- Redirect metadata captured.
+- Body storage threshold works.
+- Rate limits enforced.
+- Scope status stored but not blocking.
+- Audit complete.
+
+### Milestone 5: Compare and Raw Views
+
+- Raw request endpoint works.
+- Raw response endpoint works.
+- Compare endpoint works.
+- DiffPlex integrated and tested.
+
+### Milestone 6: Web UI
+
+- Request Tool page implemented.
+- Tabs implemented.
+- Request editor implemented.
+- Response viewer implemented.
+- Send/clone/compare implemented.
+- Monaco integrated with fallback.
+
+### Milestone 7: Asset Integration
+
+- Assets page row action added.
+- Policy-driven action model added.
+- Eligible assets navigate to Request Tool.
+
+### Milestone 8: Production Hardening
+
+- SSRF protections.
+- Redaction.
+- Observability.
+- Tests.
+- Documentation.
+- Manual QA complete.
+
+---
+
+## Gathering Results
+
+### Functional Acceptance Criteria
+
+- From the Assets page, an eligible asset has `Send to Request Tool`.
+- Selecting it navigates to `/request-tool/{assetId}`.
+- The Request Tool loads a session for that asset.
+- The original evidence appears when available.
+- A synthetic request appears when original evidence is unavailable but URL can be inferred.
+- User can edit method, URL, headers, cookies, body, and content type.
+- User can send the edited request.
+- A new tab appears for the sent request.
+- Response status, headers, body, timing, size, and errors are visible.
+- User can clone a previous exchange.
+- User can compare two requests.
+- User can compare two responses.
+- Large bodies are stored as artifacts.
+- Small bodies are stored inline.
+- All send attempts create audit rows.
+- Scope status is shown but not blocking.
+- Rate-limit denial is handled gracefully.
+- Sensitive values are redacted from audit/log surfaces.
+- Private/internal infrastructure targets are blocked unless explicitly configured.
+
+### Performance Targets
+
+- Session load with 50 exchanges: under 500 ms server time.
+- Exchange detail load for inline body: under 300 ms server time.
+- Send overhead excluding remote target latency: under 150 ms.
+- Diff for 1 MB text bodies: under 2 seconds.
+- UI remains responsive with 100 exchange tabs by lazy-loading details.
+
+### Reliability Targets
+
+- No unhandled exceptions for network failures.
+- Failed sends persist as failed exchanges.
+- Body storage failures return clear errors.
+- Repeated session creation is idempotent per asset.
+- Duplicate browser refresh does not duplicate original evidence.
+
+### Security Targets
+
+- Audit rows contain no raw Authorization/Cookie secrets.
+- Server-side sender cannot reach protected internal/cloud metadata targets unless explicitly configured.
+- HTML responses are never executed in the app.
+- Header injection attempts are rejected.
+- Oversized bodies are truncated or rejected according to config.
+
+---
+

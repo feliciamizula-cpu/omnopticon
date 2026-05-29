@@ -29,6 +29,7 @@
     <Project Path="src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj" />
     <Project Path="src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj" />
     <Project Path="src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj" />
+    <Project Path="src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj" />
     <Project Path="src/Services/Argus.ScanOrchestratorService/Argus.ScanOrchestratorService.csproj" />
     <Project Path="src/Services/Argus.TaskService/Argus.TaskService.csproj" />
   </Folder>
