@@ -42,6 +42,11 @@ public sealed record CreateProgramRequest(
     string Source,
     string? ExternalUrl);
 
+public sealed record UpdateProgramRequest(
+    string? Name,
+    string? Source,
+    string? ExternalUrl);
+
 public sealed record ProgramScopeDto(
     Guid ScopeId,
     Guid ProgramId,

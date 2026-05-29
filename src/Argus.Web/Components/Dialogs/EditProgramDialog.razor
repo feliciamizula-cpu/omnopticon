@@ -1,0 +1,259 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject HttpClient Http
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <div class="d-flex justify-center pa-4">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            </div>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_name" Label="Name" Required="true" Immediate="true" />
+                <MudTextField @bind-Value="_source" Label="Source" Immediate="true" />
+                <MudTextField @bind-Value="_externalUrl" Label="External URL" Immediate="true" />
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Scopes</MudText>
+                @foreach (var scope in _existingScopes.Where(s => !s.Removed))
+                {
+                    var s = scope;
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.body2" Class="flex-grow-1">@s.Pattern</MudText>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@s.ScopeType</MudChip>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       aria-label="Remove scope" OnClick="@(() => s.Removed = true)" />
+                    </MudStack>
+                }
+                @for (var i = 0; i < _newScopes.Count; i++)
+                {
+                    var idx = i;
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudTextField Value="@_newScopes[idx].Pattern"
+                                      ValueChanged="@((string v) => _newScopes[idx].Pattern = v)"
+                                      Placeholder="example.com or *.example.com" Immediate="true" Class="flex-grow-1" />
+                        <MudSelect Value="@_newScopes[idx].ScopeType"
+                                   ValueChanged="@((string v) => _newScopes[idx].ScopeType = v)" Style="min-width:150px">
+                            <MudSelectItem Value="@("Domain")">Domain</MudSelectItem>
+                            <MudSelectItem Value="@("WildcardDomain")">Wildcard Domain</MudSelectItem>
+                            <MudSelectItem Value="@("Url")">URL</MudSelectItem>
+                            <MudSelectItem Value="@("Cidr")">CIDR</MudSelectItem>
+                            <MudSelectItem Value="@("IpRange")">IP Range</MudSelectItem>
+                        </MudSelect>
+                        <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small"
+                                       aria-label="Discard new scope" OnClick="@(() => _newScopes.RemoveAt(idx))" />
+                    </MudStack>
+                }
+                <MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Text"
+                           Class="align-self-start" OnClick="AddScope">Add Scope</MudButton>
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Seed Domains</MudText>
+                @foreach (var asset in _existingAssets.Where(a => !a.Removed))
+                {
+                    var a = asset;
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.body2" Class="flex-grow-1">@a.Value</MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       aria-label="Remove domain" OnClick="@(() => a.Removed = true)" />
+                    </MudStack>
+                }
+                @for (var i = 0; i < _newDomains.Count; i++)
+                {
+                    var idx = i;
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudTextField Value="@_newDomains[idx].Value"
+                                      ValueChanged="@((string v) => _newDomains[idx].Value = v)"
+                                      Placeholder="example.com" Immediate="true" Class="flex-grow-1" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small"
+                                       aria-label="Discard new domain" OnClick="@(() => _newDomains.RemoveAt(idx))" />
+                    </MudStack>
+                }
+                <MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Text"
+                           Class="align-self-start" OnClick="AddDomain">Add Seed Domain</MudButton>
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="@_saving">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync"
+                   Disabled="@(_saving || _loading || string.IsNullOrWhiteSpace(_name))">
+            @(_saving ? "Saving…" : "Save Changes")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid ProgramId { get; set; }
+
+    sealed class ScopeEntry { public string Pattern { get; set; } = ""; public string ScopeType { get; set; } = "Domain"; }
+    sealed class ExistingScopeVm { public Guid ScopeId { get; set; } public string Pattern { get; set; } = ""; public string ScopeType { get; set; } = ""; public bool Removed { get; set; } }
+    sealed class ExistingAssetVm { public Guid AssetId { get; set; } public string Value { get; set; } = ""; public bool Removed { get; set; } }
+    sealed class DomainEntry { public string Value { get; set; } = ""; }
+
+    private string _name = "";
+    private string _source = "";
+    private string _externalUrl = "";
+    private readonly List<ExistingScopeVm> _existingScopes = [];
+    private readonly List<ScopeEntry> _newScopes = [];
+    private readonly List<ExistingAssetVm> _existingAssets = [];
+    private readonly List<DomainEntry> _newDomains = [];
+    private bool _loading = true;
+    private bool _saving;
+    private string _error = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var pResp = await Http.GetAsync($"/ui/programs/{ProgramId}");
+            if (pResp.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await pResp.Content.ReadAsStringAsync());
+                var root = doc.RootElement;
+                _name = root.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                _source = root.TryGetProperty("source", out var s) ? s.GetString() ?? "" : "";
+                _externalUrl = root.TryGetProperty("externalUrl", out var e) && e.ValueKind != JsonValueKind.Null ? e.GetString() ?? "" : "";
+                if (root.TryGetProperty("scopes", out var scopes) && scopes.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var sc in scopes.EnumerateArray())
+                    {
+                        _existingScopes.Add(new ExistingScopeVm
+                        {
+                            ScopeId = sc.TryGetProperty("scopeId", out var id) ? id.GetGuid() : Guid.Empty,
+                            Pattern = sc.TryGetProperty("pattern", out var p) ? p.GetString() ?? "" : "",
+                            ScopeType = sc.TryGetProperty("scopeType", out var t) ? t.GetString() ?? "" : ""
+                        });
+                    }
+                }
+            }
+            else
+            {
+                _error = $"Failed to load program ({(int)pResp.StatusCode}).";
+            }
+
+            using var aResp = await Http.GetAsync($"/ui/ops/assets?programId={ProgramId}&take=500");
+            if (aResp.IsSuccessStatusCode)
+            {
+                using var adoc = JsonDocument.Parse(await aResp.Content.ReadAsStringAsync());
+                var aroot = adoc.RootElement;
+                var items = aroot.ValueKind == JsonValueKind.Array ? aroot
+                    : aroot.TryGetProperty("items", out var it) ? it : default;
+                if (items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var a in items.EnumerateArray())
+                    {
+                        var type = a.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+                        if (!type.Equals("Domain", StringComparison.OrdinalIgnoreCase)) continue;
+                        var status = a.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "";
+                        if (status.Equals("Archived", StringComparison.OrdinalIgnoreCase)) continue; // already removed
+                        _existingAssets.Add(new ExistingAssetVm
+                        {
+                            AssetId = a.TryGetProperty("assetId", out var id) ? id.GetGuid() : Guid.Empty,
+                            Value = a.TryGetProperty("value", out var v) ? v.GetString() ?? "" : ""
+                        });
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Load error: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void AddScope() => _newScopes.Add(new ScopeEntry());
+    private void AddDomain() => _newDomains.Add(new DomainEntry());
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        _error = "";
+        _saving = true;
+        try
+        {
+            var updateBody = new JsonObject
+            {
+                ["name"] = _name.Trim(),
+                ["source"] = string.IsNullOrWhiteSpace(_source) ? null : _source.Trim(),
+                ["externalUrl"] = string.IsNullOrWhiteSpace(_externalUrl) ? null : _externalUrl.Trim()
+            };
+            using var upResp = await Http.PutAsJsonAsync($"/ui/programs/{ProgramId}", updateBody);
+            if (!upResp.IsSuccessStatusCode)
+            {
+                _error = $"Failed to update program ({(int)upResp.StatusCode}).";
+                return;
+            }
+
+            foreach (var s in _existingScopes.Where(s => s.Removed && s.ScopeId != Guid.Empty))
+                await Http.DeleteAsync($"/ui/programs/{ProgramId}/scopes/{s.ScopeId}");
+
+            foreach (var s in _newScopes.Where(s => !string.IsNullOrWhiteSpace(s.Pattern)))
+            {
+                var scopeBody = new JsonObject
+                {
+                    ["programId"] = ProgramId,
+                    ["scopeType"] = s.ScopeType,
+                    ["pattern"] = s.Pattern.Trim(),
+                    ["action"] = "Include",
+                    ["notes"] = null
+                };
+                await Http.PostAsJsonAsync($"/ui/programs/{ProgramId}/scopes", scopeBody);
+            }
+
+            foreach (var d in _newDomains.Where(d => !string.IsNullOrWhiteSpace(d.Value)))
+            {
+                var domain = d.Value.Trim().TrimStart('*').TrimStart('.').ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(domain)) continue;
+                var assetBody = new JsonObject
+                {
+                    ["programId"] = ProgramId,
+                    ["type"] = "Domain",
+                    ["value"] = domain,
+                    ["subtype"] = "Seed",
+                    ["confidence"] = 1.0,
+                    ["discoveredByTaskId"] = $"manual:{ProgramId}",
+                    ["tags"] = new JsonArray("seed", "manual")
+                };
+                await Http.PostAsJsonAsync("/ui/assets", assetBody);
+            }
+
+            var removedAssetIds = _existingAssets
+                .Where(a => a.Removed && a.AssetId != Guid.Empty)
+                .Select(a => a.AssetId)
+                .ToList();
+            if (removedAssetIds.Count > 0)
+            {
+                var bulkBody = new JsonObject
+                {
+                    ["assetIds"] = new JsonArray(removedAssetIds.Select(id => JsonValue.Create(id)).ToArray()),
+                    ["action"] = "archive"
+                };
+                await Http.PostAsJsonAsync("/ui/assets/bulk", bulkBody);
+            }
+
+            MudDialog.Close(DialogResult.Ok(ProgramId));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Save error: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

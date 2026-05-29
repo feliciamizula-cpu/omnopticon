@@ -179,6 +179,7 @@
 
     List<ArgusMenuItem> GetProgramMenuItems(ProgramItem p) =>
     [
+        new("Edit Program",         () => OpenEditProgramDialog(p)),
         new("Enumerate Subdomains", () => RunProgramActionAsync("enum-sub", p)),
         new("Spider All Assets",    () => RunProgramActionAsync("spider",   p)),
     ];
@@ -263,7 +264,10 @@
                     : [];
 
             var prev = _assets.Select(a => a.AssetId).ToHashSet();
-            _assets = arr.Select(ParseAsset).Where(a => a is not null).Cast<AssetItem>().ToList();
+            // Archived assets are treated as removed — don't show them in the grid.
+            _assets = arr.Select(ParseAsset)
+                .Where(a => a is not null && !string.Equals(a!.Status, "Archived", StringComparison.OrdinalIgnoreCase))
+                .Cast<AssetItem>().ToList();
 
             var newIds = _assets.Select(a => a.AssetId).ToHashSet();
             newIds.ExceptWith(prev);
@@ -380,6 +384,20 @@
             var created = _programs.FirstOrDefault(p => p.ProgramId == programId);
             if (created is not null)
                 await SelectProgram(created);
+        }
+    }
+
+    async Task OpenEditProgramDialog(ProgramItem p)
+    {
+        var parameters = new DialogParameters { ["ProgramId"] = p.ProgramId };
+        var dialog = await DialogService.ShowAsync<EditProgramDialog>($"Edit {p.Name}", parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await LoadProgramsAsync();
+            var refreshed = _programs.FirstOrDefault(x => x.ProgramId == p.ProgramId) ?? _selectedProgram;
+            if (refreshed is not null)
+                await SelectProgram(refreshed);
         }
     }
 

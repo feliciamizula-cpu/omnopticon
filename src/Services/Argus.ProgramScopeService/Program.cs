@@ -55,6 +55,16 @@ app.MapPost("/programs", async (
     return Results.Created($"/programs/{program.ProgramId}", program);
 });
 
+app.MapPut("/programs/{programId:guid}", async (
+    Guid programId,
+    UpdateProgramRequest request,
+    IProgramScopeStore store,
+    CancellationToken cancellationToken) =>
+{
+    var program = await store.UpdateProgramAsync(programId, request, cancellationToken);
+    return program is null ? Results.NotFound() : Results.Ok(program);
+});
+
 app.MapGet("/programs/{programId:guid}", async (
     Guid programId,
     IProgramScopeStore store,
@@ -317,6 +327,7 @@ internal interface IProgramScopeStore
     Task<IReadOnlyCollection<ProgramDto>> GetProgramsAsync(CancellationToken cancellationToken);
     Task<ProgramDto?> FindProgramAsync(Guid programId, CancellationToken cancellationToken);
     Task<ProgramDto> CreateProgramAsync(CreateProgramRequest request, CancellationToken cancellationToken);
+    Task<ProgramDto?> UpdateProgramAsync(Guid programId, UpdateProgramRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<TargetDto>> GetTargetsAsync(Guid? programId, CancellationToken cancellationToken);
     Task<TargetDto?> FindTargetAsync(Guid targetId, CancellationToken cancellationToken);
     Task<TargetDto> CreateTargetAsync(CreateTargetRequest request, CancellationToken cancellationToken);
@@ -370,6 +381,22 @@ internal sealed class InMemoryProgramScopeStore : IProgramScopeStore
         _programs[record.ProgramId] = record;
 
         return Task.FromResult(ToDto(record));
+    }
+
+    public Task<ProgramDto?> UpdateProgramAsync(Guid programId, UpdateProgramRequest request, CancellationToken cancellationToken)
+    {
+        if (!_programs.TryGetValue(programId, out var record))
+        {
+            return Task.FromResult<ProgramDto?>(null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Name)) record.Name = request.Name.Trim();
+        if (!string.IsNullOrWhiteSpace(request.Source)) record.Source = request.Source.Trim();
+        if (request.ExternalUrl is not null)
+            record.ExternalUrl = string.IsNullOrWhiteSpace(request.ExternalUrl) ? null : request.ExternalUrl.Trim();
+        record.UpdatedAt = DateTimeOffset.UtcNow;
+
+        return Task.FromResult<ProgramDto?>(record.ToDto());
     }
 
     public Task<IReadOnlyCollection<TargetDto>> GetTargetsAsync(Guid? programId, CancellationToken cancellationToken)
@@ -756,6 +783,24 @@ internal sealed class EfProgramScopeStore(ProgramScopeDbContext dbContext) : IPr
         dbContext.Programs.Add(program);
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        return program.ToDto();
+    }
+
+    public async Task<ProgramDto?> UpdateProgramAsync(Guid programId, UpdateProgramRequest request, CancellationToken cancellationToken)
+    {
+        var program = await dbContext.Programs.FirstOrDefaultAsync(p => p.ProgramId == programId, cancellationToken);
+        if (program is null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Name)) program.Name = request.Name.Trim();
+        if (!string.IsNullOrWhiteSpace(request.Source)) program.Source = request.Source.Trim();
+        if (request.ExternalUrl is not null)
+            program.ExternalUrl = string.IsNullOrWhiteSpace(request.ExternalUrl) ? null : request.ExternalUrl.Trim();
+        program.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
         return program.ToDto();
     }
 

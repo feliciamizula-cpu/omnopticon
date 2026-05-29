@@ -109,6 +109,48 @@ app.MapGet("/ui/programs", async (
     return Results.Json(result ?? new JsonArray());
 });
 
+app.MapGet("/ui/programs/{programId:guid}", async (
+    Guid programId,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.ProgramScope, $"/programs/{programId}", cancellationToken);
+    return result is null ? Results.NotFound() : Results.Json(result);
+});
+
+app.MapPut("/ui/programs/{programId:guid}", async (
+    Guid programId,
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PutJsonAsync(endpoints.ProgramScope, $"/programs/{programId}", payload, cancellationToken);
+});
+
+app.MapDelete("/ui/programs/{programId:guid}/scopes/{scopeId:guid}", async (
+    Guid programId,
+    Guid scopeId,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    try
+    {
+        var client = httpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(endpoints.ProgramScope);
+        var response = await client.DeleteAsync($"/programs/{programId}/scopes/{scopeId}", cancellationToken);
+        return Results.StatusCode((int)response.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Unable to reach program-scope service: {ex.Message}", statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 app.MapGet("/ui/ops/assets", async (
     Guid? programId,
     int? take,
@@ -229,6 +271,26 @@ app.MapPost("/ui/assets/bulk/enqueue", async (
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/enqueue", payload, cancellationToken);
+});
+
+app.MapPost("/ui/assets", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Asset, "/assets", payload, cancellationToken);
+});
+
+app.MapPost("/ui/assets/bulk", async (
+    JsonObject payload,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk", payload, cancellationToken);
 });
 
 app.MapGet("/ui/webhooks/{id:guid}/logs", async (
