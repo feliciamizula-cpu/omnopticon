@@ -1,0 +1,125 @@
+@using Argus.Contracts.Workers
+@using Argus.Web.Services
+
+<MudDrawer @bind-Open="_open" Variant="DrawerVariant.Responsive" Fixed="true" Elevation="1">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@WorkerType Instances</MudText>
+        <span style="opacity: 0.6; font-size: 0.9rem; margin-left: 8px">
+            @CurrentInstances?.Count ?? 0 instances
+        </span>
+    </TitleContent>
+    <DrawerContent>
+        <MudTable Items="@(CurrentInstances ?? [])" Hover="true" Dense="true" Striped="true" Loading="_loading">
+            <HeaderContent>
+                <MudTh><MudText Typo="Typo.caption">Worker ID</MudText></MudTh>
+                <MudTh><MudText Typo="Typo.caption">Status</MudText></MudTh>
+                <MudTh><MudText Typo="Typo.caption">Tasks</MudText></MudTh>
+                <MudTh><MudText Typo="Typo.caption">Utilization</MudText></MudTh>
+                <MudTh><MudText Typo="Typo.caption">Last Seen</MudText></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudTooltip Text="@context.WorkerId">
+                        <MudText Typo="Typo.caption" Style="transform: translateY(2px)">@context.WorkerId[..8]...</MudText>
+                    </MudTooltip>
+                </MudTd>
+                <MudTd>
+                    @if (context.IsOnline)
+                    {
+                        <MudChip Color="Color.Success" Variant="Variant.Outlined" Size="Size.Small">Online</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small">Offline</MudChip>
+                    }
+                </MudTd>
+                <MudTd>
+                    <MudText Typo="Typo.caption">@context.RunningTasks/@context.MaxConcurrency</MudText>
+                </MudTd>
+                <MudTd>
+                    <MudProgressLinear Value="context.UtilizationPercent" 
+                                       Color="ProgressColor(context.UtilizationPercent)"
+                                       Variant="ProgressVariant.Text" Style="height: 16px; min-width: 60px" />
+                </MudTd>
+                <MudTd>
+                    <MudText Typo="Typo.caption">@FormatAgo(context.LastSeenAt)</MudText>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </DrawerContent>
+</MudDrawer>
+
+@code {
+    [Parameter]
+    public string WorkerType { get; set; } = string.Empty;
+
+    [Parameter]
+    public WorkersApiClient ApiClient { get; set; } = null!;
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private bool _open = true;
+    private bool _loading = false;
+    private List<WorkerInstanceDto>? _currentInstances;
+    
+    public List<WorkerInstanceDto>? CurrentInstances => _currentInstances;
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(WorkerType))
+        {
+            await RefreshInstancesAsync();
+        }
+    }
+
+    private async Task RefreshInstancesAsync()
+    {
+        _loading = true;
+        try
+        {
+            _currentInstances = (await ApiClient.GetInstancesAsync(WorkerType)).OrderByDescending(i => i.IsOnline).ThenByDescending(i => i.LastSeenAt).ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static Color ProgressColor(double utilization)
+    {
+        return utilization switch
+        {
+            < 60 => Color.Success,
+            < 90 => Color.Warning,
+            _ => Color.Error
+        };
+    }
+
+    private static string FormatAgo(DateTimeOffset timestamp)
+    {
+        var elapsed = DateTimeOffset.Now - timestamp;
+        return elapsed.TotalMinutes switch
+        {
+            < 1 => $"{elapsed:%s}s ago",
+            < 60 => $"{elapsed:%m}m ago",
+            < 24 => $"{elapsed:%h}h ago",
+            < 48 => "1d ago",
+            _ => $"{elapsed:%d}d ago"
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _open = true;
+    }
+
+    private async Task HandleStateChanged(bool state)
+    {
+        _open = state;
+        if (!state)
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+}

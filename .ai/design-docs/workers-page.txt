@@ -1,0 +1,2472 @@
+# SPEC-2-Workers-Page
+
+## Background
+
+Argus has many long-running reconnaissance workers, including Amass, Subfinder, DNS Resolver, HTTP Probe, HTML DOM Spider, JS Extractor, Wordlist Discovery, Headless Spider, Fingerprint, Validation, Asset Scoring, Finding Deduper, Regex Scanner, HTTP Worker, and Asset Storage Worker.
+
+Workers already register and heartbeat through `Argus.RealtimeService`. Existing worker status records include:
+
+- `WorkerId`
+- `WorkerType`
+- `Version`
+- `RunningTasks`
+- `MaxConcurrency`
+- `LastSeenAt`
+- `IsOnline`
+
+The new Workers page must give operators a production-ready operational dashboard for all worker types. It must show running worker counts, desired scale numbers, min/max limits, current task load, worker health, and manual scale controls.
+
+Important implementation decision:
+
+- `Argus.RealtimeService` remains the read model for worker runtime status.
+- Scaling state and scaling commands are added to Realtime because `/workers` already routes there.
+- Actual runtime scaling is performed through a pluggable scaler adapter:
+  - `NoOpWorkerScaler` for local Aspire/dev.
+  - `KubernetesWorkerScaler` for production Kubernetes.
+  - Optional later `DockerComposeWorkerScaler` or external deployment integration.
+
+This avoids pretending that Aspire can dynamically spawn new worker projects at runtime. In local development, the UI can update desired scale and record commands, but actual replica changes require the hosting environment to support scaling.
+
+---
+
+## Requirements
+
+### Must Have
+
+- Add a new `Argus.Web` page at `/workers`.
+- The page must use `ArgusGrid`.
+- Each main grid row represents one worker type.
+- The page must show all known worker types, even if zero instances are currently running.
+- For each worker type, show:
+  - Worker type
+  - Display name
+  - Runtime mode
+  - Online worker count
+  - Offline/stale worker count
+  - Desired replicas
+  - Min replicas
+  - Max replicas
+  - Total running tasks
+  - Total max concurrency
+  - Utilization percentage
+  - Last heartbeat
+  - Scaling status
+  - Last scale command
+- Include buttons to:
+  - Scale up by one
+  - Scale down by one
+  - Set exact desired replicas
+  - Pause/resume worker type
+  - Refresh
+- Manual scale actions must persist desired replica settings.
+- Manual scale actions must create an audit/command record.
+- The UI must not allow scaling below `MinReplicas`.
+- The UI must not allow scaling above `MaxReplicas`.
+- The UI must show whether the scaler actually applied the command or only recorded it.
+- The UI must show stale/offline workers based on heartbeat age.
+- The page must support search/filter by worker type.
+- The page must support auto-refresh.
+- The page must allow expanding a worker type to show individual worker instances.
+- The backend must expose a summary endpoint optimized for the page.
+- The implementation must not break existing worker registration/heartbeat behavior.
+
+### Should Have
+
+- Show summary cards above the grid:
+  - Total worker types
+  - Online workers
+  - Desired replicas
+  - Running tasks
+  - Saturated worker types
+  - Stale workers
+- Add row color/status:
+  - Healthy
+  - Under-scaled
+  - Over-scaled
+  - Saturated
+  - Stale
+  - Paused
+  - Scaling pending
+  - Scaling failed
+- Add a row context menu:
+  - Scale up
+  - Scale down
+  - Set desired replicas
+  - Pause
+  - Resume
+  - View instances
+  - View recent events
+- Add confirmation dialog for scale-to-zero and pause.
+- Add snackbar notifications for success/failure.
+- Record actor/user where identity is available.
+- Add event publication for scale changes.
+- Add tests for aggregation and scale boundary behavior.
+
+### Could Have
+
+- Per-program worker scaling.
+- Per-worker-type concurrency overrides.
+- Autoscaling policy configuration.
+- Queue depth integration from RabbitMQ/task service.
+- CPU/memory integration from orchestrator metrics.
+- Worker logs link-out.
+- Rolling restart button.
+- Drain worker button.
+- Kill stale worker record button.
+- Predictive scaling based on backlog.
+
+### Won't Have in MVP
+
+- Full autoscaling engine.
+- Per-program worker pools.
+- Direct Docker socket control from the web app.
+- Direct process spawning from Aspire dev dashboard.
+- Worker log streaming.
+- Worker binary deployment management.
+
+---
+
+## Method
+
+## Architecture
+
+### Current State
+
+Existing behavior:
+
+- Workers call `/workers/register`.
+- Workers call `/workers/heartbeat`.
+- `RealtimeStore` keeps worker status in memory and persists to `RealtimeDbContext`.
+- Gateway already forwards `/workers` and `/worker-types` to `Argus.RealtimeService`.
+- `Argus.Web` already has a reusable `ArgusGrid<TItem>` component.
+
+### Target State
+
+Add a Workers page that calls new Realtime endpoints:
+
+```http
+GET    /worker-types/summary
+GET    /worker-types/{workerType}
+GET    /worker-types/{workerType}/instances
+PUT    /worker-types/{workerType}/scale-settings
+POST   /worker-types/{workerType}/scale
+POST   /worker-types/{workerType}/scale-up
+POST   /worker-types/{workerType}/scale-down
+POST   /worker-types/{workerType}/pause
+POST   /worker-types/{workerType}/resume
+GET    /worker-scale-commands?take=100
+```
+
+The Workers page should never compute authoritative scaling status by itself. The backend must aggregate runtime worker records, worker type catalog data, and scale settings into one DTO.
+
+---
+
+## Component Diagram
+
+```plantuml
+@startuml
+actor Operator
+
+rectangle "Argus.Web" {
+  component "Workers.razor"
+  component "ArgusGrid<WorkerTypeSummaryRow>"
+  component "WorkerScaleDialog"
+  component "WorkerInstancesDrawer"
+  component "WorkersApiClient"
+}
+
+rectangle "Argus.ApiGateway" {
+  component "/workers forwarder"
+  component "/worker-types forwarder"
+  component "/worker-scale-commands forwarder"
+}
+
+rectangle "Argus.RealtimeService" {
+  component "Worker Runtime Store"
+  component "Worker Type Catalog"
+  component "Worker Summary API"
+  component "Scale Settings Store"
+  component "Scale Command Service"
+  component "Worker Scaler Adapter"
+}
+
+database "Realtime DB" {
+  entity "Workers"
+  entity "WorkerCapabilities"
+  entity "WorkerScaleSettings"
+  entity "WorkerScaleCommands"
+}
+
+rectangle "Scaler Implementations" {
+  component "NoOpWorkerScaler"
+  component "KubernetesWorkerScaler"
+  component "ExternalCommandWorkerScaler"
+}
+
+Operator --> "Workers.razor"
+"Workers.razor" --> "ArgusGrid<WorkerTypeSummaryRow>"
+"Workers.razor" --> "WorkersApiClient"
+"WorkersApiClient" --> "/worker-types forwarder"
+"WorkersApiClient" --> "/workers forwarder"
+"WorkersApiClient" --> "/worker-scale-commands forwarder"
+
+"/worker-types forwarder" --> "Worker Summary API"
+"/workers forwarder" --> "Worker Runtime Store"
+
+"Worker Summary API" --> "Worker Runtime Store"
+"Worker Summary API" --> "Worker Type Catalog"
+"Worker Summary API" --> "Scale Settings Store"
+
+"Scale Command Service" --> "Scale Settings Store"
+"Scale Command Service" --> "WorkerScaleCommands"
+"Scale Command Service" --> "Worker Scaler Adapter"
+
+"Worker Scaler Adapter" --> "NoOpWorkerScaler"
+"Worker Scaler Adapter" --> "KubernetesWorkerScaler"
+"Worker Scaler Adapter" --> "ExternalCommandWorkerScaler"
+
+"Worker Runtime Store" --> "Realtime DB"
+"Scale Settings Store" --> "Realtime DB"
+@enduml
+```
+
+---
+
+## Data Model
+
+Extend `Argus.RealtimeService/RealtimeDbContext.cs`.
+
+### Existing Tables
+
+Existing worker records should remain compatible:
+
+```csharp
+public sealed class WorkerRecord
+{
+    public string WorkerId { get; set; } = string.Empty;
+    public string WorkerType { get; set; } = string.Empty;
+    public string? Version { get; set; }
+    public int RunningTasks { get; set; }
+    public int MaxConcurrency { get; set; }
+    public DateTimeOffset LastSeenAt { get; set; }
+    public bool IsOnline { get; set; }
+}
+
+public sealed class WorkerCapabilityRecord
+{
+    public string WorkerId { get; set; } = string.Empty;
+    public string WorkerType { get; set; } = string.Empty;
+    public int MaxConcurrency { get; set; }
+    public string SubscribedAssetTypes { get; set; } = "[]";
+    public WorkerRecord? Worker { get; set; }
+}
+```
+
+### New Tables
+
+Add:
+
+```csharp
+public sealed class WorkerScaleSettingRecord
+{
+    public string WorkerType { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+    public string RuntimeMode { get; set; } = "continuous";
+
+    public int DesiredReplicas { get; set; }
+    public int MinReplicas { get; set; }
+    public int MaxReplicas { get; set; }
+
+    public bool IsPaused { get; set; }
+
+    public string? DeploymentName { get; set; }
+    public string? Namespace { get; set; }
+
+    public string? UpdatedBy { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class WorkerScaleCommandRecord
+{
+    public Guid CommandId { get; set; }
+
+    public string WorkerType { get; set; } = string.Empty;
+    public int PreviousDesiredReplicas { get; set; }
+    public int RequestedDesiredReplicas { get; set; }
+    public int? AppliedReplicas { get; set; }
+
+    public string Action { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+
+    public string? Message { get; set; }
+    public string? ScalerKind { get; set; }
+    public string? Actor { get; set; }
+
+    public DateTimeOffset RequestedAt { get; set; }
+    public DateTimeOffset? AppliedAt { get; set; }
+}
+```
+
+### EF Model Configuration
+
+Add to `OnModelCreating`:
+
+```csharp
+var scaleSetting = modelBuilder.Entity<WorkerScaleSettingRecord>(e =>
+{
+    e.HasKey(x => x.WorkerType);
+    e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
+    e.Property(x => x.DisplayName).IsRequired().HasMaxLength(256);
+    e.Property(x => x.RuntimeMode).IsRequired().HasMaxLength(64);
+    e.Property(x => x.DeploymentName).HasMaxLength(256);
+    e.Property(x => x.Namespace).HasMaxLength(128);
+    e.Property(x => x.UpdatedBy).HasMaxLength(256);
+    e.Property(x => x.CreatedAt).HasConversion(_dateTimeOffsetConverter);
+    e.Property(x => x.UpdatedAt).HasConversion(_dateTimeOffsetConverter);
+});
+
+var scaleCommand = modelBuilder.Entity<WorkerScaleCommandRecord>(e =>
+{
+    e.HasKey(x => x.CommandId);
+    e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
+    e.Property(x => x.Action).IsRequired().HasMaxLength(64);
+    e.Property(x => x.Status).IsRequired().HasMaxLength(64);
+    e.Property(x => x.Message).HasMaxLength(2048);
+    e.Property(x => x.ScalerKind).HasMaxLength(128);
+    e.Property(x => x.Actor).HasMaxLength(256);
+    e.Property(x => x.RequestedAt).HasConversion(_dateTimeOffsetConverter);
+    e.Property(x => x.AppliedAt).HasConversion(_dateTimeOffsetConverter);
+    e.HasIndex(x => x.WorkerType);
+    e.HasIndex(x => x.RequestedAt);
+    e.HasIndex(x => x.Status);
+});
+```
+
+---
+
+## Contracts
+
+Update `src/Contracts/Argus.Contracts/Workers/WorkerContracts.cs`.
+
+Keep existing records and add the following.
+
+```csharp
+namespace Argus.Contracts.Workers;
+
+public enum WorkerScaleCommandStatus
+{
+    Pending = 0,
+    Applied = 1,
+    Failed = 2,
+    NoOp = 3,
+    Rejected = 4
+}
+
+public enum WorkerTypeHealthStatus
+{
+    Unknown = 0,
+    Healthy = 1,
+    UnderScaled = 2,
+    OverScaled = 3,
+    Saturated = 4,
+    Stale = 5,
+    Paused = 6,
+    ScalingPending = 7,
+    ScalingFailed = 8
+}
+
+public sealed record WorkerTypeScaleSettingsDto(
+    string WorkerType,
+    string DisplayName,
+    string RuntimeMode,
+    int DesiredReplicas,
+    int MinReplicas,
+    int MaxReplicas,
+    bool IsPaused,
+    string? DeploymentName,
+    string? Namespace,
+    string? UpdatedBy,
+    DateTimeOffset UpdatedAt);
+
+public sealed record WorkerTypeSummaryDto(
+    string WorkerType,
+    string DisplayName,
+    string RuntimeMode,
+
+    int OnlineWorkers,
+    int OfflineWorkers,
+    int DesiredReplicas,
+    int MinReplicas,
+    int MaxReplicas,
+
+    int RunningTasks,
+    int MaxConcurrency,
+    double UtilizationPercent,
+
+    bool IsPaused,
+    WorkerTypeHealthStatus HealthStatus,
+
+    DateTimeOffset? LastSeenAt,
+    Guid? LastScaleCommandId,
+    string? LastScaleCommandStatus,
+    string? LastScaleMessage,
+
+    IReadOnlyCollection<string> SubscribedAssetTypes,
+    IReadOnlyCollection<string> ProducedAssetTypes,
+    bool RequiresHttp,
+    bool SupportsCheckpoint);
+
+public sealed record WorkersPageSummaryDto(
+    int WorkerTypes,
+    int OnlineWorkers,
+    int OfflineWorkers,
+    int DesiredReplicas,
+    int RunningTasks,
+    int MaxConcurrency,
+    int SaturatedWorkerTypes,
+    int StaleWorkerTypes,
+    int PausedWorkerTypes,
+    IReadOnlyCollection<WorkerTypeSummaryDto> WorkerTypes);
+
+public sealed record WorkerInstanceDto(
+    string WorkerId,
+    string WorkerType,
+    string? Version,
+    int RunningTasks,
+    int MaxConcurrency,
+    double UtilizationPercent,
+    DateTimeOffset LastSeenAt,
+    bool IsOnline,
+    bool IsStale);
+
+public sealed record UpdateWorkerScaleSettingsRequest(
+    int DesiredReplicas,
+    int MinReplicas,
+    int MaxReplicas,
+    bool IsPaused,
+    string? DeploymentName,
+    string? Namespace);
+
+public sealed record ScaleWorkerTypeRequest(
+    int DesiredReplicas,
+    string? Reason);
+
+public sealed record WorkerScaleCommandDto(
+    Guid CommandId,
+    string WorkerType,
+    string Action,
+    int PreviousDesiredReplicas,
+    int RequestedDesiredReplicas,
+    int? AppliedReplicas,
+    WorkerScaleCommandStatus Status,
+    string? Message,
+    string? ScalerKind,
+    string? Actor,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset? AppliedAt);
+```
+
+---
+
+## Worker Type Catalog
+
+Add a static catalog so the grid includes worker types even when no worker instances are running.
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/WorkerTypeCatalog.cs
+```
+
+```csharp
+using Argus.Contracts.Workers;
+
+namespace Argus.RealtimeService.Workers;
+
+public interface IWorkerTypeCatalog
+{
+    IReadOnlyCollection<WorkerTypeDefinition> GetAll();
+    WorkerTypeDefinition? Find(string workerType);
+}
+
+public sealed record WorkerTypeDefinition(
+    string WorkerType,
+    string DisplayName,
+    string RuntimeMode,
+    string ProjectPath,
+    string DeploymentName,
+    IReadOnlyCollection<string> SubscribedAssetTypes,
+    IReadOnlyCollection<string> ProducedAssetTypes,
+    bool RequiresHttp,
+    bool SupportsCheckpoint,
+    int DefaultDesiredReplicas,
+    int DefaultMinReplicas,
+    int DefaultMaxReplicas,
+    int DefaultMaxConcurrency);
+
+public sealed class WorkerTypeCatalog : IWorkerTypeCatalog
+{
+    private static readonly WorkerTypeDefinition[] Definitions =
+    [
+        new(
+            WorkerType: "AmassWorker",
+            DisplayName: "Amass",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj",
+            DeploymentName: "amass-worker",
+            SubscribedAssetTypes: ["Domain"],
+            ProducedAssetTypes: ["Subdomain", "DnsRecord"],
+            RequiresHttp: false,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 10,
+            DefaultMaxConcurrency: 2),
+
+        new(
+            WorkerType: "SubfinderWorker",
+            DisplayName: "Subfinder",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj",
+            DeploymentName: "subfinder-worker",
+            SubscribedAssetTypes: ["Domain"],
+            ProducedAssetTypes: ["Subdomain"],
+            RequiresHttp: false,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 10,
+            DefaultMaxConcurrency: 2),
+
+        new(
+            WorkerType: "DnsResolverWorker",
+            DisplayName: "DNS Resolver",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.DnsResolver/Argus.Workers.DnsResolver.csproj",
+            DeploymentName: "dns-resolver-worker",
+            SubscribedAssetTypes: ["Domain", "Subdomain"],
+            ProducedAssetTypes: ["Ip", "DnsRecord"],
+            RequiresHttp: false,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "HttpProbeWorker",
+            DisplayName: "HTTP Probe",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.HttpProbe/Argus.Workers.HttpProbe.csproj",
+            DeploymentName: "http-probe-worker",
+            SubscribedAssetTypes: ["Subdomain", "Ip"],
+            ProducedAssetTypes: ["Url", "HttpResponse"],
+            RequiresHttp: true,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 2,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 30,
+            DefaultMaxConcurrency: 20),
+
+        new(
+            WorkerType: "HtmlDomSpiderWorker",
+            DisplayName: "HTML DOM Spider",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.HtmlDomSpider/Argus.Workers.HtmlDomSpider.csproj",
+            DeploymentName: "html-dom-spider-worker",
+            SubscribedAssetTypes: ["Url"],
+            ProducedAssetTypes: ["HtmlPage", "Url", "ApiEndpoint", "JavaScriptFile"],
+            RequiresHttp: true,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "JsExtractorWorker",
+            DisplayName: "JS Extractor",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.JsExtractor/Argus.Workers.JsExtractor.csproj",
+            DeploymentName: "js-extractor-worker",
+            SubscribedAssetTypes: ["JavaScriptFile"],
+            ProducedAssetTypes: ["ApiEndpoint", "Url", "FindingCandidate"],
+            RequiresHttp: true,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "RegexScannerWorker",
+            DisplayName: "Regex Scanner",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.RegexScanner/Argus.Workers.RegexScanner.csproj",
+            DeploymentName: "regex-scanner-worker",
+            SubscribedAssetTypes: ["HtmlPage", "JavaScriptFile", "TextDocument"],
+            ProducedAssetTypes: ["FindingCandidate"],
+            RequiresHttp: false,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "WordlistDiscoveryWorker",
+            DisplayName: "Wordlist Discovery",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.WordlistDiscovery/Argus.Workers.WordlistDiscovery.csproj",
+            DeploymentName: "wordlist-discovery-worker",
+            SubscribedAssetTypes: ["Url"],
+            ProducedAssetTypes: ["Url"],
+            RequiresHttp: true,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "HeadlessSpiderWorker",
+            DisplayName: "Headless Spider",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.HeadlessSpider/Argus.Workers.HeadlessSpider.csproj",
+            DeploymentName: "headless-spider-worker",
+            SubscribedAssetTypes: ["Url"],
+            ProducedAssetTypes: ["Url", "ApiEndpoint", "JavaScriptFile"],
+            RequiresHttp: true,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 10,
+            DefaultMaxConcurrency: 4),
+
+        new(
+            WorkerType: "FingerprintWorker",
+            DisplayName: "Fingerprint",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.Fingerprint/Argus.Workers.Fingerprint.csproj",
+            DeploymentName: "fingerprint-worker",
+            SubscribedAssetTypes: ["Url", "HttpResponse", "HtmlPage"],
+            ProducedAssetTypes: ["Technology"],
+            RequiresHttp: true,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "ValidationWorker",
+            DisplayName: "Validation",
+            RuntimeMode: "validation-service",
+            ProjectPath: "src/Workers/Argus.Workers.Validation/Argus.Workers.Validation.csproj",
+            DeploymentName: "validation-worker",
+            SubscribedAssetTypes: ["Asset"],
+            ProducedAssetTypes: ["ValidationStatus"],
+            RequiresHttp: false,
+            SupportsCheckpoint: false,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 1,
+            DefaultMaxReplicas: 10,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "AssetScoringWorker",
+            DisplayName: "Asset Scoring",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj",
+            DeploymentName: "asset-scoring-worker",
+            SubscribedAssetTypes: ["Asset", "FindingCandidate"],
+            ProducedAssetTypes: ["Scores", "FindingCandidate"],
+            RequiresHttp: false,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "FindingDeduperWorker",
+            DisplayName: "Finding Deduper",
+            RuntimeMode: "continuous",
+            ProjectPath: "src/Workers/Argus.Workers.FindingDeduper/Argus.Workers.FindingDeduper.csproj",
+            DeploymentName: "finding-deduper-worker",
+            SubscribedAssetTypes: ["FindingCandidate"],
+            ProducedAssetTypes: ["Finding"],
+            RequiresHttp: false,
+            SupportsCheckpoint: true,
+            DefaultDesiredReplicas: 1,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 10,
+            DefaultMaxConcurrency: 5),
+
+        new(
+            WorkerType: "HttpWorker",
+            DisplayName: "HTTP Worker",
+            RuntimeMode: "ephemeral",
+            ProjectPath: "src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj",
+            DeploymentName: "http-worker",
+            SubscribedAssetTypes: ["Url"],
+            ProducedAssetTypes: ["HttpResponse"],
+            RequiresHttp: true,
+            SupportsCheckpoint: false,
+            DefaultDesiredReplicas: 0,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10),
+
+        new(
+            WorkerType: "AssetStorageWorker",
+            DisplayName: "Asset Storage",
+            RuntimeMode: "ephemeral",
+            ProjectPath: "src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj",
+            DeploymentName: "asset-storage-worker",
+            SubscribedAssetTypes: ["Asset"],
+            ProducedAssetTypes: ["StoredAsset"],
+            RequiresHttp: false,
+            SupportsCheckpoint: false,
+            DefaultDesiredReplicas: 0,
+            DefaultMinReplicas: 0,
+            DefaultMaxReplicas: 20,
+            DefaultMaxConcurrency: 10)
+    ];
+
+    public IReadOnlyCollection<WorkerTypeDefinition> GetAll() => Definitions;
+
+    public WorkerTypeDefinition? Find(string workerType) =>
+        Definitions.FirstOrDefault(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase));
+}
+```
+
+Contractor note:
+
+- Confirm exact `WorkerType` strings emitted by each worker registration.
+- If a worker currently emits a different type name, either update the catalog or normalize at registration time.
+- Do not block page implementation on perfect catalog fidelity; unknown registered worker types should still appear with generated defaults.
+
+---
+
+## Backend Services
+
+Add folder:
+
+```text
+src/Services/Argus.RealtimeService/Workers/
+```
+
+Add interfaces:
+
+```csharp
+public interface IWorkerSummaryService
+{
+    Task<WorkersPageSummaryDto> GetSummaryAsync(CancellationToken ct);
+    Task<WorkerTypeSummaryDto?> GetWorkerTypeAsync(string workerType, CancellationToken ct);
+    Task<IReadOnlyCollection<WorkerInstanceDto>> GetInstancesAsync(string workerType, CancellationToken ct);
+}
+
+public interface IWorkerScaleSettingsService
+{
+    Task<WorkerTypeScaleSettingsDto> GetOrCreateAsync(string workerType, CancellationToken ct);
+    Task<WorkerTypeScaleSettingsDto> UpdateAsync(
+        string workerType,
+        UpdateWorkerScaleSettingsRequest request,
+        string? actor,
+        CancellationToken ct);
+}
+
+public interface IWorkerScaleCommandService
+{
+    Task<WorkerScaleCommandDto> ScaleAsync(
+        string workerType,
+        int desiredReplicas,
+        string action,
+        string? reason,
+        string? actor,
+        CancellationToken ct);
+
+    Task<IReadOnlyCollection<WorkerScaleCommandDto>> GetRecentCommandsAsync(
+        int take,
+        CancellationToken ct);
+}
+
+public interface IWorkerScaler
+{
+    string Kind { get; }
+
+    Task<WorkerScalerResult> ScaleAsync(
+        WorkerScaleTarget target,
+        CancellationToken ct);
+}
+
+public sealed record WorkerScaleTarget(
+    string WorkerType,
+    string DeploymentName,
+    string? Namespace,
+    int DesiredReplicas);
+
+public sealed record WorkerScalerResult(
+    WorkerScaleCommandStatus Status,
+    int? AppliedReplicas,
+    string? Message);
+```
+
+---
+
+## Worker Summary Aggregation
+
+### Health Rules
+
+For each worker type:
+
+```text
+online = workers where IsOnline == true and LastSeenAt within heartbeat timeout
+offline = workers where LastSeenAt is older than timeout
+desired = scale settings DesiredReplicas
+runningTasks = sum RunningTasks
+maxConcurrency = sum MaxConcurrency
+utilization = runningTasks / maxConcurrency * 100
+```
+
+Default heartbeat timeout:
+
+```json
+{
+  "Workers": {
+    "HeartbeatTimeoutSeconds": 45,
+    "SaturationThresholdPercent": 90
+  }
+}
+```
+
+Health status priority:
+
+```csharp
+if (settings.IsPaused)
+    return WorkerTypeHealthStatus.Paused;
+
+if (lastCommand?.Status == "Pending")
+    return WorkerTypeHealthStatus.ScalingPending;
+
+if (lastCommand?.Status == "Failed")
+    return WorkerTypeHealthStatus.ScalingFailed;
+
+if (online == 0 && desired > 0)
+    return WorkerTypeHealthStatus.Stale;
+
+if (online < desired)
+    return WorkerTypeHealthStatus.UnderScaled;
+
+if (online > desired)
+    return WorkerTypeHealthStatus.OverScaled;
+
+if (utilization >= saturationThresholdPercent)
+    return WorkerTypeHealthStatus.Saturated;
+
+return WorkerTypeHealthStatus.Healthy;
+```
+
+### Aggregation Pseudocode
+
+```csharp
+public async Task<WorkersPageSummaryDto> GetSummaryAsync(CancellationToken ct)
+{
+    var now = clock.UtcNow;
+    var heartbeatTimeout = options.HeartbeatTimeout;
+    var catalog = workerTypeCatalog.GetAll();
+
+    await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+    var workerRecords = await db.Workers.ToListAsync(ct);
+    var capabilityRecords = await db.WorkerCapabilities.ToListAsync(ct);
+    var settings = await db.WorkerScaleSettings.ToListAsync(ct);
+    var recentCommands = await db.WorkerScaleCommands
+        .GroupBy(x => x.WorkerType)
+        .Select(g => g.OrderByDescending(x => x.RequestedAt).First())
+        .ToListAsync(ct);
+
+    var allTypes = catalog.Select(x => x.WorkerType)
+        .Concat(workerRecords.Select(x => x.WorkerType))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x)
+        .ToArray();
+
+    var rows = new List<WorkerTypeSummaryDto>();
+
+    foreach (var workerType in allTypes)
+    {
+        var definition = workerTypeCatalog.Find(workerType);
+        var typeWorkers = workerRecords
+            .Where(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var scale = await GetOrCreateScaleSettingsAsync(workerType, definition, ct);
+
+        var instances = typeWorkers.Select(w =>
+        {
+            var isOnline = now - w.LastSeenAt < heartbeatTimeout;
+            return new { Record = w, IsOnline = isOnline };
+        }).ToList();
+
+        var online = instances.Count(x => x.IsOnline);
+        var offline = instances.Count(x => !x.IsOnline);
+        var runningTasks = instances.Where(x => x.IsOnline).Sum(x => x.Record.RunningTasks);
+        var maxConcurrency = instances.Where(x => x.IsOnline).Sum(x => x.Record.MaxConcurrency);
+        var utilization = maxConcurrency <= 0 ? 0 : (runningTasks / (double)maxConcurrency) * 100;
+
+        var lastCommand = recentCommands.FirstOrDefault(x =>
+            string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase));
+
+        rows.Add(new WorkerTypeSummaryDto(
+            WorkerType: workerType,
+            DisplayName: scale.DisplayName,
+            RuntimeMode: scale.RuntimeMode,
+            OnlineWorkers: online,
+            OfflineWorkers: offline,
+            DesiredReplicas: scale.DesiredReplicas,
+            MinReplicas: scale.MinReplicas,
+            MaxReplicas: scale.MaxReplicas,
+            RunningTasks: runningTasks,
+            MaxConcurrency: maxConcurrency,
+            UtilizationPercent: Math.Round(utilization, 1),
+            IsPaused: scale.IsPaused,
+            HealthStatus: ComputeHealth(...),
+            LastSeenAt: typeWorkers.Count == 0 ? null : typeWorkers.Max(x => x.LastSeenAt),
+            LastScaleCommandId: lastCommand?.CommandId,
+            LastScaleCommandStatus: lastCommand?.Status,
+            LastScaleMessage: lastCommand?.Message,
+            SubscribedAssetTypes: definition?.SubscribedAssetTypes ?? [],
+            ProducedAssetTypes: definition?.ProducedAssetTypes ?? [],
+            RequiresHttp: definition?.RequiresHttp ?? false,
+            SupportsCheckpoint: definition?.SupportsCheckpoint ?? false));
+    }
+
+    return new WorkersPageSummaryDto(
+        WorkerTypes: rows.Count,
+        OnlineWorkers: rows.Sum(x => x.OnlineWorkers),
+        OfflineWorkers: rows.Sum(x => x.OfflineWorkers),
+        DesiredReplicas: rows.Sum(x => x.DesiredReplicas),
+        RunningTasks: rows.Sum(x => x.RunningTasks),
+        MaxConcurrency: rows.Sum(x => x.MaxConcurrency),
+        SaturatedWorkerTypes: rows.Count(x => x.HealthStatus == WorkerTypeHealthStatus.Saturated),
+        StaleWorkerTypes: rows.Count(x => x.HealthStatus == WorkerTypeHealthStatus.Stale),
+        PausedWorkerTypes: rows.Count(x => x.HealthStatus == WorkerTypeHealthStatus.Paused),
+        WorkerTypes: rows);
+}
+```
+
+---
+
+## Scaling Behavior
+
+### Scale Up
+
+Endpoint:
+
+```http
+POST /worker-types/{workerType}/scale-up
+```
+
+Behavior:
+
+```text
+target = min(currentDesired + 1, maxReplicas)
+persist desired target
+create command record
+call scaler
+update command status
+return command dto
+```
+
+### Scale Down
+
+Endpoint:
+
+```http
+POST /worker-types/{workerType}/scale-down
+```
+
+Behavior:
+
+```text
+target = max(currentDesired - 1, minReplicas)
+persist desired target
+create command record
+call scaler
+update command status
+return command dto
+```
+
+### Set Exact Desired Replicas
+
+Endpoint:
+
+```http
+POST /worker-types/{workerType}/scale
+```
+
+Request:
+
+```json
+{
+  "desiredReplicas": 3,
+  "reason": "manual operator scale"
+}
+```
+
+Validation:
+
+```text
+desiredReplicas >= minReplicas
+desiredReplicas <= maxReplicas
+workerType exists or is currently registered
+```
+
+### Pause
+
+Endpoint:
+
+```http
+POST /worker-types/{workerType}/pause
+```
+
+Behavior:
+
+```text
+set IsPaused = true
+set DesiredReplicas = 0 if MinReplicas == 0
+if MinReplicas > 0, reject pause unless force option is later added
+create scale command
+call scaler to 0 when allowed
+```
+
+### Resume
+
+Endpoint:
+
+```http
+POST /worker-types/{workerType}/resume
+```
+
+Behavior:
+
+```text
+set IsPaused = false
+if DesiredReplicas == 0, set DesiredReplicas to max(1, MinReplicas)
+create scale command
+call scaler
+```
+
+---
+
+## Scaler Implementations
+
+### NoOpWorkerScaler
+
+Use in local Aspire/dev by default.
+
+```csharp
+public sealed class NoOpWorkerScaler : IWorkerScaler
+{
+    public string Kind => "NoOp";
+
+    public Task<WorkerScalerResult> ScaleAsync(WorkerScaleTarget target, CancellationToken ct)
+    {
+        return Task.FromResult(new WorkerScalerResult(
+            WorkerScaleCommandStatus.NoOp,
+            AppliedReplicas: null,
+            Message: "Desired replica count recorded. No runtime scaler is configured for this environment."));
+    }
+}
+```
+
+### KubernetesWorkerScaler
+
+Use when deployed to Kubernetes.
+
+Package:
+
+```xml
+<PackageReference Include="KubernetesClient" />
+```
+
+Add central package version:
+
+```xml
+<PackageVersion Include="KubernetesClient" Version="19.0.2" />
+```
+
+Options:
+
+```json
+{
+  "Workers": {
+    "ScalerKind": "Kubernetes",
+    "KubernetesNamespace": "argus",
+    "DeploymentNameSuffix": ""
+  }
+}
+```
+
+Pseudocode:
+
+```csharp
+public sealed class KubernetesWorkerScaler : IWorkerScaler
+{
+    public string Kind => "Kubernetes";
+
+    public async Task<WorkerScalerResult> ScaleAsync(WorkerScaleTarget target, CancellationToken ct)
+    {
+        var ns = string.IsNullOrWhiteSpace(target.Namespace)
+            ? options.KubernetesNamespace
+            : target.Namespace;
+
+        var deployment = target.DeploymentName;
+
+        var scale = await client.ReadNamespacedDeploymentScaleAsync(
+            name: deployment,
+            namespaceParameter: ns,
+            cancellationToken: ct);
+
+        scale.Spec.Replicas = target.DesiredReplicas;
+
+        var result = await client.ReplaceNamespacedDeploymentScaleAsync(
+            body: scale,
+            name: deployment,
+            namespaceParameter: ns,
+            cancellationToken: ct);
+
+        return new WorkerScalerResult(
+            WorkerScaleCommandStatus.Applied,
+            AppliedReplicas: result.Spec.Replicas,
+            Message: $"Scaled deployment {ns}/{deployment} to {result.Spec.Replicas} replica(s).");
+    }
+}
+```
+
+### ExternalCommandWorkerScaler
+
+Use when an external deployment system must apply scaling.
+
+Behavior:
+
+- Persist command as `Pending`.
+- Publish event `WorkerScaleCommandRequested`.
+- External scaler consumes event and calls callback endpoint later.
+
+This is useful for Docker Compose, CI/CD, or a custom orchestrator.
+
+Future callback:
+
+```http
+POST /worker-scale-commands/{commandId}/complete
+```
+
+---
+
+## RealtimeService Endpoint Implementation
+
+Add endpoint mappings in `Argus.RealtimeService/Program.cs`:
+
+```csharp
+app.MapGet("/worker-types/summary",
+    async (IWorkerSummaryService service, CancellationToken ct) =>
+        Results.Ok(await service.GetSummaryAsync(ct)));
+
+app.MapGet("/worker-types/{workerType}",
+    async (string workerType, IWorkerSummaryService service, CancellationToken ct) =>
+    {
+        var row = await service.GetWorkerTypeAsync(workerType, ct);
+        return row is null ? Results.NotFound() : Results.Ok(row);
+    });
+
+app.MapGet("/worker-types/{workerType}/instances",
+    async (string workerType, IWorkerSummaryService service, CancellationToken ct) =>
+        Results.Ok(await service.GetInstancesAsync(workerType, ct)));
+
+app.MapPut("/worker-types/{workerType}/scale-settings",
+    async (
+        string workerType,
+        UpdateWorkerScaleSettingsRequest request,
+        IWorkerScaleSettingsService service,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var actor = http.User?.Identity?.Name;
+        var result = await service.UpdateAsync(workerType, request, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/scale",
+    async (
+        string workerType,
+        ScaleWorkerTypeRequest request,
+        IWorkerScaleCommandService service,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var actor = http.User?.Identity?.Name;
+        var result = await service.ScaleAsync(workerType, request.DesiredReplicas, "ScaleSet", request.Reason, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/scale-up",
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        var target = Math.Min(current.DesiredReplicas + 1, current.MaxReplicas);
+        var actor = http.User?.Identity?.Name;
+        var result = await commands.ScaleAsync(workerType, target, "ScaleUp", null, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/scale-down",
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        var target = Math.Max(current.DesiredReplicas - 1, current.MinReplicas);
+        var actor = http.User?.Identity?.Name;
+        var result = await commands.ScaleAsync(workerType, target, "ScaleDown", null, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/pause",
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        if (current.MinReplicas > 0)
+        {
+            return Results.BadRequest(new
+            {
+                message = $"Cannot pause {workerType}; MinReplicas is {current.MinReplicas}."
+            });
+        }
+
+        await settings.UpdateAsync(workerType, new UpdateWorkerScaleSettingsRequest(
+            DesiredReplicas: 0,
+            MinReplicas: current.MinReplicas,
+            MaxReplicas: current.MaxReplicas,
+            IsPaused: true,
+            DeploymentName: current.DeploymentName,
+            Namespace: current.Namespace), http.User?.Identity?.Name, ct);
+
+        var result = await commands.ScaleAsync(workerType, 0, "Pause", null, http.User?.Identity?.Name, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/resume",
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        var target = current.DesiredReplicas <= 0 ? Math.Max(1, current.MinReplicas) : current.DesiredReplicas;
+
+        await settings.UpdateAsync(workerType, new UpdateWorkerScaleSettingsRequest(
+            DesiredReplicas: target,
+            MinReplicas: current.MinReplicas,
+            MaxReplicas: current.MaxReplicas,
+            IsPaused: false,
+            DeploymentName: current.DeploymentName,
+            Namespace: current.Namespace), http.User?.Identity?.Name, ct);
+
+        var result = await commands.ScaleAsync(workerType, target, "Resume", null, http.User?.Identity?.Name, ct);
+        return Results.Ok(result);
+    });
+
+app.MapGet("/worker-scale-commands",
+    async (int? take, IWorkerScaleCommandService service, CancellationToken ct) =>
+        Results.Ok(await service.GetRecentCommandsAsync(Math.Clamp(take ?? 100, 1, 500), ct)));
+```
+
+---
+
+## Gateway Changes
+
+The gateway already maps `/workers` and `/worker-types` to Realtime.
+
+Add this route to the root route list:
+
+```csharp
+new
+{
+    Name = "worker-scale-commands",
+    Path = "/worker-scale-commands",
+    Service = "realtime",
+    Description = "Worker scaling command audit log"
+}
+```
+
+Add mapping:
+
+```csharp
+MapService(app, "/worker-scale-commands", endpoints.Realtime);
+```
+
+No new service is required for MVP.
+
+---
+
+## Argus.Web Changes
+
+### Files to Add
+
+```text
+src/Argus.Web/Pages/Workers.razor
+src/Argus.Web/Components/Workers/WorkerHealthChip.razor
+src/Argus.Web/Components/Workers/WorkerScaleDialog.razor
+src/Argus.Web/Components/Workers/WorkerInstancesDrawer.razor
+src/Argus.Web/Services/WorkersApiClient.cs
+```
+
+### Page Route
+
+`Workers.razor`:
+
+```razor
+@page "/workers"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Argus.Contracts.Workers
+@using Argus.Web.Components
+@inject WorkersApiClient WorkersApi
+@inject ILogger<Workers> Logger
+@implements IAsyncDisposable
+
+<PageTitle>Workers</PageTitle>
+
+<PageHeader Title="Workers"
+            Subtitle="Monitor worker health, current load, and scaling targets." />
+
+<div class="worker-summary-cards">
+    <DevStat Label="Worker Types" Value="@(_summary?.WorkerTypes.ToString() ?? "—")" />
+    <DevStat Label="Online Workers" Value="@(_summary?.OnlineWorkers.ToString() ?? "—")" />
+    <DevStat Label="Desired Replicas" Value="@(_summary?.DesiredReplicas.ToString() ?? "—")" />
+    <DevStat Label="Running Tasks" Value="@(_summary?.RunningTasks.ToString() ?? "—")" />
+    <DevStat Label="Saturated" Value="@(_summary?.SaturatedWorkerTypes.ToString() ?? "—")" />
+    <DevStat Label="Stale" Value="@(_summary?.StaleWorkerTypes.ToString() ?? "—")" />
+</div>
+
+<div class="argus-toolbar">
+    <input placeholder="Filter workers..."
+           value="@_filter"
+           @oninput="OnFilterChanged" />
+
+    <button @onclick="RefreshAsync" disabled="@_loading">
+        @(_loading ? "Refreshing..." : "Refresh")
+    </button>
+
+    <label>
+        <input type="checkbox" checked="@_autoRefresh" @onchange="ToggleAutoRefresh" />
+        Auto refresh
+    </label>
+</div>
+
+<ArgusGrid TItem="WorkerTypeSummaryDto"
+           Items="FilteredRows"
+           Columns="_columns"
+           SelectedItem="_selected"
+           SelectedItemChanged="OnSelectedChanged"
+           ContextMenuItems="BuildContextMenuItems"
+           RowClassFunc="WorkerRowClass"
+           EmptyMessage="No worker types found"
+           Loading="_loading">
+</ArgusGrid>
+
+@if (_selected is not null)
+{
+    <WorkerInstancesDrawer WorkerType="@_selected.WorkerType"
+                           OnClose="@(() => _selected = null)" />
+}
+
+@if (_scaleDialogWorker is not null)
+{
+    <WorkerScaleDialog Worker="@_scaleDialogWorker"
+                       OnCancel="CloseScaleDialog"
+                       OnSaved="OnScaleDialogSaved" />
+}
+```
+
+### Grid Columns
+
+```csharp
+private List<GridColumn<WorkerTypeSummaryDto>> _columns = [];
+
+protected override async Task OnInitializedAsync()
+{
+    _columns =
+    [
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Worker",
+            Primary = true,
+            Value = w => $"{w.DisplayName} ({w.WorkerType})"
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Health",
+            Value = w => w.HealthStatus.ToString()
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Online",
+            Value = w => $"{w.OnlineWorkers}/{w.DesiredReplicas}"
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Scale",
+            Value = w => $"{w.MinReplicas} / {w.DesiredReplicas} / {w.MaxReplicas}"
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Tasks",
+            Value = w => $"{w.RunningTasks}/{w.MaxConcurrency}"
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Utilization",
+            Value = w => $"{w.UtilizationPercent:F1}%"
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Runtime",
+            Value = w => w.RuntimeMode
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Last Seen",
+            Value = w => FormatAgo(w.LastSeenAt)
+        },
+        new GridColumn<WorkerTypeSummaryDto>
+        {
+            Header = "Last Scale",
+            Value = w => w.LastScaleCommandStatus ?? "—"
+        }
+    ];
+
+    await RefreshAsync();
+    StartPolling();
+}
+```
+
+### Context Menu
+
+`ArgusGrid` expects context-menu items. If the repo does not already expose a shared `GridContextMenuItem`, add it:
+
+```csharp
+namespace Argus.Web.Components;
+
+public sealed record GridContextMenuItem(
+    string Label,
+    Func<Task>? Action = null,
+    bool IsSeparator = false);
+```
+
+Build menu:
+
+```csharp
+private List<GridContextMenuItem> BuildContextMenuItems(WorkerTypeSummaryDto worker)
+{
+    return
+    [
+        new("Scale up", () => ScaleUpAsync(worker)),
+        new("Scale down", () => ScaleDownAsync(worker)),
+        new("Set desired replicas", () => OpenScaleDialog(worker)),
+        new("View instances", () => ShowInstances(worker)),
+        new("Pause", () => PauseAsync(worker)),
+        new("Resume", () => ResumeAsync(worker))
+    ];
+}
+```
+
+### Row Class
+
+```csharp
+private static string WorkerRowClass(WorkerTypeSummaryDto worker, int index)
+{
+    return worker.HealthStatus switch
+    {
+        WorkerTypeHealthStatus.Healthy => "worker-row-healthy",
+        WorkerTypeHealthStatus.UnderScaled => "worker-row-warning",
+        WorkerTypeHealthStatus.OverScaled => "worker-row-warning",
+        WorkerTypeHealthStatus.Saturated => "worker-row-danger",
+        WorkerTypeHealthStatus.Stale => "worker-row-danger",
+        WorkerTypeHealthStatus.Paused => "worker-row-muted",
+        WorkerTypeHealthStatus.ScalingPending => "worker-row-pending",
+        WorkerTypeHealthStatus.ScalingFailed => "worker-row-danger",
+        _ => ""
+    };
+}
+```
+
+### Auto Refresh
+
+```csharp
+private WorkersPageSummaryDto? _summary;
+private WorkerTypeSummaryDto? _selected;
+private WorkerTypeSummaryDto? _scaleDialogWorker;
+private bool _loading;
+private bool _autoRefresh = true;
+private string _filter = "";
+private PeriodicTimer? _timer;
+private CancellationTokenSource? _cts;
+
+private IReadOnlyCollection<WorkerTypeSummaryDto> FilteredRows =>
+    _summary?.WorkerTypes
+        .Where(w =>
+            string.IsNullOrWhiteSpace(_filter) ||
+            w.WorkerType.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+            w.DisplayName.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+        .ToArray()
+    ?? [];
+
+private async Task RefreshAsync()
+{
+    _loading = true;
+    try
+    {
+        _summary = await WorkersApi.GetSummaryAsync();
+    }
+    catch (Exception ex)
+    {
+        Logger.LogWarning(ex, "Failed to load workers summary");
+    }
+    finally
+    {
+        _loading = false;
+    }
+}
+
+private void StartPolling()
+{
+    _cts = new CancellationTokenSource();
+    _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+    _ = Task.Run(async () =>
+    {
+        while (!_cts.IsCancellationRequested && _timer is not null)
+        {
+            try
+            {
+                if (!await _timer.WaitForNextTickAsync(_cts.Token))
+                    break;
+
+                if (_autoRefresh)
+                {
+                    await InvokeAsync(RefreshAsync);
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Workers polling failed");
+            }
+        }
+    });
+}
+
+public async ValueTask DisposeAsync()
+{
+    if (_cts is not null)
+    {
+        await _cts.CancelAsync();
+        _cts.Dispose();
+    }
+
+    _timer?.Dispose();
+}
+```
+
+---
+
+## WorkersApiClient
+
+Create:
+
+```text
+src/Argus.Web/Services/WorkersApiClient.cs
+```
+
+```csharp
+using System.Net.Http.Json;
+using Argus.Contracts.Workers;
+
+namespace Argus.Web.Services;
+
+public sealed class WorkersApiClient(HttpClient http)
+{
+    public async Task<WorkersPageSummaryDto> GetSummaryAsync(CancellationToken ct = default)
+    {
+        return await http.GetFromJsonAsync<WorkersPageSummaryDto>("/worker-types/summary", ct)
+            ?? throw new InvalidOperationException("Workers summary response was empty.");
+    }
+
+    public async Task<WorkerTypeSummaryDto> GetWorkerTypeAsync(string workerType, CancellationToken ct = default)
+    {
+        return await http.GetFromJsonAsync<WorkerTypeSummaryDto>($"/worker-types/{Uri.EscapeDataString(workerType)}", ct)
+            ?? throw new InvalidOperationException("Worker type response was empty.");
+    }
+
+    public async Task<IReadOnlyCollection<WorkerInstanceDto>> GetInstancesAsync(string workerType, CancellationToken ct = default)
+    {
+        return await http.GetFromJsonAsync<IReadOnlyCollection<WorkerInstanceDto>>($"/worker-types/{Uri.EscapeDataString(workerType)}/instances", ct)
+            ?? [];
+    }
+
+    public async Task<WorkerScaleCommandDto> ScaleUpAsync(string workerType, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"/worker-types/{Uri.EscapeDataString(workerType)}/scale-up", null, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<WorkerScaleCommandDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Scale-up response was empty.");
+    }
+
+    public async Task<WorkerScaleCommandDto> ScaleDownAsync(string workerType, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"/worker-types/{Uri.EscapeDataString(workerType)}/scale-down", null, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<WorkerScaleCommandDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Scale-down response was empty.");
+    }
+
+    public async Task<WorkerScaleCommandDto> ScaleAsync(string workerType, ScaleWorkerTypeRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"/worker-types/{Uri.EscapeDataString(workerType)}/scale", request, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<WorkerScaleCommandDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Scale response was empty.");
+    }
+
+    public async Task<WorkerTypeScaleSettingsDto> UpdateSettingsAsync(
+        string workerType,
+        UpdateWorkerScaleSettingsRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PutAsJsonAsync($"/worker-types/{Uri.EscapeDataString(workerType)}/scale-settings", request, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<WorkerTypeScaleSettingsDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Scale settings response was empty.");
+    }
+
+    public async Task<WorkerScaleCommandDto> PauseAsync(string workerType, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"/worker-types/{Uri.EscapeDataString(workerType)}/pause", null, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<WorkerScaleCommandDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Pause response was empty.");
+    }
+
+    public async Task<WorkerScaleCommandDto> ResumeAsync(string workerType, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"/worker-types/{Uri.EscapeDataString(workerType)}/resume", null, ct);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<WorkerScaleCommandDto>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Resume response was empty.");
+    }
+}
+```
+
+Register in `Argus.Web/Program.cs` using the same `HttpClient` base address pattern used by existing pages. If the app already injects a gateway-backed default `HttpClient`, register:
+
+```csharp
+builder.Services.AddScoped<WorkersApiClient>();
+```
+
+If typed clients are used:
+
+```csharp
+builder.Services.AddHttpClient<WorkersApiClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Argus:ApiGatewayBaseUrl"] ?? "http://localhost:8081");
+});
+```
+
+---
+
+## Worker Scale Dialog
+
+Create:
+
+```text
+src/Argus.Web/Components/Workers/WorkerScaleDialog.razor
+```
+
+Fields:
+
+- Worker display name
+- Current online workers
+- Current desired replicas
+- Min replicas
+- Max replicas
+- Desired replicas input
+- Pause checkbox
+- Deployment name
+- Namespace
+- Reason text
+
+Validation:
+
+- `DesiredReplicas >= MinReplicas`
+- `DesiredReplicas <= MaxReplicas`
+- `MaxReplicas >= MinReplicas`
+- `MinReplicas >= 0`
+- `DesiredReplicas == 0` requires confirmation if currently > 0
+
+Save behavior:
+
+1. Update settings if min/max/deployment fields changed.
+2. Submit scale command if desired replica count changed.
+3. Close dialog.
+4. Refresh grid.
+
+---
+
+## Worker Instances Drawer
+
+Create:
+
+```text
+src/Argus.Web/Components/Workers/WorkerInstancesDrawer.razor
+```
+
+Show individual worker instances for selected type:
+
+Columns:
+
+- Worker ID
+- Version
+- Online
+- Running tasks
+- Max concurrency
+- Utilization
+- Last heartbeat
+- Stale
+
+Endpoint:
+
+```http
+GET /worker-types/{workerType}/instances
+```
+
+Use another `ArgusGrid<WorkerInstanceDto>`.
+
+---
+
+## Navigation
+
+`SidebarNav.razor` already has a Workers section. Ensure `/workers` route is linked.
+
+Expected nav item:
+
+```razor
+<NavLink href="/workers">Workers</NavLink>
+```
+
+If there is also a `/worker-types` page later, keep it separate. For MVP, the Workers page includes both worker-type summary and instance details.
+
+---
+
+## Styling
+
+Add CSS to existing Argus web styles:
+
+```css
+.worker-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.argus-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.worker-row-healthy {
+    --row-accent: var(--argus-success);
+}
+
+.worker-row-warning {
+    --row-accent: var(--argus-warning);
+}
+
+.worker-row-danger {
+    --row-accent: var(--argus-danger);
+}
+
+.worker-row-muted {
+    opacity: 0.65;
+}
+
+.worker-row-pending {
+    --row-accent: var(--argus-info);
+}
+```
+
+Use existing design tokens/classes where available.
+
+---
+
+## Eventing
+
+When a scale command is created, record an event:
+
+```csharp
+store.RecordEvent(new EventIngestRequest(
+    EventType: "WorkerScaleCommandRequested",
+    SourceService: "Argus.RealtimeService",
+    CorrelationId: command.CommandId,
+    CausationId: null,
+    PayloadJson: JsonSerializer.Serialize(new
+    {
+        command.CommandId,
+        command.WorkerType,
+        command.Action,
+        command.PreviousDesiredReplicas,
+        command.RequestedDesiredReplicas,
+        command.Status,
+        command.ScalerKind,
+        command.Actor
+    })));
+```
+
+When applied/failed:
+
+```text
+WorkerScaleCommandApplied
+WorkerScaleCommandFailed
+```
+
+These events should appear in the existing events stream.
+
+---
+
+## Security
+
+### Authorization
+
+For MVP, wire endpoint authorization to whatever auth exists in the app. If no auth exists, structure code so policies can be added later.
+
+Recommended policies:
+
+```text
+Workers.Read
+Workers.Scale
+Workers.Admin
+```
+
+Endpoint access:
+
+```text
+GET /worker-types/summary -> Workers.Read
+GET /worker-types/{type}/instances -> Workers.Read
+POST scale up/down/set -> Workers.Scale
+PUT scale-settings -> Workers.Admin
+pause/resume -> Workers.Scale
+```
+
+### Safety Rules
+
+- Reject scale commands where desired replicas are outside min/max.
+- Reject negative values.
+- Reject max replicas over global configured ceiling.
+- Reject unknown worker type unless it is currently registered.
+- Record all scale attempts.
+- Do not expose Kubernetes credentials to the web UI.
+- Do not mount Docker socket into `Argus.Web` or `RealtimeService` for MVP.
+- Kubernetes scaling must use least-privilege RBAC: only patch scale subresource for Argus worker deployments.
+
+Global ceiling:
+
+```json
+{
+  "Workers": {
+    "GlobalMaxReplicasPerType": 100
+  }
+}
+```
+
+---
+
+## Configuration
+
+Add to `Argus.RealtimeService` config:
+
+```json
+{
+  "Workers": {
+    "HeartbeatTimeoutSeconds": 45,
+    "SaturationThresholdPercent": 90,
+    "GlobalMaxReplicasPerType": 100,
+    "ScalerKind": "NoOp",
+    "KubernetesNamespace": "argus"
+  }
+}
+```
+
+Supported `ScalerKind` values:
+
+```text
+NoOp
+Kubernetes
+ExternalCommand
+```
+
+Dependency registration:
+
+```csharp
+builder.Services.Configure<WorkerOptions>(builder.Configuration.GetSection("Workers"));
+builder.Services.AddSingleton<IWorkerTypeCatalog, WorkerTypeCatalog>();
+builder.Services.AddScoped<IWorkerSummaryService, WorkerSummaryService>();
+builder.Services.AddScoped<IWorkerScaleSettingsService, WorkerScaleSettingsService>();
+builder.Services.AddScoped<IWorkerScaleCommandService, WorkerScaleCommandService>();
+
+var scalerKind = builder.Configuration["Workers:ScalerKind"] ?? "NoOp";
+
+if (scalerKind.Equals("Kubernetes", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddSingleton<IWorkerScaler, KubernetesWorkerScaler>();
+}
+else if (scalerKind.Equals("ExternalCommand", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddSingleton<IWorkerScaler, ExternalCommandWorkerScaler>();
+}
+else
+{
+    builder.Services.AddSingleton<IWorkerScaler, NoOpWorkerScaler>();
+}
+```
+
+---
+
+## Implementation
+
+### Step 1: Extend Worker Contracts
+
+Modify:
+
+```text
+src/Contracts/Argus.Contracts/Workers/WorkerContracts.cs
+```
+
+Add:
+
+- `WorkerScaleCommandStatus`
+- `WorkerTypeHealthStatus`
+- `WorkerTypeScaleSettingsDto`
+- `WorkerTypeSummaryDto`
+- `WorkersPageSummaryDto`
+- `WorkerInstanceDto`
+- `UpdateWorkerScaleSettingsRequest`
+- `ScaleWorkerTypeRequest`
+- `WorkerScaleCommandDto`
+
+Run:
+
+```bash
+dotnet build eShop.slnx
+```
+
+Acceptance:
+
+- Contracts compile.
+- Existing workers still compile.
+
+---
+
+### Step 2: Extend Realtime Database
+
+Modify:
+
+```text
+src/Services/Argus.RealtimeService/RealtimeDbContext.cs
+```
+
+Add:
+
+- `DbSet<WorkerScaleSettingRecord>`
+- `DbSet<WorkerScaleCommandRecord>`
+- EF mappings
+- DateTimeOffset conversion for new timestamp fields
+
+Because Realtime currently uses `Database.EnsureCreatedAsync`, ensure new tables are created for new DBs. For existing DBs, add a startup migration helper that executes `CREATE TABLE IF NOT EXISTS` for the new tables.
+
+Acceptance:
+
+- Realtime starts with existing DB.
+- Realtime starts with empty DB.
+- New tables exist.
+
+---
+
+### Step 3: Add Worker Type Catalog
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/WorkerTypeCatalog.cs
+```
+
+Acceptance:
+
+- `GetAll()` returns all worker types.
+- Unknown runtime workers can still be shown.
+
+---
+
+### Step 4: Add Worker Options
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/WorkerOptions.cs
+```
+
+```csharp
+public sealed class WorkerOptions
+{
+    public const string SectionName = "Workers";
+
+    public int HeartbeatTimeoutSeconds { get; init; } = 45;
+    public int SaturationThresholdPercent { get; init; } = 90;
+    public int GlobalMaxReplicasPerType { get; init; } = 100;
+    public string ScalerKind { get; init; } = "NoOp";
+    public string KubernetesNamespace { get; init; } = "argus";
+
+    public TimeSpan HeartbeatTimeout => TimeSpan.FromSeconds(HeartbeatTimeoutSeconds);
+}
+```
+
+Acceptance:
+
+- Options bind from config.
+- Defaults work without config.
+
+---
+
+### Step 5: Implement Summary Service
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/WorkerSummaryService.cs
+```
+
+Acceptance:
+
+- Returns every catalog worker type.
+- Includes registered unknown worker types.
+- Computes online/offline using heartbeat timeout.
+- Computes utilization.
+- Computes health status.
+- Includes last command status.
+
+---
+
+### Step 6: Implement Scale Settings Service
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/WorkerScaleSettingsService.cs
+```
+
+Rules:
+
+- `GetOrCreateAsync` creates defaults from catalog if missing.
+- Unknown current worker type gets safe defaults:
+  - `DesiredReplicas = online count`
+  - `MinReplicas = 0`
+  - `MaxReplicas = 10`
+- Validate:
+  - `0 <= MinReplicas <= DesiredReplicas <= MaxReplicas`
+  - `MaxReplicas <= GlobalMaxReplicasPerType`
+
+Acceptance:
+
+- Defaults are created.
+- Invalid min/max rejected.
+- Settings persist.
+
+---
+
+### Step 7: Implement Scaler Adapters
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/IWorkerScaler.cs
+src/Services/Argus.RealtimeService/Workers/NoOpWorkerScaler.cs
+src/Services/Argus.RealtimeService/Workers/ExternalCommandWorkerScaler.cs
+src/Services/Argus.RealtimeService/Workers/KubernetesWorkerScaler.cs
+```
+
+Acceptance:
+
+- NoOp records desired value and returns `NoOp`.
+- Kubernetes implementation compiles behind package reference.
+- ExternalCommand returns `Pending`.
+
+---
+
+### Step 8: Implement Scale Command Service
+
+Create:
+
+```text
+src/Services/Argus.RealtimeService/Workers/WorkerScaleCommandService.cs
+```
+
+Flow:
+
+1. Load settings.
+2. Validate target against min/max.
+3. Persist desired replicas.
+4. Insert command as pending.
+5. Call scaler.
+6. Update command result.
+7. Record event.
+8. Return DTO.
+
+Acceptance:
+
+- Scale up changes desired replicas.
+- Scale down changes desired replicas.
+- Scale beyond limits returns 400.
+- Command record written for every attempt.
+- Scaler result stored.
+
+---
+
+### Step 9: Add Realtime Endpoints
+
+Modify:
+
+```text
+src/Services/Argus.RealtimeService/Program.cs
+```
+
+Add endpoints listed above.
+
+Acceptance:
+
+```bash
+curl http://localhost:8081/worker-types/summary
+curl http://localhost:8081/worker-types/HttpProbeWorker/instances
+```
+
+Both return valid JSON through the gateway.
+
+---
+
+### Step 10: Gateway Route
+
+Modify:
+
+```text
+src/Argus.ApiGateway/Program.cs
+```
+
+Add:
+
+```csharp
+MapService(app, "/worker-scale-commands", endpoints.Realtime);
+```
+
+Acceptance:
+
+- `/worker-scale-commands` routes through gateway.
+
+---
+
+### Step 11: Add Web API Client
+
+Create:
+
+```text
+src/Argus.Web/Services/WorkersApiClient.cs
+```
+
+Register in `Argus.Web/Program.cs`.
+
+Acceptance:
+
+- Client can call summary endpoint.
+
+---
+
+### Step 12: Add Workers Page
+
+Create:
+
+```text
+src/Argus.Web/Pages/Workers.razor
+```
+
+Use:
+
+- `PageHeader`
+- `DevStat`
+- `ArgusGrid`
+- auto refresh
+- filter
+- context menu
+- scale actions
+
+Acceptance:
+
+- `/workers` loads.
+- Grid shows all worker types.
+- Online counts appear.
+- Desired/min/max values appear.
+- Scale buttons call API.
+
+---
+
+### Step 13: Add Dialog and Drawer
+
+Create:
+
+```text
+src/Argus.Web/Components/Workers/WorkerScaleDialog.razor
+src/Argus.Web/Components/Workers/WorkerInstancesDrawer.razor
+src/Argus.Web/Components/Workers/WorkerHealthChip.razor
+```
+
+Acceptance:
+
+- Operator can set exact desired replicas.
+- Operator can inspect individual worker instances.
+- Health chip renders clear statuses.
+
+---
+
+### Step 14: Navigation
+
+Update:
+
+```text
+src/Argus.Web/Layout/SidebarNav.razor
+```
+
+Ensure Workers links to:
+
+```text
+/workers
+```
+
+Acceptance:
+
+- Sidebar opens Workers page.
+
+---
+
+### Step 15: Tests
+
+Add or update tests:
+
+```text
+tests/Argus.RealtimeService.Tests/
+tests/Argus.Web.Tests/
+```
+
+Backend tests:
+
+- Catalog returns all definitions.
+- Summary includes zero-running worker types.
+- Heartbeat timeout marks stale workers.
+- Utilization is computed correctly.
+- Under-scaled status works.
+- Over-scaled status works.
+- Saturated status works.
+- Scale below min is rejected.
+- Scale above max is rejected.
+- Scale command writes audit record.
+- NoOp scaler returns `NoOp`.
+
+UI tests:
+
+- Workers page renders.
+- Grid rows appear.
+- Filter works.
+- Scale up button calls API.
+- Scale dialog validates min/max.
+- Instances drawer loads rows.
+
+E2E tests:
+
+- Open `/workers`.
+- Verify worker summary cards.
+- Verify at least known worker rows exist.
+- Trigger scale up in NoOp mode.
+- Verify desired replica count changes.
+
+---
+
+## Milestones
+
+### Milestone 1: Backend Contracts and Schema
+
+- Worker DTOs added.
+- Realtime DB extended.
+- Build passes.
+
+### Milestone 2: Worker Summary API
+
+- Worker catalog added.
+- Summary service implemented.
+- `/worker-types/summary` returns all worker types.
+
+### Milestone 3: Scaling API
+
+- Scale settings implemented.
+- Scale commands implemented.
+- NoOp scaler implemented.
+- Scale up/down endpoints work.
+
+### Milestone 4: Workers Page MVP
+
+- `/workers` page added.
+- `ArgusGrid` displays worker rows.
+- Summary cards displayed.
+- Manual refresh and auto-refresh work.
+
+### Milestone 5: Manual Scaling UI
+
+- Scale up/down buttons work.
+- Exact scale dialog works.
+- Pause/resume works.
+- Snackbar/error states work.
+
+### Milestone 6: Instance Detail View
+
+- Expand/drawer view shows individual workers.
+- Stale workers visible.
+- Last heartbeat and utilization visible.
+
+### Milestone 7: Production Scaler
+
+- Kubernetes scaler implemented.
+- RBAC documented.
+- NoOp remains default for local dev.
+- Scale command status accurately reflects applied/no-op/failed.
+
+### Milestone 8: Tests and Hardening
+
+- Backend tests pass.
+- UI tests pass.
+- E2E smoke test added.
+- Error handling complete.
+- Audit/event records verified.
+
+---
+
+## Gathering Results
+
+### Functional Acceptance Criteria
+
+- `/workers` exists and is linked from navigation.
+- The page contains an `ArgusGrid`.
+- The grid shows one row per known worker type.
+- Worker types with zero active workers are still visible.
+- The grid shows online worker count per type.
+- The grid shows desired/min/max scaling numbers.
+- The grid shows current running task count and max concurrency.
+- The grid shows utilization.
+- The grid shows health status.
+- Scale up increments desired replicas by one.
+- Scale down decrements desired replicas by one.
+- Scale actions cannot exceed min/max.
+- Set-exact-scale dialog updates desired replicas.
+- Pause/resume works according to min replica rules.
+- Scale commands are persisted.
+- Scale command status is visible.
+- Individual worker instances can be inspected.
+- Stale workers are visible.
+- Page refreshes automatically without losing operator context.
+
+### Production Acceptance Criteria
+
+- Realtime service remains backward-compatible with current workers.
+- Existing worker registration and heartbeat endpoints continue to work.
+- NoOp scaler is safe for local dev.
+- Kubernetes scaler can patch deployment replica counts.
+- All scaling changes are auditable.
+- Failed scaling commands are visible in the grid.
+- UI does not claim a command was applied when it was only recorded.
+
+### Performance Targets
+
+- Summary endpoint returns within 300 ms for 100 worker types and 5,000 worker instances.
+- Workers page renders within 1 second with 100 rows.
+- Auto-refresh interval defaults to 5 seconds.
+- Summary endpoint should use one DB read pass for workers, settings, capabilities, and recent commands.
+
+### Observability
+
+Add logs:
+
+```text
+WorkerSummaryRequested
+WorkerScaleSettingsUpdated
+WorkerScaleCommandCreated
+WorkerScaleCommandApplied
+WorkerScaleCommandFailed
+WorkerScaleCommandNoOp
+```
+
+Add metrics:
+
+```text
+argus_workers_online
+argus_workers_offline
+argus_worker_desired_replicas
+argus_worker_running_tasks
+argus_worker_max_concurrency
+argus_worker_utilization_percent
+argus_worker_scale_commands_total
+argus_worker_scale_command_failures_total
+```
+
+Labels:
+
+```text
+worker_type
+runtime_mode
+status
+scaler_kind
+```

@@ -1,0 +1,406 @@
+@page "/request-tool/{AssetId:guid}"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>HTTP Request Tool - Argus</PageTitle>
+
+<div class="request-tool-page">
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="app-loading-spinner"></div>
+            <p>Loading request tool...</p>
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="error-state">
+            <div class="error-icon">!</div>
+            <h3>Failed to load</h3>
+            <p>@_error</p>
+            <button class="btn btn-primary" @onclick="LoadSession">Retry</button>
+        </div>
+    }
+    else if (_session is not null)
+    {
+        <div class="request-tool-header">
+            <div class="header-info">
+                <h2>Request Tool</h2>
+                <span class="asset-info">Asset: @_session.AssetId</span>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-sm" @onclick="CloneSelected" disabled="@(_selectedExchangeId is null)">Clone</button>
+                <button class="btn btn-sm" @onclick="ShowCompareDialog">Compare</button>
+            </div>
+        </div>
+
+        <div class="request-tool-tabs">
+            @foreach (var exchange in _session.Exchanges)
+            {
+                <div class="tab @(exchange.ExchangeId == _selectedExchangeId ? "active" : "")"
+                     @onclick="() => SelectExchange(exchange.ExchangeId)">
+                    <span class="tab-title">@exchange.TabTitle</span>
+                    @if (exchange.Origin == 0)
+                    {
+                        <span class="tab-badge origin">Original</span>
+                    }
+                    else if (exchange.Outcome == 2)
+                    {
+                        <span class="tab-badge failed">Failed</span>
+                    }
+                    @if (exchange.IsPinned)
+                    {
+                        <span class="tab-pin">*</span>
+                    }
+                </div>
+            }
+            <button class="btn btn-sm btn-ghost tab-add" @onclick="CreateNewTab">+ New</button>
+        </div>
+
+        <div class="request-tool-content">
+            <div class="request-pane">
+                <div class="pane-header">
+                    <h3>Request</h3>
+                </div>
+                <div class="request-form">
+                    <div class="form-row">
+                        <select class="input method-select" @bind="_draft.Method">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="PATCH">PATCH</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="HEAD">HEAD</option>
+                            <option value="OPTIONS">OPTIONS</option>
+                        </select>
+                        <input type="text" class="input url-input" @bind="_draft.Url" placeholder="https://example.com/path" />
+                        <button class="btn btn-primary" @onclick="SendRequest" disabled="@_sending">
+                            @if (_sending)
+                            {
+                                <span>Sending...</span>
+                            }
+                            else
+                            {
+                                <span>Send</span>
+                            }
+                        </button>
+                    </div>
+
+                    <div class="form-section">
+                        <h4>Headers</h4>
+                        <div class="headers-list">
+                            @foreach (var header in _draft.Headers)
+                            {
+                                <div class="header-row">
+                                    <input type="checkbox" @bind="header.Enabled" />
+                                    <input type="text" class="input" @bind="header.Name" placeholder="Header Name" />
+                                    <input type="text" class="input" @bind="header.Value" placeholder="Value" />
+                                    <button class="btn btn-icon btn-ghost" @onclick="() => RemoveHeader(header)">x</button>
+                                </div>
+                            }
+                            <button class="btn btn-sm" @onclick="AddHeader">Add Header</button>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h4>Body</h4>
+                        <textarea class="input body-textarea" @bind="_draft.Body" placeholder="Request body..."></textarea>
+                        <div class="form-row">
+                            <input type="text" class="input" @bind="_draft.ContentType" placeholder="Content-Type" style="width: 200px;" />
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_draft.FollowRedirects" />
+                                Follow Redirects
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="response-pane">
+                <div class="pane-header">
+                    <h3>Response</h3>
+                    @if (_response is not null)
+                    {
+                        <div class="response-meta">
+                            <span class="status-badge status-@(_response.ResponseStatusCode >= 200 && _response.ResponseStatusCode < 300 ? "success" : "error")">
+                                @_response.ResponseStatusCode @_response.ResponseReasonPhrase
+                            </span>
+                            <span class="meta-item">@(_response.DurationMs ?? 0)ms</span>
+                            <span class="meta-item">@FormatSize(_response.ResponseBodySizeBytes ?? 0)</span>
+                        </div>
+                    }
+                </div>
+                @if (_response is not null)
+                {
+                    <div class="response-content">
+                        <div class="form-section">
+                            <h4>Response Headers</h4>
+                            <div class="headers-list">
+                                @if (_response.ResponseHeaders is not null)
+                                {
+                                    @foreach (var header in _response.ResponseHeaders)
+                                    {
+                                        <div class="header-row readonly">
+                                            <span class="header-name">@header.Key:</span>
+                                            <span class="header-value">@string.Join(", ", header.Value)</span>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                        <div class="form-section">
+                            <h4>Response Body</h4>
+                            <pre class="body-preview">@_response.ResponseBody</pre>
+                        </div>
+                    </div>
+                }
+                else if (_sending)
+                {
+                    <div class="loading-state">
+                        <div class="app-loading-spinner"></div>
+                        <p>Sending request...</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>Send a request to see the response</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (_showCompareDialog)
+{
+    <div class="modal-overlay" @onclick="CloseCompareDialog">
+        <div class="modal modal-lg" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Compare Exchanges</h3>
+                <button class="btn btn-icon btn-ghost" @onclick="CloseCompareDialog">x</button>
+            </div>
+            <div class="modal-body">
+                <div class="compare-result">
+                    <p>Select two exchanges to compare using the API.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" @onclick="CloseCompareDialog">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid AssetId { get; set; }
+
+    private bool _loading = true;
+    private string? _error;
+    private RequestToolSessionDto? _session;
+    private HttpExchangeDetailDto? _response;
+    private Guid? _selectedExchangeId;
+    private bool _sending;
+    private bool _showCompareDialog;
+    private RequestDraft _draft = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSession();
+    }
+
+    private async Task LoadSession()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync($"/ui/request-tool/assets/{AssetId}/session", new { assetId = AssetId });
+            if (response.IsSuccessStatusCode)
+            {
+                _session = await response.Content.ReadFromJsonAsync<RequestToolSessionDto>();
+                if (_session?.Exchanges.Count > 0)
+                {
+                    SelectExchange(_session.Exchanges.First().ExchangeId);
+                }
+            }
+            else
+            {
+                _error = $"Failed to load session: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error loading session: {ex.Message}";
+        }
+        _loading = false;
+    }
+
+    private async Task SelectExchange(Guid exchangeId)
+    {
+        _selectedExchangeId = exchangeId;
+        try
+        {
+            var response = await Http.GetAsync($"/ui/request-tool/exchanges/{exchangeId}");
+            if (response.IsSuccessStatusCode)
+            {
+                _response = await response.Content.ReadFromJsonAsync<HttpExchangeDetailDto>();
+                LoadExchangeIntoDraft(_response);
+            }
+        }
+        catch { }
+    }
+
+    private void LoadExchangeIntoDraft(HttpExchangeDetailDto? exchange)
+    {
+        if (exchange is null) return;
+
+        _draft = new RequestDraft
+        {
+            Method = exchange.RequestMethod,
+            Url = exchange.RequestUrl,
+            Body = exchange.RequestBody ?? "",
+            ContentType = exchange.RequestContentType ?? "",
+            FollowRedirects = true,
+            Headers = exchange.RequestHeaders.Select(h => new HeaderItem
+            {
+                Name = h.Key,
+                Value = string.Join(", ", h.Value),
+                Enabled = true
+            }).ToList()
+        };
+    }
+
+    private async Task SendRequest()
+    {
+        if (_session is null) return;
+
+        _sending = true;
+        try
+        {
+            var request = new
+            {
+                parentExchangeId = _selectedExchangeId,
+                method = _draft.Method,
+                url = _draft.Url,
+                headers = _draft.Headers.Where(h => h.Enabled && !string.IsNullOrWhiteSpace(h.Name))
+                    .ToDictionary(h => h.Name, h => new[] { h.Value }),
+                cookies = new Dictionary<string, string>(),
+                body = _draft.Body,
+                contentType = _draft.ContentType,
+                followRedirects = _draft.FollowRedirects,
+                tabTitle = $"{_draft.Method} {_draft.Url}"
+            };
+
+            var response = await Http.PostAsJsonAsync($"/ui/request-tool/sessions/{_session.SessionId}/send", request);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<HttpExchangeDetailDto>();
+                _response = result;
+                await LoadSession();
+            }
+        }
+        catch { }
+        _sending = false;
+    }
+
+    private void CloneSelected()
+    {
+        if (_response is not null)
+        {
+            LoadExchangeIntoDraft(_response);
+        }
+    }
+
+    private void ShowCompareDialog()
+    {
+        _showCompareDialog = true;
+    }
+
+    private void CloseCompareDialog()
+    {
+        _showCompareDialog = false;
+    }
+
+    private void CreateNewTab()
+    {
+        _draft = new RequestDraft();
+        _response = null;
+        _selectedExchangeId = null;
+    }
+
+    private void AddHeader()
+    {
+        _draft.Headers.Add(new HeaderItem { Enabled = true });
+    }
+
+    private void RemoveHeader(HeaderItem header)
+    {
+        _draft.Headers.Remove(header);
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+
+    private class RequestToolSessionDto
+    {
+        public Guid SessionId { get; set; }
+        public Guid AssetId { get; set; }
+        public Guid ProgramId { get; set; }
+        public string Title { get; set; } = "";
+        public List<HttpExchangeSummaryDto> Exchanges { get; set; } = new();
+    }
+
+    private class HttpExchangeSummaryDto
+    {
+        public Guid ExchangeId { get; set; }
+        public int Origin { get; set; }
+        public int Outcome { get; set; }
+        public string TabTitle { get; set; } = "";
+        public bool IsPinned { get; set; }
+        public string RequestMethod { get; set; } = "";
+        public string RequestUrl { get; set; } = "";
+    }
+
+    private class HttpExchangeDetailDto
+    {
+        public Guid ExchangeId { get; set; }
+        public Guid SessionId { get; set; }
+        public int Origin { get; set; }
+        public int Outcome { get; set; }
+        public string TabTitle { get; set; } = "";
+        public string RequestMethod { get; set; } = "";
+        public string RequestUrl { get; set; } = "";
+        public string? RequestBody { get; set; }
+        public string? RequestContentType { get; set; }
+        public Dictionary<string, string[]> RequestHeaders { get; set; } = new();
+        public int? ResponseStatusCode { get; set; }
+        public string? ResponseReasonPhrase { get; set; }
+        public string? ResponseBody { get; set; }
+        public string? ResponseContentType { get; set; }
+        public long? ResponseBodySizeBytes { get; set; }
+        public int? DurationMs { get; set; }
+        public Dictionary<string, string[]>? ResponseHeaders { get; set; }
+    }
+
+    private class RequestDraft
+    {
+        public string Method { get; set; } = "GET";
+        public string Url { get; set; } = "";
+        public string? Body { get; set; }
+        public string? ContentType { get; set; }
+        public bool FollowRedirects { get; set; } = true;
+        public List<HeaderItem> Headers { get; set; } = new();
+    }
+
+    private class HeaderItem
+    {
+        public string Name { get; set; } = "";
+        public string Value { get; set; } = "";
+        public bool Enabled { get; set; } = true;
+    }
+}

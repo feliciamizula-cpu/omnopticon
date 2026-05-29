@@ -53,9 +53,10 @@ app.MapGet("/", () => Results.Ok(new
         new { Name = "agent-chat", Path = "/agent-chat", Service = "agent", Description = "Development agent coordinator chat" },
         new { Name = "code-reviews", Path = "/code-reviews", Service = "agent", Description = "Agent-generated code reviews" },
         new { Name = "system-reports", Path = "/system-reports", Service = "agent", Description = "Agent-generated system reports" },
-        new { Name = "workers", Path = "/workers", Service = "realtime", Description = "Worker management" },
-        new { Name = "worker-types", Path = "/worker-types", Service = "realtime", Description = "Worker type definitions" },
-        new { Name = "worker-subscriptions", Path = "/worker-subscriptions", Service = "realtime", Description = "Worker subscription management" },
+            new { Name = "workers", Path = "/workers", Service = "realtime", Description = "Worker management" },
+            new { Name = "worker-types", Path = "/worker-types", Service = "realtime", Description = "Worker type definitions" },
+            new { Name = "worker-subscriptions", Path = "/worker-subscriptions", Service = "realtime", Description = "Worker subscription management" },
+            new { Name = "worker-scale-commands", Path = "/worker-scale-commands", Service = "realtime", Description = "Worker scaling command audit log" },
         new { Name = "events", Path = "/events", Service = "realtime", Description = "Event stream and subscriptions" },
         new { Name = "event-router", Path = "/event-router", Service = "event-router", Description = "Event routing configuration" },
         new { Name = "event-routes", Path = "/event-routes", Service = "event-router", Description = "Event route management" },
@@ -83,6 +84,7 @@ MapService(app, "/system-reports", endpoints.Agent);
 MapService(app, "/workers", endpoints.Realtime);
 MapService(app, "/worker-types", endpoints.Realtime);
 MapService(app, "/worker-subscriptions", endpoints.Realtime);
+MapService(app, "/worker-scale-commands", endpoints.Realtime);
 MapService(app, "/events", endpoints.Realtime);
 MapService(app, "/event-router", endpoints.EventRouter);
 MapService(app, "/event-routes", endpoints.EventRouter);

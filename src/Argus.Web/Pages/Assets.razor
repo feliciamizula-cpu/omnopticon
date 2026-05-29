@@ -1,6 +1,7 @@
 @page "/assets"
 @using System.Text.Json
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <PageHeader Title="Assets" Subtitle="@($" {(_assets?.Count ?? 0):N0} total")" />
 
@@ -50,6 +51,7 @@
                             <th>Staleness</th>
                             <th>Tags</th>
                             <th>Last Seen</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -102,6 +104,11 @@
                                     </div>
                                 </td>
                                 <td class="text-muted">@asset.LastSeenAt.ToLocalTime().ToString("MMM d, HH:mm")</td>
+                                <td class="col-actions" @onclick:stopPropagation>
+                                    <button class="btn btn-sm btn-ghost" @onclick="() => SendToRequestTool(asset.AssetId)" title="Send to Request Tool">
+                                        RT
+                                    </button>
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -359,5 +366,10 @@
         public DateTimeOffset LastSeenAt { get; set; }
         public int StalenessScore { get; set; }
         public List<string>? Tags { get; set; }
+    }
+
+    private void SendToRequestTool(Guid assetId)
+    {
+        Navigation.NavigateTo($"/request-tool/{assetId}");
     }
 }

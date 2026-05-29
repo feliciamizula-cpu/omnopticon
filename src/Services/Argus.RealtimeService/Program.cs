@@ -2,6 +2,7 @@ using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Workers;
 using Argus.RealtimeService;
+using Argus.RealtimeService.Workers;
 using Argus.ServiceDefaults;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
@@ -67,6 +68,15 @@ builder.Services.AddHttpClient("webhook", client =>
 });
 
 builder.Services.AddHostedService<WebhookService>();
+
+// Add worker services
+builder.Services.Configure<WorkerOptions>(builder.Configuration.GetSection("Workers"));
+builder.Services.AddSingleton<IWorkerTypeCatalog, WorkerTypeCatalog>();
+builder.Services.AddSingleton<IWorkerSummaryService, WorkerSummaryService>();
+builder.Services.AddSingleton<IWorkerScaleSettingsService, WorkerScaleSettingsService>();
+builder.Services.AddSingleton<IWorkerScaleCommandService, WorkerScaleCommandService>();
+builder.Services.AddSingleton<IWorkerScaler, NoOpWorkerScaler>();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 var app = builder.Build();
 
@@ -275,6 +285,134 @@ webhooks.MapGet("/{id:guid}/logs", async (Guid id, int? take, int? skip, Webhook
         logs = logs.Select(l => l.ToDto()).ToArray()
     });
 });
+
+// Worker endpoints
+app.MapGet("/worker-types/summary", 
+    async (IWorkerSummaryService service, CancellationToken ct) =>
+        Results.Ok(await service.GetSummaryAsync(ct)));
+
+app.MapGet("/worker-types/{workerType}", 
+    async (string workerType, IWorkerSummaryService service, CancellationToken ct) =>
+    {
+        var row = await service.GetWorkerTypeAsync(workerType, ct);
+        return row is null ? Results.NotFound() : Results.Ok(row);
+    });
+
+app.MapGet("/worker-types/{workerType}/instances", 
+    async (string workerType, IWorkerSummaryService service, CancellationToken ct) =>
+        Results.Ok(await service.GetInstancesAsync(workerType, ct)));
+
+app.MapPut("/worker-types/{workerType}/scale-settings", 
+    async (
+        string workerType,
+        UpdateWorkerScaleSettingsRequest request,
+        IWorkerScaleSettingsService service,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var actor = http.User?.Identity?.Name;
+        var result = await service.UpdateAsync(workerType, request, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/scale", 
+    async (
+        string workerType,
+        ScaleWorkerTypeRequest request,
+        IWorkerScaleCommandService service,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var actor = http.User?.Identity?.Name;
+        var result = await service.ScaleAsync(workerType, request.DesiredReplicas, "ScaleSet", request.Reason, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/scale-up", 
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        var target = Math.Min(current.DesiredReplicas + 1, current.MaxReplicas);
+        var actor = http.User?.Identity?.Name;
+        var result = await commands.ScaleAsync(workerType, target, "ScaleUp", null, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/scale-down", 
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        var target = Math.Max(current.DesiredReplicas - 1, current.MinReplicas);
+        var actor = http.User?.Identity?.Name;
+        var result = await commands.ScaleAsync(workerType, target, "ScaleDown", null, actor, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/pause", 
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        if (current.MinReplicas > 0)
+        {
+            return Results.BadRequest(new
+            {
+                message = $"Cannot pause {workerType}; MinReplicas is {current.MinReplicas}."
+            });
+        }
+
+        await settings.UpdateAsync(workerType, new UpdateWorkerScaleSettingsRequest(
+            DesiredReplicas: 0,
+            MinReplicas: current.MinReplicas,
+            MaxReplicas: current.MaxReplicas,
+            IsPaused: true,
+            DeploymentName: current.DeploymentName,
+            Namespace: current.Namespace), http.User?.Identity?.Name, ct);
+
+        var result = await commands.ScaleAsync(workerType, 0, "Pause", null, http.User?.Identity?.Name, ct);
+        return Results.Ok(result);
+    });
+
+app.MapPost("/worker-types/{workerType}/resume", 
+    async (
+        string workerType,
+        IWorkerScaleSettingsService settings,
+        IWorkerScaleCommandService commands,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        var current = await settings.GetOrCreateAsync(workerType, ct);
+        var target = current.DesiredReplicas <= 0 ? Math.Max(1, current.MinReplicas) : current.DesiredReplicas;
+
+        await settings.UpdateAsync(workerType, new UpdateWorkerScaleSettingsRequest(
+            DesiredReplicas: target,
+            MinReplicas: current.MinReplicas,
+            MaxReplicas: current.MaxReplicas,
+            IsPaused: false,
+            DeploymentName: current.DeploymentName,
+            Namespace: current.Namespace), http.User?.Identity?.Name, ct);
+
+        var result = await commands.ScaleAsync(workerType, target, "Resume", null, http.User?.Identity?.Name, ct);
+        return Results.Ok(result);
+    });
+
+app.MapGet("/worker-scale-commands", 
+    async (int? take, IWorkerScaleCommandService service, CancellationToken ct) =>
+        Results.Ok(await service.GetRecentCommandsAsync(Math.Clamp(take ?? 100, 1, 500), ct)));
 
 app.Run();
 

@@ -1,0 +1,410 @@
+@page "/workers"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Argus.Contracts.Workers
+@using Argus.Web.Components
+@using Argus.Web.Components.Workers
+@using Argus.Web.Services
+@inject WorkersApiClient WorkersApi
+@inject ILogger<Workers> Logger
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Workers</PageTitle>
+
+<PageHeader Title="Workers"
+            Subtitle="Monitor worker health, current load, and scaling targets." />
+
+<div class="worker-summary-grid">
+    <DevStat Label="Worker Types" Value="@(_summary?.WorkerTypes.ToString() ?? "—")" />
+    <DevStat Label="Online Workers" Value="@(_summary?.OnlineWorkers.ToString() ?? "—")" />
+    <DevStat Label="Desired Replicas" Value="@(_summary?.DesiredReplicas.ToString() ?? "—")" />
+    <DevStat Label="Running Tasks" Value="@(_summary?.RunningTasks.ToString() ?? "—")" />
+    <DevStat Label="Full Saturation" Value="@(_summary?.SaturatedWorkerTypes.ToString() ?? "—")" />
+    <DevStat Label="Stale Workers" Value="@(_summary?.StaleWorkerTypes.ToString() ?? "—")" />
+    <DevStat Label="Paused" Value="@(_summary?.PausedWorkerTypes.ToString() ?? "—")" />
+</div>
+
+<div class="argus-toolbar">
+    <MudTextField @bind-Value="_filter" Placeholder="Filter workers..." Variants="Variants.Outlined" Clearable="true" />
+
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RefreshAsync" Disabled="_loading">
+        @(_loading ? "Refreshing..." : "Refresh")
+    </MudButton>
+
+    <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" OnClick="RefreshAsync" />
+
+    <MudSwitch @bind-Checked="_autoRefresh">Auto refresh</MudSwitch>
+</div>
+
+<ArgusGrid TItem="WorkerTypeSummaryDto"
+           Items="FilteredRows"
+           Columns="_columns"
+           SelectedItem="_selected"
+           SelectedItemChanged="OnSelectedChanged"
+           ContextMenuItems="BuildContextMenuItems"
+           RowClassFunc="WorkerRowClass"
+           EmptyMessage="No worker types found"
+           Loading="_loading">
+</ArgusGrid>
+
+@if (_selected is not null)
+{
+    <WorkerInstancesDrawer WorkerType="@_selected.WorkerType" 
+                           OnClose="() => _selected = null"
+                           ApiClient="WorkersApi" />
+}
+
+@if (_scaleDialogWorker is not null)
+{
+    <WorkerScaleDialog Worker="@_scaleDialogWorker" 
+                       Settings="GetSettingsForWorker(_scaleDialogWorker.WorkerType)"
+                       OnCancel="CloseScaleDialog"
+                       OnApplyScale="OnApplyScale"
+                       ApiClient="WorkersApi" />
+}
+
+@code {
+    private List<GridColumn<WorkerTypeSummaryDto>> _columns = [];
+    private WorkersPageSummaryDto? _summary;
+    private WorkerTypeSummaryDto? _selected;
+    private WorkerTypeSummaryDto? _scaleDialogWorker;
+    private WorkerTypeScaleSettingsDto? _scaleSettings;
+    private bool _loading;
+    private bool _autoRefresh = true;
+    private string _filter = "";
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _columns =
+        [
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Worker",
+                Primary = true,
+                Value = w => $"{w.DisplayName} ({w.WorkerType})",
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Health",
+                Value = w => `
+                    <WorkerHealthChip Status="@w.HealthStatus" />`,
+                Width = "100px",
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Online",
+                Value = w => $"{w.OnlineWorkers}/{w.DesiredReplicas}",
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Scale",
+                Value = w => $"{w.MinReplicas} / {w.DesiredReplicas} / {w.MaxReplicas}",
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Tasks",
+                Value = w => $"{w.RunningTasks}/{w.MaxConcurrency}",
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Utilization",
+                Value = w => $"{w.UtilizationPercent:F1}%",
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Runtime",
+                Value = w => w.RuntimeMode,
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Last Seen",
+                Value = w => FormatAgo(w.LastSeenAt),
+                Sortable = false
+            },
+            new GridColumn<WorkerTypeSummaryDto>
+            {
+                Header = "Last Scale",
+                Value = w => w.LastScaleCommandStatus ?? "—",
+                Sortable = false
+            }
+        ];
+
+        await RefreshAsync();
+        StartPolling();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            _summary = await WorkersApi.GetSummaryAsync();
+            if (_scaleDialogWorker is not null)
+            {
+                _scaleSettings = await WorkersApi.GetWorkerTypeAsync(_scaleDialogWorker.WorkerType);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load workers summary");
+            await JS.InvokeVoidAsync("app.showAlert", "Failed to refresh workers", "error");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private WorkerTypeScaleSettingsDto GetSettingsForWorker(string workerType)
+    {
+        return new WorkerTypeScaleSettingsDto(
+            WorkerType: workerType,
+            DisplayName: _scaleDialogWorker?.DisplayName ?? workerType,
+            RuntimeMode: _scaleDialogWorker?.RuntimeMode ?? "continuous",
+            DesiredReplicas: _scaleDialogWorker?.DesiredReplicas ?? 1,
+            MinReplicas: _scaleDialogWorker?.MinReplicas ?? 0,
+            MaxReplicas: _scaleDialogWorker?.MaxReplicas ?? 10,
+            IsPaused: _scaleDialogWorker?.IsPaused ?? false,
+            DeploymentName: null,
+            Namespace: null,
+            UpdatedBy: null,
+            UpdatedAt: DateTimeOffset.Now);
+    }
+
+    private void StartPolling()
+    {
+        _cts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+
+        _ = Task.Run(async () =>
+        {
+            while (!_cts.IsCancellationRequested && _timer is not null)
+            {
+                try
+                {
+                    if (!await _timer.WaitForNextTickAsync(_cts.Token))
+                        break;
+
+                    if (_autoRefresh)
+                    {
+                        await InvokeAsync(RefreshAsync);
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Workers polling failed");
+                }
+            }
+        });
+    }
+
+    private IReadOnlyCollection<WorkerTypeSummaryDto> FilteredRows =>
+        _summary?.WorkerTypes
+            .Where(w =>
+                string.IsNullOrWhiteSpace(_filter) ||
+                w.WorkerType.Contains(_filter, StringComparison.OrdinalIgnoreCase) ||
+                w.DisplayName.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+            .ToArray()
+        ?? [];
+
+    private List<ArgusMenuItem> BuildContextMenuItems(WorkerTypeSummaryDto worker)
+    {
+        var actions = new List<ArgusMenuItem>
+        {
+            new("Scale up", () => ScaleUpAsync(worker)),
+            new("Scale down", () => ScaleDownAsync(worker),
+                IsDisabled: worker.DesiredReplicas <= worker.MinReplicas),
+            new("Set desired replicas", () => OpenScaleDialog(worker)),
+            new("View instances", () => _selected = worker)
+        };
+        
+        actions.Add(new ArgusMenuItem("")); // Separator
+
+        if (worker.IsPaused)
+        {
+            actions.Add(new("Resume", () => ResumeAsync(worker)));
+        }
+        else
+        {
+            actions.Add(new("Pause", () => PauseAsync(worker),
+                IsDisabled: worker.MinReplicas > 0));
+        }
+
+        return actions;
+    }
+
+    private static string WorkerRowClass(WorkerTypeSummaryDto worker, int index)
+    {
+        return worker.HealthStatus switch
+        {
+            WorkerTypeHealthStatus.Healthy => "worker-row-healthy",
+            WorkerTypeHealthStatus.UnderScaled => "worker-row-warning",
+            WorkerTypeHealthStatus.OverScaled => "worker-row-warning",
+            WorkerTypeHealthStatus.Saturated => "worker-row-danger",
+            WorkerTypeHealthStatus.Stale => "worker-row-danger",
+            WorkerTypeHealthStatus.Paused => "worker-row-muted",
+            WorkerTypeHealthStatus.ScalingPending => "worker-row-info",
+            WorkerTypeHealthStatus.ScalingFailed => "worker-row-danger",
+            _ => ""
+        };
+    }
+
+    private async Task ScaleUpAsync(WorkerTypeSummaryDto worker)
+    {
+        try
+        {
+            _loading = true;
+            var result = await WorkersApi.ScaleUpAsync(worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Scale-up command sent", "success");
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to scale up worker {WorkerType}", worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Failed to scale up: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ScaleDownAsync(WorkerTypeSummaryDto worker)
+    {
+        try
+        {
+            _loading = true;
+            var result = await WorkersApi.ScaleDownAsync(worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Scale-down command sent", "success");
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to scale down worker {WorkerType}", worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Failed to scale down: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenScaleDialog(WorkerTypeSummaryDto worker)
+    {
+        _scaleDialogWorker = worker;
+    }
+
+    private void CloseScaleDialog()
+    {
+        _scaleDialogWorker = null;
+        _scaleSettings = null;
+    }
+
+    private async Task OnApplyScale(WorkerTypeSummaryDto worker, int desiredReplicas)
+    {
+        try
+        {
+            _loading = true;
+            var request = new ScaleWorkerTypeRequest(desiredReplicas, "Manual scale from UI");
+            var result = await WorkersApi.ScaleAsync(worker.WorkerType, request);
+            await JS.InvokeVoidAsync("app.showAlert", $"Scale command sent: {desiredReplicas} replicas", "success");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to apply scale to worker {WorkerType}", worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Failed to scale: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loading = false;
+            CloseScaleDialog();
+            await RefreshAsync();
+        }
+    }
+
+    private async Task PauseAsync(WorkerTypeSummaryDto worker)
+    {
+        try
+        {
+            if (worker.MinReplicas > 0)
+            {
+                await JS.InvokeVoidAsync("app.showAlert", $"Cannot pause {worker.WorkerType}: minimum replicas > 0", "warning");
+                return;
+            }
+
+            _loading = true;
+            var result = await WorkersApi.PauseAsync(worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"{worker.WorkerType} paused", "success");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to pause worker {WorkerType}", worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Failed to pause: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loading = false;
+            await RefreshAsync();
+        }
+    }
+
+    private async Task ResumeAsync(WorkerTypeSummaryDto worker)
+    {
+        try
+        {
+            _loading = true;
+            var result = await WorkersApi.ResumeAsync(worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"{worker.WorkerType} resumed", "success");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to resume worker {WorkerType}", worker.WorkerType);
+            await JS.InvokeVoidAsync("app.showAlert", $"Failed to resume: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loading = false;
+            await RefreshAsync();
+        }
+    }
+
+    private static string FormatAgo(DateTimeOffset? timestamp)
+    {
+        if (timestamp == null) return "—";
+
+        var elapsed = DateTimeOffset.Now - timestamp.Value;
+        return elapsed.TotalMinutes switch
+        {
+            < 1 => $"{elapsed:%s}s ago",
+            < 60 => $"{elapsed:%m}m ago",
+            < 24 => $"{elapsed:%h}h ago",
+            _ => $"{elapsed:%d}d ago"
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();
+            _cts.Dispose();
+        }
+
+        _timer?.Dispose();
+    }
+}

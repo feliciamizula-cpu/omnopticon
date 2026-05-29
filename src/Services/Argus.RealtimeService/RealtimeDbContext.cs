@@ -17,6 +17,8 @@ public sealed class RealtimeDbContext : DbContext
     public DbSet<EventRecord> Events => Set<EventRecord>();
     public DbSet<WorkerRecord> Workers => Set<WorkerRecord>();
     public DbSet<WorkerCapabilityRecord> WorkerCapabilities => Set<WorkerCapabilityRecord>();
+    public DbSet<WorkerScaleSettingRecord> WorkerScaleSettings => Set<WorkerScaleSettingRecord>();
+    public DbSet<WorkerScaleCommandRecord> WorkerScaleCommands => Set<WorkerScaleCommandRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +52,35 @@ public sealed class RealtimeDbContext : DbContext
                 .HasForeignKey<WorkerCapabilityRecord>(x => x.WorkerId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+        
+        var scaleSetting = modelBuilder.Entity<WorkerScaleSettingRecord>(e =>
+        {
+            e.HasKey(x => x.WorkerType);
+            e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
+            e.Property(x => x.DisplayName).IsRequired().HasMaxLength(256);
+            e.Property(x => x.RuntimeMode).IsRequired().HasMaxLength(64);
+            e.Property(x => x.DeploymentName).HasMaxLength(256);
+            e.Property(x => x.Namespace).HasMaxLength(128);
+            e.Property(x => x.UpdatedBy).HasMaxLength(256);
+            e.Property(x => x.CreatedAt).HasConversion(_dateTimeOffsetConverter);
+            e.Property(x => x.UpdatedAt).HasConversion(_dateTimeOffsetConverter);
+        });
+
+        var scaleCommand = modelBuilder.Entity<WorkerScaleCommandRecord>(e =>
+        {
+            e.HasKey(x => x.CommandId);
+            e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
+            e.Property(x => x.Action).IsRequired().HasMaxLength(64);
+            e.Property(x => x.Status).IsRequired().HasMaxLength(64);
+            e.Property(x => x.Message).HasMaxLength(2048);
+            e.Property(x => x.ScalerKind).HasMaxLength(128);
+            e.Property(x => x.Actor).HasMaxLength(256);
+            e.Property(x => x.RequestedAt).HasConversion(_dateTimeOffsetConverter);
+            e.Property(x => x.AppliedAt).HasConversion(_dateTimeOffsetConverter);
+            e.HasIndex(x => x.WorkerType);
+            e.HasIndex(x => x.RequestedAt);
+            e.HasIndex(x => x.Status);
+        });
     }
 }
 
@@ -82,4 +113,36 @@ public sealed class WorkerCapabilityRecord
     public int MaxConcurrency { get; set; }
     public string SubscribedAssetTypes { get; set; } = "[]";
     public WorkerRecord? Worker { get; set; }
+}
+
+public sealed class WorkerScaleSettingRecord
+{
+    public string WorkerType { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string RuntimeMode { get; set; } = "continuous";
+    public int DesiredReplicas { get; set; }
+    public int MinReplicas { get; set; }
+    public int MaxReplicas { get; set; }
+    public bool IsPaused { get; set; }
+    public string? DeploymentName { get; set; }
+    public string? Namespace { get; set; }
+    public string? UpdatedBy { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class WorkerScaleCommandRecord
+{
+    public Guid CommandId { get; set; }
+    public string WorkerType { get; set; } = string.Empty;
+    public int PreviousDesiredReplicas { get; set; }
+    public int RequestedDesiredReplicas { get; set; }
+    public int? AppliedReplicas { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string? Message { get; set; }
+    public string? ScalerKind { get; set; }
+    public string? Actor { get; set; }
+    public DateTimeOffset RequestedAt { get; set; }
+    public DateTimeOffset? AppliedAt { get; set; }
 }

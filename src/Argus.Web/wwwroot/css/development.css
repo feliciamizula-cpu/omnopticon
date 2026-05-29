@@ -2394,3 +2394,267 @@ textarea.dev-input {
   0% { background: rgba(54, 211, 153, 0.2); }
   100% { background: transparent; }
 }
+
+/* Request Tool Page */
+.request-tool-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 1rem;
+}
+
+.request-tool-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.request-tool-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.asset-info {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.request-tool-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+
+.request-tool-tabs .tab {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 0.875rem;
+}
+
+.request-tool-tabs .tab:hover {
+    background: var(--bg-tertiary);
+}
+
+.request-tool-tabs .tab.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.tab-badge {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+}
+
+.tab-badge.origin {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.tab-badge.failed {
+    background: var(--red);
+    color: white;
+}
+
+.tab-pin {
+    color: var(--primary);
+    font-weight: bold;
+}
+
+.tab-add {
+    border: 1px dashed var(--border-color);
+    background: transparent;
+}
+
+.request-tool-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+}
+
+.request-pane, .response-pane {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.pane-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.pane-header h3 {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.response-meta {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.meta-item {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.request-form {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.form-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    align-items: center;
+}
+
+.method-select {
+    width: 100px;
+    flex-shrink: 0;
+}
+
+.url-input {
+    flex: 1;
+}
+
+.form-section {
+    margin-bottom: 1.5rem;
+}
+
+.form-section h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.headers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.header-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.header-row.readonly {
+    padding: 0.25rem 0;
+}
+
+.header-name {
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.header-value {
+    color: var(--text-secondary);
+}
+
+.header-row .input {
+    flex: 1;
+}
+
+.body-textarea {
+    width: 100%;
+    min-height: 150px;
+    resize: vertical;
+    font-family: monospace;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.response-content {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.body-preview {
+    background: var(--bg-primary);
+    padding: 1rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.75rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.modal-lg {
+    max-width: 900px;
+}
+
+.compare-result {
+    min-height: 200px;
+}
+
+.loading-state, .error-state, .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    text-align: center;
+}
+
+.error-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--red);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+}
+
+/* Asset Actions Column */
+.col-actions {
+    width: 60px;
+    text-align: center;
+}
+
+.col-actions .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}

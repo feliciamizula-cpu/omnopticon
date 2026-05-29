@@ -1,0 +1,69 @@
+@using Argus.Contracts.Workers
+
+<span class="worker-health-chip" style="display: inline-flex; align-items: center; gap: 8px;">
+    <span class="worker-health-status-icon"></span>
+    <span class="worker-health-label">@Label</span>
+</span>
+
+<style>
+    .worker-health-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .worker-health-status-icon {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .worker-row-healthy .worker-health-status-icon {
+        background-color: var(--mud-palette-success);
+    }
+
+    .worker-row-warning .worker-health-status-icon {
+        background-color: var(--mud-palette-warning);
+    }
+
+    .worker-row-danger .worker-health-status-icon {
+        background-color: var(--mud-palette-error);
+    }
+
+    .worker-row-muted .worker-health-status-icon {
+        background-color: var(--mud-palette-grey-default);
+    }
+
+    .worker-row-info .worker-health-status-icon {
+        background-color: var(--mud-palette-info);
+    }
+
+    .worker-health-label {
+        display: none;
+    }
+
+    @media (min-width: 768px) {
+        .worker-health-label {
+            display: inline;
+        }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public WorkerTypeHealthStatus Status { get; set; }
+
+    private string Label => Status switch
+    {
+        WorkerTypeHealthStatus.Healthy => "Healthy",
+        WorkerTypeHealthStatus.UnderScaled => "Under-scaled",
+        WorkerTypeHealthStatus.OverScaled => "Over-scaled",
+        WorkerTypeHealthStatus.Saturated => "Saturated",
+        WorkerTypeHealthStatus.Stale => "Stale",
+        WorkerTypeHealthStatus.Paused => "Paused",
+        WorkerTypeHealthStatus.ScalingPending => "Scaling",
+        WorkerTypeHealthStatus.ScalingFailed => "Failed",
+        _ => "Unknown"
+    };
+}

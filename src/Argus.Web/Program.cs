@@ -23,8 +23,10 @@ builder.Services.AddScoped(sp =>
     return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
 });
 builder.Services.AddMudServices();
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    builder.Services.AddRazorComponents()
+        .AddInteractiveServerComponents();
+
+    builder.Services.AddScoped<WorkersApiClient>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(o =>
     o.DetailedErrors = true);
@@ -538,6 +540,19 @@ app.MapDelete("/ui/todos/{todoId:guid}", ProxyDeleteTodo);
 app.MapGet("/ui/code-reviews", ProxyGetCodeReviews);
 app.MapGet("/ui/system-reports", ProxyGetSystemReports);
 
+app.MapGet("/ui/request-tool/assets/{assetId:guid}/session", ProxyGetRequestToolSession);
+app.MapPost("/ui/request-tool/assets/{assetId:guid}/session", ProxyCreateRequestToolSession);
+app.MapGet("/ui/request-tool/sessions/{sessionId:guid}", ProxyGetRequestToolSessionById);
+app.MapGet("/ui/request-tool/sessions/{sessionId:guid}/exchanges", ProxyGetRequestToolExchanges);
+app.MapGet("/ui/request-tool/exchanges/{exchangeId:guid}", ProxyGetRequestToolExchange);
+app.MapPost("/ui/request-tool/exchanges/{exchangeId:guid}/clone", ProxyCloneRequestToolExchange);
+app.MapPatch("/ui/request-tool/exchanges/{exchangeId:guid}/title", ProxyRenameRequestToolExchange);
+app.MapPatch("/ui/request-tool/exchanges/{exchangeId:guid}/pin", ProxyPinRequestToolExchange);
+app.MapPost("/ui/request-tool/sessions/{sessionId:guid}/send", ProxySendRequestTool);
+app.MapPost("/ui/request-tool/compare", ProxyCompareRequestTool);
+app.MapGet("/ui/request-tool/exchanges/{exchangeId:guid}/raw-request", ProxyGetRawRequest);
+app.MapGet("/ui/request-tool/exchanges/{exchangeId:guid}/raw-response", ProxyGetRawResponse);
+
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
 app.MapGet("/ui/provider-usage/routing-preview", ProxyGetRoutingPreview);
@@ -812,6 +827,96 @@ async Task<IResult> ProxyGetSystemReports(int? take, IHttpClientFactory httpClie
         () => gateway.GetJsonAsync(endpoints.Agent, path, ct),
         ct);
     return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["count"] = 0 });
+}
+
+async Task<IResult> ProxyGetRequestToolSession(Guid assetId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/assets/{assetId}/session", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyCreateRequestToolSession(Guid assetId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.RequestTool, $"/request-tool/assets/{assetId}/session", payload, ct);
+}
+
+async Task<IResult> ProxyGetRequestToolSessionById(Guid sessionId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/sessions/{sessionId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyGetRequestToolExchanges(Guid sessionId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/sessions/{sessionId}/exchanges", ct);
+    return Results.Json(result ?? new JsonArray());
+}
+
+async Task<IResult> ProxyGetRequestToolExchange(Guid exchangeId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyCloneRequestToolExchange(Guid exchangeId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}/clone", payload, ct);
+}
+
+async Task<IResult> ProxyRenameRequestToolExchange(Guid exchangeId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PatchJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}/title", payload, ct);
+}
+
+async Task<IResult> ProxyPinRequestToolExchange(Guid exchangeId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PatchJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}/pin", payload, ct);
+}
+
+async Task<IResult> ProxySendRequestTool(Guid sessionId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.RequestTool, $"/request-tool/sessions/{sessionId}/send", payload, ct);
+}
+
+async Task<IResult> ProxyCompareRequestTool(JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.RequestTool, "/request-tool/compare", payload, ct);
+}
+
+async Task<IResult> ProxyGetRawRequest(Guid exchangeId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}/raw-request", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyGetRawResponse(Guid exchangeId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}/raw-response", ct);
+    return result is not null ? Results.Json(result) : Results.NotFound();
 }
 
 async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)
@@ -1490,7 +1595,8 @@ internal sealed record ArgusServiceEndpoints(
     string Task,
     string RateLimit,
     string ScanOrchestrator,
-    string Realtime)
+    string Realtime,
+    string RequestTool)
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) =>
         new(
@@ -1500,5 +1606,6 @@ internal sealed record ArgusServiceEndpoints(
             configuration["ARGUS_TASK_SERVICE"] ?? "https+http://task-service",
             configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? "https+http://rate-limit-service",
             configuration["ARGUS_SCAN_ORCHESTRATOR_SERVICE"] ?? "https+http://scan-orchestrator-service",
-            configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service");
+            configuration["ARGUS_REALTIME_SERVICE"] ?? "https+http://realtime-service",
+            configuration["ARGUS_REQUEST_TOOL_SERVICE"] ?? "https+http://request-tool-service");
 }
