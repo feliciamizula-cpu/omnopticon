@@ -433,7 +433,8 @@ internal static class ArtifactStoreInitialization
 
         if (dbContext is not null)
         {
-            await dbContext.Database.EnsureCreatedAsync();
+            // EnsureCreatedAsync() no-ops on the shared argusdb; create this context's tables idempotently.
+            await dbContext.EnsureRelationalSchemaCreatedAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
             await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }

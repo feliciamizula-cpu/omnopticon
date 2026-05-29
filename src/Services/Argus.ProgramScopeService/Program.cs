@@ -18,7 +18,16 @@ builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.Prog
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
 
-builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
+var programScopeConn = builder.Configuration.GetConnectionString("argusdb");
+if (!string.IsNullOrWhiteSpace(programScopeConn))
+{
+    builder.Services.AddDbContext<ProgramScopeDbContext>(options => options.UseNpgsql(programScopeConn));
+    builder.Services.AddScoped<IProgramScopeStore, EfProgramScopeStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IProgramScopeStore, InMemoryProgramScopeStore>();
+}
 
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IScopeProvider, HackerOneScopeProvider>();
@@ -28,6 +37,8 @@ builder.Services.AddHostedService<ScopeSyncService>();
 var snapshotSigningKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"] ?? string.Empty;
 
 var app = builder.Build();
+
+await app.InitializeProgramScopeStoreAsync();
 
 app.MapDefaultEndpoints();
 
@@ -1613,7 +1624,9 @@ internal static class ProgramScopeStoreInitialization
 
         if (dbContext is not null)
         {
-            await dbContext.Database.EnsureCreatedAsync();
+            // Generate tables from the EF model (idempotent, sentinel-guarded). The explicit
+            // CREATE TABLE IF NOT EXISTS statements below are legacy and now a no-op safety net.
+            await dbContext.EnsureRelationalSchemaCreatedAsync();
             // Create all tables explicitly with IF NOT EXISTS so initialization is idempotent.
             await dbContext.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE IF NOT EXISTS programs (

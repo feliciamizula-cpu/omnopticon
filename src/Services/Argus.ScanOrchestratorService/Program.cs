@@ -1,3 +1,4 @@
+using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Assets;
 using Argus.Contracts.Tasks;
 using Argus.Contracts.ScanPlans;
@@ -16,10 +17,23 @@ builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<TaskSeeder>();
-builder.Services.AddSingleton<IScanPlanStore, InMemoryScanPlanStore>();
-builder.Services.AddSingleton<IScanSchedulerStore, InMemoryScanSchedulerStore>();
+var scanConn = builder.Configuration.GetConnectionString("argusdb");
+if (!string.IsNullOrWhiteSpace(scanConn))
+{
+    builder.Services.AddDbContext<ScanOrchestratorDbContext>(options => options.UseNpgsql(scanConn));
+    builder.Services.AddScoped<IScanPlanStore, EfScanPlanStore>();
+    builder.Services.AddScoped<IScanSchedulerStore, EfScanSchedulerStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IScanPlanStore, InMemoryScanPlanStore>();
+    builder.Services.AddSingleton<IScanSchedulerStore, InMemoryScanSchedulerStore>();
+}
 
 var app = builder.Build();
+
+await app.InitializeScanPlanStoreAsync();
+
 app.MapDefaultEndpoints();
 
 app.MapGet("/scan-plans", (IScanPlanStore store, CancellationToken cancellationToken) =>
@@ -664,7 +678,8 @@ internal static class ScanPlanStoreInitialization
 
         if (dbContext is not null)
         {
-            await dbContext.Database.EnsureCreatedAsync();
+            // EnsureCreatedAsync() no-ops on the shared argusdb; create this context's tables idempotently.
+            await dbContext.EnsureRelationalSchemaCreatedAsync();
         }
     }
 }
