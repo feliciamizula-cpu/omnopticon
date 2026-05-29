@@ -2314,7 +2314,10 @@ textarea.dev-input {
 /* ── Operations page ──────────────────────────────────────────── */
 .ops-layout {
   display: grid;
-  grid-template-columns: 280px 1fr 240px;
+  /* Programs and Activity are compact side rails; Assets takes all remaining width.
+     minmax(0, 1fr) lets the Assets column grow to dominate while still being allowed to
+     shrink (instead of forcing the side rails to collapse to 0 on narrower viewports). */
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(180px, 220px);
   grid-template-rows: 1fr;
   gap: 1px;
   height: calc(100vh - 90px);

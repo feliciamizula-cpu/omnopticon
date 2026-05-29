@@ -46,6 +46,10 @@
                 <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Class="ops-live-chip">LIVE</MudChip>
             }
         </div>
+        @if (_assetError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="ma-2">@_assetError</MudAlert>
+        }
         <ArgusGrid TItem="AssetItem"
                    Items="_assets"
                    SelectedItem="_selectedAsset"
@@ -53,6 +57,7 @@
                    ContextMenuItems="GetAssetMenuItems"
                    RowClassFunc="@((a, _) => RowClassFn(a))"
                    Virtualize="true"
+                   Loading="_loadingAssets"
                    EmptyMessage="@(_selectedProgram is null ? "Select a program" : "No assets for this program")">
             <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Type"   Title="Type" />
             <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Value"  Title="Value" />
@@ -123,16 +128,38 @@
     ProgramItem? _selectedProgram;
     AssetItem?   _selectedAsset;
     bool         _realtimeConnected;
+    bool         _loadingAssets;
+    string?      _assetError;
 
     // ── Lifecycle ────────────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
-        Realtime.Changed += OnRealtimeChangedAsync;
-        await Realtime.StartAsync();
-        _realtimeConnected = true;
-
+        // Load programs only — this is fast and lets the programs grid render immediately.
+        // Assets (a potentially slow downstream call) load after the first render, so a slow or
+        // unavailable asset service never blocks the programs grid from appearing.
         await LoadProgramsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        Realtime.Changed += OnRealtimeChangedAsync;
+        try
+        {
+            await Realtime.StartAsync();
+            _realtimeConnected = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Realtime hub failed to start");
+        }
+
+        if (_selectedProgram is not null)
+            await LoadAssetsAsync();
+
+        await InvokeAsync(StateHasChanged);
     }
 
     public async ValueTask DisposeAsync()
@@ -200,8 +227,11 @@
 
             if (_programs.Count == 0)
                 AddLog("No programs returned from server", error: true);
-            else if (_selectedProgram is null)
-                await SelectProgram(_programs[0]);
+            else
+                // Select the first program but don't load its assets here — assets load after the
+                // first render (OnAfterRenderAsync) or when the user picks a program, so the
+                // programs grid is never blocked by the asset fetch.
+                _selectedProgram ??= _programs[0];
         }
         catch (Exception ex)
         {
@@ -212,12 +242,16 @@
     async Task LoadAssetsAsync()
     {
         if (_selectedProgram?.ProgramId is not { } programId) return;
+        _loadingAssets = true;
+        _assetError = null;
+        await InvokeAsync(StateHasChanged);
         try
         {
             using var resp = await Http.GetAsync($"/ui/ops/assets?programId={programId}&take=500");
             if (!resp.IsSuccessStatusCode)
             {
-                AddLog($"Assets endpoint failed ({resp.StatusCode})", error: true);
+                _assetError = $"Asset service unavailable ({(int)resp.StatusCode}). Retry shortly.";
+                AddLog(_assetError, error: true);
                 return;
             }
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
@@ -244,7 +278,16 @@
                 });
             }
         }
-        catch (Exception ex) { AddLog($"Load assets error: {ex.Message}", error: true); }
+        catch (Exception ex)
+        {
+            _assetError = $"Load assets error: {ex.Message}";
+            AddLog(_assetError, error: true);
+        }
+        finally
+        {
+            _loadingAssets = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     static AssetItem? ParseAsset(JsonElement e)
