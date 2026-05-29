@@ -134,15 +134,31 @@ resource "kubernetes_namespace" "argus" {
   ]
 }
 
+# ── Vertical Pod Autoscaler (VPA) ───────────────────────────────────────
+
+resource "helm_release" "vpa" {
+  count = var.install_vpa ? 1 : 0
+  name = "vpa"
+  repository = "https://charts.fairwinds.com/stable"
+  chart = "vpa"
+  namespace = "vpa"
+  create_namespace = true
+
+  depends_on = [
+    google_container_node_pool.core,
+    google_container_node_pool.workers,
+  ]
+}
+
 # ── KEDA ──────────────────────────────────────────────────────────────────────
 
 resource "helm_release" "keda" {
   count = var.install_keda ? 1 : 0
 
-  name             = "keda"
-  repository       = "https://kedacore.github.io/charts"
-  chart            = "keda"
-  namespace        = "keda"
+  name = "keda"
+  repository = "https://kedacore.github.io/charts"
+  chart = "keda"
+  namespace = "keda"
   create_namespace = true
 
   depends_on = [
@@ -222,12 +238,40 @@ resource "kubectl_manifest" "keda_rabbitmq_auth" {
   ]
 }
 
+# ── Vertical Pod Autoscaler (VPA) for queue-driven workers ────────────────
+
+resource "kubectl_manifest" "vpa_workers" {
+  for_each = var.apply_workload_resources && var.create_vpa_for_workers ? local.worker_queues : {}
+
+  yaml_body = yamlencode({
+    apiVersion = "autoscaling.k8s.io/v1"
+    kind = "VerticalPodAutoscaler"
+    metadata = {
+      name = "${each.key}-vpa"
+      namespace = var.namespace
+    }
+    spec = {
+      targetRef = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        name = each.key
+      }
+      updatePolicy = {
+        updateMode = "Auto"
+      }
+    }
+  })
+
+  depends_on = [
+    kubernetes_namespace.argus,
+    helm_release.keda,
+  ]
+}
+
 # ── KEDA ScaledObjects: one per queue-driven worker ──────────────────────────
 
 resource "kubectl_manifest" "keda_worker_scalers" {
   for_each = var.apply_workload_resources && var.create_worker_keda_scalers ? local.worker_queues : {}
-
-  yaml_body = yamlencode({
     apiVersion = "keda.sh/v1alpha1"
     kind       = "ScaledObject"
     metadata = {

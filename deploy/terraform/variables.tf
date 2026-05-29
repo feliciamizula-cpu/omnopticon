@@ -74,9 +74,9 @@ variable "min_node_count" {
 }
 
 variable "max_node_count" {
-  description = "Maximum worker nodes. Kept small to fit a 32-vCPU regional quota; raise after requesting a quota increase."
-  type        = number
-  default     = 3
+  description = "Maximum worker nodes. Default fits within 32-vCPU quota (5 nodes × 1 vCPU = 5 vCPUs).\nAfter quota increase, consider setting to 12 (12 × e2-medium = 12 vCPUs)."
+  type = number
+  default = 5
 }
 
 # ── Workload support resources ────────────────────────────────────────────────
@@ -93,8 +93,20 @@ variable "apply_workload_resources" {
 
 variable "create_worker_keda_scalers" {
   description = "Create KEDA ScaledObjects for continuous workers driven by RabbitMQ queue depth."
-  type        = bool
-  default     = true
+  type = bool
+  default = true
+}
+
+variable "install_vpa" {
+  description = "Install Vertical Pod Autoscaler for dynamic resource request/limit optimization."
+  type = bool
+  default = true
+}
+
+variable "create_vpa_for_workers" {
+  description = "Create VerticalPodAutoscaler resources for queue-driven workers."
+  type = bool
+  default = true
 }
 
 variable "worker_min_replicas" {
