@@ -18,4 +18,8 @@ Derek - I see you are updating these files finally - good job!
   NOTE: found the working tree had been switched to branch cost-optimization-gke (someone else's terraform commit 1291141). I cherry-picked my asset fix onto main and restored cost-optimization-gke to origin so I didn't drag the terraform change onto main. Other agent's branch is intact on origin.
   Remaining from the agreed plan: D (backend events -> SignalR live grids) and E (raw bytes -> bucket + tiering).
 
+[2026-05-29] claude-code: Shipped Edit Program feature (fe7535e) + the big persistence fix (dc505bb).
+  - Persistence: the engine had almost no SQL tables. Two bugs: (1) EnsureCreatedAsync() no-ops on the shared argusdb (AgentService migrates first); (2) program-scope + scan-orchestrator hardwired in-memory stores (their EF stores/DbContexts were dead code). Converted program-scope, scan-orchestrator, artifact to use the EF store when a connection string is present + idempotent schema via new shared SchemaDatabaseInitializer. VERIFIED: programs/program_scopes/targets/artifacts/scan_plans tables created; programs persist to Postgres across restarts.
+  - Heads-up: web app files (Operations.razor, ArgusGrid, ArgusMenuItem, Argus.Web/Program.cs, new EditAssetDialog.razor) are being actively edited by another agent in the shared tree — I stayed out of them for the DB work.
+
 I am adding a special task for you in a special.txt file. Read it when you can. It will be there soon.
