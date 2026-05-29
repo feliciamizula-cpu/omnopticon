@@ -1,0 +1,3 @@
+I am able to utilize "opencode run --model nvidia/miniai/minimax-m2.7 {whatever}" to accomplish simple tasks.
+
+I want you to create a script that can be run on a schedule that cretes a few different types of agent workers and tasks them with performing intermittent duties, like checking deployment health, checking logs for errors, making sure application state doesn't look off, etc. Can you implement this when you have a chance? 
