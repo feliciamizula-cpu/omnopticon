@@ -113,15 +113,31 @@ app.MapGet("/ui/ops/assets", async (
     Guid? programId,
     int? take,
     IHttpClientFactory httpClientFactory,
+    ILoggerFactory loggerFactory,
     CancellationToken cancellationToken) =>
 {
-    var gateway = new ArgusUiGateway(httpClientFactory);
+    var logger = loggerFactory.CreateLogger("Argus.Web.OpsAssets");
+    var gateway = new ArgusUiGateway(httpClientFactory, logger);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var pageSize = Math.Clamp(take ?? 500, 1, 1000);
     var path = $"/assets?pageSize={pageSize}";
     if (programId.HasValue) path += $"&programId={programId}";
-    var result = await gateway.GetJsonAsync(endpoints.Asset, path, cancellationToken);
-    return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["totalCount"] = 0 });
+
+    // Use the throwing variant so a downstream failure surfaces as a real 502 the grid can show,
+    // instead of a fabricated empty result that silently masks an asset-service outage.
+    try
+    {
+        var result = await gateway.GetJsonOrThrowAsync(endpoints.Asset, path, cancellationToken);
+        return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["totalCount"] = 0 });
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        logger.LogError(ex, "Failed to load assets for program {ProgramId}", programId);
+        return Results.Problem(
+            title: "Asset service unavailable",
+            detail: "The asset service could not be reached. See server logs for details.",
+            statusCode: StatusCodes.Status502BadGateway);
+    }
 });
 
 app.MapPost("/ui/programs", async (
@@ -1268,8 +1284,27 @@ internal static class ProviderUsageDefaults
     }
 }
 
-internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
+internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory, ILogger? logger = null)
 {
+    /// <summary>
+    /// Like <see cref="GetJsonAsync"/> but never fabricates a fallback: it logs and rethrows on
+    /// failure so the caller can surface a real error instead of a silent empty result.
+    /// </summary>
+    public async Task<JsonNode?> GetJsonOrThrowAsync(string baseAddress, string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(baseAddress);
+            return await client.GetFromJsonAsync<JsonNode>(path, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogError(ex, "Argus UI gateway: downstream GET {BaseAddress}{Path} failed", baseAddress, path);
+            throw;
+        }
+    }
+
     public async Task<JsonNode?> GetJsonAsync(string baseAddress, string path, CancellationToken cancellationToken)
     {
         try
@@ -1280,7 +1315,7 @@ internal sealed class ArgusUiGateway(IHttpClientFactory httpClientFactory)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _ = ex;
+            logger?.LogError(ex, "Argus UI gateway: downstream GET {BaseAddress}{Path} failed; returning fallback", baseAddress, path);
             if (path.Contains("assets", StringComparison.OrdinalIgnoreCase))
             {
                 return JsonNode.Parse("""{"items":[],"page":1,"pageSize":100,"totalCount":0}""");
