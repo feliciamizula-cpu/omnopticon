@@ -122,7 +122,10 @@ internal static class AssetStoreInitialization
 
         if (dbContext is not null)
         {
-            await dbContext.Database.EnsureCreatedAsync();
+            // NOTE: EnsureCreatedAsync() is intentionally NOT used here — argusdb is shared and EF's
+            // EnsureCreated no-ops once any service has created the database, which silently left the
+            // asset tables missing. EnsureAssetSchemaCreatedAsync creates them idempotently instead.
+            await dbContext.EnsureAssetSchemaCreatedAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
             await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }
