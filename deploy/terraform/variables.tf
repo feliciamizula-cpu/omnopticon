@@ -49,16 +49,16 @@ variable "core_min_node_count" {
 
 variable "core_max_node_count" {
   description = "Maximum core nodes. Kept small to fit a 32-vCPU regional quota; raise after requesting a quota increase."
-  type        = number
-  default     = 2
+  type = number
+  default = 2
 }
 
 # ── Worker node pool (autoscaling, spot/preemptible) ──────────────────────────
 
 variable "worker_machine_type" {
   description = "Machine type for the worker autoscaling node pool."
-  type        = string
-  default     = "e2-standard-2"
+  type = string
+  default = "e2-medium"
 }
 
 variable "worker_spot" {
