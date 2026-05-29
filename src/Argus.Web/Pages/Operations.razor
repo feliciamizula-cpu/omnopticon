@@ -31,20 +31,589 @@
                    ContextMenuItems="GetProgramMenuItems"
                    Virtualize="true"
                    EmptyMessage="No programs">
-            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Name"      Title="Name" />
-            <PropertyColumn T="ProgramItem" TProperty="int"    Property="p => p.ScopeCount" Title="Scopes" />
+            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Name"        Title="Name" />
+            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Domain"      Title="Domain" />
+            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Source"      Title="Source" />
+            <TemplateColumn T="ProgramItem" Title="Date Added">
+                <CellTemplate>@context.Item.CreatedAt.ToString("MM/dd/yy HH:mm")</CellTemplate>
+            </TemplateColumn>
         </ArgusGrid>
     </MudPaper>
 
     @* ── Assets panel ── *@
     <MudPaper Class="ops-panel ops-panel-wide" Elevation="0" Square="true">
         <div class="ops-panel-header">
-            <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Assets</MudText>
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ops-count-chip">@_assets.Count</MudChip>
-            @if (_realtimeConnected)
+            <div class="ops-assets-header-left">
+                <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Assets</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ops-count-chip">@_assets.Count</MudChip>
+                @if (_realtimeConnected)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Class="ops-live-chip">LIVE</MudChip>
+                }
+            </div>
+            @if (_selectedProgram is not null)
             {
-                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Class="ops-live-chip">LIVE</MudChip>
+                <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined">
+                    <MudButton OnClick="ClearProgramFilter"
+                               Color="Color.Default"
+                               Size="Size.Small"
+                               title="Show all assets from all programs">
+                        All
+                    </MudButton>
+                    <MudButton Color="Color.Primary"
+                               Size="Size.Small"
+                               Disabled="true">
+                        @_selectedProgram.Name
+                    </MudButton>
+                </MudButtonGroup>
             }
+            else
+            {
+                <MudText Typo="Typo.caption" Color="Color.Tertiary" Class="mr-3">All programs</MudText>
+            }
+        </div>
+        @if (_assetError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="ma-2">@_assetError</MudAlert>
+        }
+        <ArgusGrid TItem="AssetItem"
+                   Items="_assets"
+                   SelectedItem="_selectedAsset"
+                   OnRowClick="SelectAsset"
+                   ContextMenuItems="GetAssetMenuItems"
+                   RowClassFunc="@((a, _) => RowClassFn(a))"
+                   Virtualize="true"
+                   Loading="_loadingAssets"
+                   EmptyMessage="@(_showingAllAssets ? "No assets found" : "Select a program to view assets")">
+            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Type"   Title="Type" />
+            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Value"  Title="Value" />
+            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Status" Title="Status" />
+            <TemplateColumn T="AssetItem" Title="Risk" Sortable="true">
+                <CellTemplate>@(context.Item.RiskScore?.ToString("F1") ?? "—")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="AssetItem" Title="First Seen">
+                <CellTemplate>@FmtAgo(context.Item.FirstSeenAt)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="AssetItem" Title="Last Seen">
+                <CellTemplate>@FmtAgo(context.Item.LastSeenAt)</CellTemplate>
+            </TemplateColumn>
+        </ArgusGrid>
+    </MudPaper>
+
+    @* ── Activity feed ── *@
+    <MudPaper Class="ops-panel ops-panel-narrow" Elevation="0" Square="true">
+        <div class="ops-panel-header">
+            <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Activity</MudText>
+        </div>
+        <div class="ops-log">
+            @foreach (var entry in _log)
+            {
+                <div class="ops-log-entry @(entry.IsError ? "ops-log-error" : "ops-log-success")">
+                    <span class="ops-log-time">@entry.When.ToString("HH:mm:ss")</span>
+                    @entry.Message
+                </div>
+            }
+            @if (_log.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Tertiary" Class="pa-3">No activity yet</MudText>
+            }
+        </div>
+    </MudPaper>
+
+</div>
+
+@code {
+    // ── Models ───────────────────────────────────────────────────────────────────
+
+    sealed record ProgramItem(Guid ProgramId, string Name, string Domain, string Source, DateTimeOffset CreatedAt);
+    sealed record AssetItem(Guid AssetId, string Type, string Value, string Status,
+        double? RiskScore, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt);
+    sealed record LogEntry(string Message, bool IsError, DateTimeOffset When = default)
+    {
+        public DateTimeOffset When { get; init; } = When == default ? DateTimeOffset.UtcNow : When;
+    }
+
+    static readonly Dictionary<string, (string TaskType, string WorkerCapability)> ActionMap = new()
+    {
+        ["enum-sub"]  = ("subdomain-enumeration", "SubfinderWorker"),
+        ["spider"]    = ("spider",                "HtmlDomSpiderWorker"),
+        ["spider-hl"] = ("headless-spider",       "HeadlessSpiderWorker"),
+    };
+
+    // Areas that indicate new assets may have appeared
+    static readonly HashSet<string> AssetRefreshAreas =
+        new(StringComparer.OrdinalIgnoreCase) { "assets", "agent-tasks", "tasks" };
+
+    // ── State ────────────────────────────────────────────────────────────────────
+
+    List<ProgramItem> _programs     = [];
+    List<AssetItem>   _assets       = [];
+    List<LogEntry>    _log          = [];
+    HashSet<Guid>     _flashingIds  = [];
+
+    ProgramItem? _selectedProgram;
+    AssetItem?   _selectedAsset;
+    bool         _realtimeConnected;
+    bool         _loadingAssets;
+    bool         _showingAllAssets;
+    string?      _assetError;
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProgramsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        Realtime.Changed += OnRealtimeChangedAsync;
+        try
+        {
+            await Realtime.StartAsync();
+            _realtimeConnected = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Realtime hub failed to start");
+        }
+
+        await LoadAllAssetsAsync();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Realtime.Changed -= OnRealtimeChangedAsync;
+        await Realtime.DisposeAsync();
+    }
+
+    private async Task OnRealtimeChangedAsync(DevelopmentDataChangedEvent evt)
+    {
+        if (!AssetRefreshAreas.Contains(evt.Area)) return;
+        if (_selectedProgram is not null && !_showingAllAssets)
+            await LoadAssetsAsync();
+        else
+            await LoadAllAssetsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ── Context menu builders ─────────────────────────────────────────────────────
+
+    List<ArgusMenuItem> GetProgramMenuItems(ProgramItem p) =>
+    [
+        new("Edit Program",           () => OpenEditProgramDialog(p)),
+        new("Delete Program",         () => DeleteProgramAsync(p)),
+        ArgusMenuItem.Separator(),
+        new("Enumerate Subdomains",   () => RunProgramActionAsync("enum-sub", p)),
+        new("Spider All Assets",       () => RunProgramActionAsync("spider",   p)),
+    ];
+
+    List<ArgusMenuItem> GetAssetMenuItems(AssetItem a)
+    {
+        var t = a.Type.ToLowerInvariant();
+        var items = new List<ArgusMenuItem>
+        {
+            new("Edit Asset", () => EditAssetAsync(a)),
+            new("Delete Asset", () => DeleteAssetAsync(a)),
+            new ArgusMenuItem { IsSeparator = true },
+        };
+        if (t.Contains("domain"))
+        {
+            items.Add(new("Enumerate Subdomains", () => RunAssetActionAsync("enum-sub", a)));
+        }
+        if (t.Contains("subdomain") || t.Contains("url"))
+        {
+            items.Add(new("Spider (HTML)",     () => RunAssetActionAsync("spider",    a)));
+            items.Add(new("Spider (Headless)", () => RunAssetActionAsync("spider-hl", a)));
+        }
+        return items;
+    }
+
+    // ── Data loading ─────────────────────────────────────────────────────────────
+
+    async Task LoadProgramsAsync()
+    {
+        try
+        {
+            using var resp = await Http.GetAsync("/ui/programs");
+            if (!resp.IsSuccessStatusCode)
+            {
+                AddLog($"Programs endpoint failed ({resp.StatusCode})", error: true);
+                return;
+            }
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().ToList()
+                : root.TryGetProperty("items", out var items)
+                    ? items.EnumerateArray().ToList()
+                    : [];
+
+            _programs = arr.Select(e =>
+            {
+                var scopes = e.TryGetProperty("scopes", out var sc) && sc.ValueKind == JsonValueKind.Array
+                    ? sc.EnumerateArray().ToList()
+                    : new List<JsonElement>();
+
+                var domain = scopes.FirstOrDefault()?.TryGetProperty("pattern", out var p) == true
+                    ? p.GetString() ?? ""
+                    : "";
+
+                return new ProgramItem(
+                    ProgramId:   e.TryGetProperty("programId", out var id)  ? id.GetGuid()  :
+                                e.TryGetProperty("id",        out var id2) ? id2.GetGuid() : Guid.Empty,
+                    Name:        e.TryGetProperty("name",      out var n)  ? n.GetString()  ?? "" : "",
+                    Domain:      domain,
+                    Source:      e.TryGetProperty("source",    out var so) ? so.GetString() ?? "" : "",
+                    CreatedAt:   e.TryGetProperty("createdAt", out var ca) && ca.ValueKind != JsonValueKind.Null
+                                    ? ca.GetDateTimeOffset() : DateTimeOffset.MinValue);
+            })
+            .Where(p => p.ProgramId != Guid.Empty)
+            .ToList();
+
+            if (_programs.Count == 0)
+                AddLog("No programs returned from server", error: true);
+            else
+                _selectedProgram ??= _programs[0];
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Load programs error: {ex.Message}", error: true);
+        }
+    }
+
+    async Task LoadAllAssetsAsync()
+    {
+        _loadingAssets = true;
+        _showingAllAssets = true;
+        _assetError = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var resp = await Http.GetAsync("/ui/ops/assets?take=500");
+            if (!resp.IsSuccessStatusCode)
+            {
+                _assetError = $"Asset service unavailable ({(int)resp.StatusCode}). Retry shortly.";
+                AddLog(_assetError, error: true);
+                return;
+            }
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().ToList()
+                : root.TryGetProperty("items", out var items)
+                    ? items.EnumerateArray().ToList()
+                    : [];
+
+            var prev = _assets.Select(a => a.AssetId).ToHashSet();
+            _assets = arr.Select(ParseAsset)
+                .Where(a => a is not null && !string.Equals(a!.Status, "Archived", StringComparison.OrdinalIgnoreCase))
+                .Cast<AssetItem>().ToList();
+
+            var newIds = _assets.Select(a => a.AssetId).ToHashSet();
+            newIds.ExceptWith(prev);
+            if (newIds.Count > 0)
+            {
+                _flashingIds.UnionWith(newIds);
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(2500);
+                    _flashingIds.ExceptWith(newIds);
+                    await InvokeAsync(StateHasChanged);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _assetError = $"Load assets error: {ex.Message}";
+            AddLog(_assetError, error: true);
+        }
+        finally
+        {
+            _loadingAssets = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    async Task LoadAssetsAsync()
+    {
+        if (_selectedProgram?.ProgramId is not { } programId) return;
+        _loadingAssets = true;
+        _showingAllAssets = false;
+        _assetError = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var resp = await Http.GetAsync($"/ui/ops/assets?programId={programId}&take=500");
+            if (!resp.IsSuccessStatusCode)
+            {
+                _assetError = $"Asset service unavailable ({(int)resp.StatusCode}). Retry shortly.";
+                AddLog(_assetError, error: true);
+                return;
+            }
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().ToList()
+                : root.TryGetProperty("items", out var items)
+                    ? items.EnumerateArray().ToList()
+                    : [];
+
+            var prev = _assets.Select(a => a.AssetId).ToHashSet();
+            _assets = arr.Select(ParseAsset)
+                .Where(a => a is not null && !string.Equals(a!.Status, "Archived", StringComparison.OrdinalIgnoreCase))
+                .Cast<AssetItem>().ToList();
+
+            var newIds = _assets.Select(a => a.AssetId).ToHashSet();
+            newIds.ExceptWith(prev);
+            if (newIds.Count > 0)
+            {
+                _flashingIds.UnionWith(newIds);
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(2500);
+                    _flashingIds.ExceptWith(newIds);
+                    await InvokeAsync(StateHasChanged);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _assetError = $"Load assets error: {ex.Message}";
+            AddLog(_assetError, error: true);
+        }
+        finally
+        {
+            _loadingAssets = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    static AssetItem? ParseAsset(JsonElement e)
+    {
+        if (!e.TryGetProperty("assetId", out var idEl)) return null;
+        return new AssetItem(
+            AssetId:     idEl.GetGuid(),
+            Type:        e.TryGetProperty("type",        out var t)  ? t.GetString()  ?? "" : "",
+            Value:       e.TryGetProperty("value",       out var v)  ? v.GetString()  ?? "" : "",
+            Status:      e.TryGetProperty("status",      out var s)  ? s.GetString()  ?? "" : "",
+            RiskScore:   e.TryGetProperty("riskScore",   out var rs) && rs.ValueKind != JsonValueKind.Null ? rs.GetDouble() : null,
+            FirstSeenAt: e.TryGetProperty("firstSeenAt", out var fs) && fs.ValueKind != JsonValueKind.Null ? fs.GetDateTimeOffset() : null,
+            LastSeenAt:  e.TryGetProperty("lastSeenAt",  out var ls) && ls.ValueKind != JsonValueKind.Null ? ls.GetDateTimeOffset() : null);
+    }
+
+    // ── Row interaction ───────────────────────────────────────────────────────────
+
+    async Task SelectProgram(ProgramItem p)
+    {
+        _selectedProgram = p;
+        _assets.Clear();
+        await LoadAssetsAsync();
+    }
+
+    void SelectAsset(AssetItem a) => _selectedAsset = a;
+
+    void ClearProgramFilter()
+    {
+        _selectedProgram = null;
+        _assets.Clear();
+        _ = LoadAllAssetsAsync();
+    }
+
+    // ── Task dispatch ─────────────────────────────────────────────────────────────
+
+    async Task RunProgramActionAsync(string action, ProgramItem prog)
+    {
+        var targets = _assets.Where(a =>
+        {
+            var t = a.Type.ToLowerInvariant();
+            return action == "enum-sub"
+                ? t.Contains("domain") && !t.Contains("sub")
+                : t.Contains("subdomain") || t.Contains("url");
+        }).ToList();
+
+        if (targets.Count == 0)
+        {
+            AddLog($"No eligible assets in {prog.Name} for this action.", error: true);
+            return;
+        }
+        await EnqueueAsync(targets.Select(a => a.AssetId).ToList(), action, prog.ProgramId);
+    }
+
+    async Task RunAssetActionAsync(string action, AssetItem asset)
+    {
+        if (_selectedProgram?.ProgramId is not { } programId) return;
+        await EnqueueAsync([asset.AssetId], action, programId);
+    }
+
+    async Task EnqueueAsync(List<Guid> assetIds, string action, Guid programId)
+    {
+        if (!ActionMap.TryGetValue(action, out var mapping))
+        {
+            AddLog($"Unknown action: {action}", error: true);
+            return;
+        }
+        var payload = new JsonObject
+        {
+            ["assetIds"]         = new JsonArray(assetIds.Select(id => JsonValue.Create(id)).ToArray()),
+            ["taskType"]         = mapping.TaskType,
+            ["workerCapability"] = mapping.WorkerCapability,
+            ["programId"]        = programId,
+        };
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/ui/assets/bulk/enqueue", payload);
+            if (resp.IsSuccessStatusCode)
+                AddLog($"Queued {action} for {assetIds.Count} asset(s).");
+            else
+                AddLog($"Enqueue failed ({(int)resp.StatusCode})", error: true);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Enqueue error: {ex.Message}", error: true);
+        }
+    }
+
+    // ── Asset actions ─────────────────────────────────────────────────────────────
+
+    async Task DeleteAssetAsync(AssetItem a)
+    {
+        try
+        {
+            var body = new JsonObject
+            {
+                ["assetIds"] = new JsonArray(JsonValue.Create(a.AssetId)),
+                ["action"]   = "archive"
+            };
+            using var resp = await Http.PostAsJsonAsync("/ui/assets/bulk", body);
+            if (resp.IsSuccessStatusCode)
+            {
+                _assets.RemoveAll(x => x.AssetId == a.AssetId);
+                AddLog($"Asset '{a.Value}' archived.");
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                AddLog($"Failed to archive asset ({(int)resp.StatusCode})", error: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Archive error: {ex.Message}", error: true);
+        }
+    }
+
+    async Task EditAssetAsync(AssetItem a)
+    {
+        var parameters = new DialogParameters
+        {
+            ["AssetId"] = a.AssetId
+        };
+        var dialog = await DialogService.ShowAsync<EditAssetDialog>($"Edit {a.Value}", parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            if (_showingAllAssets)
+                await LoadAllAssetsAsync();
+            else
+                await LoadAssetsAsync();
+        }
+    }
+
+    // ── Program actions ───────────────────────────────────────────────────────────
+
+    async Task DeleteProgramAsync(ProgramItem p)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            $"Delete {p.Name}?",
+            "This will archive all assets for this program. This action cannot be undone.",
+            yesText: "Delete", cancelText: "Cancel");
+        if (confirm != true) return;
+
+        try
+        {
+            using var resp = await Http.DeleteAsync($"/ui/programs/{p.ProgramId}");
+            if (resp.IsSuccessStatusCode)
+            {
+                _programs.RemoveAll(x => x.ProgramId == p.ProgramId);
+                if (_selectedProgram?.ProgramId == p.ProgramId)
+                {
+                    _selectedProgram = _programs.FirstOrDefault();
+                    if (_selectedProgram is not null)
+                        await SelectProgram(_selectedProgram);
+                    else
+                    {
+                        _assets.Clear();
+                        await LoadAllAssetsAsync();
+                    }
+                }
+                AddLog($"Program '{p.Name}' deleted.");
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                AddLog($"Failed to delete program ({(int)resp.StatusCode})", error: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Delete error: {ex.Message}", error: true);
+        }
+    }
+
+    // ── New program dialog ────────────────────────────────────────────────────────
+
+    async Task OpenNewProgramDialog()
+    {
+        var dialog = await DialogService.ShowAsync<NewProgramDialog>("New Program");
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Guid programId })
+        {
+            await LoadProgramsAsync();
+            var created = _programs.FirstOrDefault(p => p.ProgramId == programId);
+            if (created is not null)
+                await SelectProgram(created);
+        }
+    }
+
+    async Task OpenEditProgramDialog(ProgramItem p)
+    {
+        var parameters = new DialogParameters { ["ProgramId"] = p.ProgramId };
+        var dialog = await DialogService.ShowAsync<EditProgramDialog>($"Edit {p.Name}", parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await LoadProgramsAsync();
+            var refreshed = _programs.FirstOrDefault(x => x.ProgramId == p.ProgramId) ?? _selectedProgram;
+            if (refreshed is not null)
+                await SelectProgram(refreshed);
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    void AddLog(string msg, bool error = false)
+    {
+        _log.Insert(0, new LogEntry(msg, error));
+        if (_log.Count > 100) _log.RemoveAt(_log.Count - 1);
+    }
+
+    string RowClassFn(AssetItem a) => _flashingIds.Contains(a.AssetId) ? "row-new" : "";
+
+    static string FmtAgo(DateTimeOffset? dt)
+    {
+        if (dt is null) return "—";
+        var ago = DateTimeOffset.UtcNow - dt.Value;
+        if (ago.TotalMinutes < 1) return "just now";
+        if (ago.TotalHours   < 1) return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalDays    < 1) return $"{(int)ago.TotalHours}h ago";
+        return $"{(int)ago.TotalDays}d ago";
+    }
+}
         </div>
         @if (_assetError is not null)
         {

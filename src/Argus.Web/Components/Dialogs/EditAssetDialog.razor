@@ -1,0 +1,121 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject HttpClient Http
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <div class="d-flex justify-center pa-4">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            </div>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_type"        Label="Type"        Disabled />
+                <MudTextField @bind-Value="_value"       Label="Value"       Required Immediate />
+                <MudTextField @bind-Value="_subtype"    Label="Subtype"     Immediate />
+                <MudSelect @bind-Value="_status" Label="Status">
+                    <MudSelectItem Value="@("Active")">Active</MudSelectItem>
+                    <MudSelectItem Value="@("Confirmed")">Confirmed</MudSelectItem>
+                    <MudSelectItem Value="@("Archived")">Archived</MudSelectItem>
+                </MudSelect>
+                <MudTextField @bind-Value="_confidence" Label="Confidence" Type="number" Immediate />
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="@_saving">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync"
+                   Disabled="@(_saving || _loading)">
+            @(_saving ? "Saving…" : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid AssetId { get; set; }
+
+    private string _type = "";
+    private string _value = "";
+    private string _subtype = "";
+    private string _status = "Active";
+    private double _confidence = 1.0;
+    private bool _loading = true;
+    private bool _saving;
+    private string _error = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var resp = await Http.GetAsync($"/ui/assets/{AssetId}");
+            if (resp.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                var root = doc.RootElement;
+                _type      = root.TryGetProperty("type",      out var t) ? t.GetString()  ?? "" : "";
+                _value     = root.TryGetProperty("value",     out var v) ? v.GetString()  ?? "" : "";
+                _subtype   = root.TryGetProperty("subtype",   out var st) ? st.GetString() ?? "" : "";
+                _status    = root.TryGetProperty("status",   out var s)  ? s.GetString()  ?? "Active" : "Active";
+                if (root.TryGetProperty("confidence", out var c) && c.ValueKind == JsonValueKind.Number)
+                    _confidence = c.GetDouble();
+            }
+            else
+            {
+                _error = $"Failed to load asset ({(int)resp.StatusCode}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Load error: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        _error = "";
+        _saving = true;
+        try
+        {
+            var body = new JsonObject
+            {
+                ["value"]      = _value.Trim(),
+                ["subtype"]    = string.IsNullOrWhiteSpace(_subtype) ? null : _subtype.Trim(),
+                ["status"]     = _status,
+                ["confidence"] = _confidence
+            };
+            using var resp = await Http.PutAsJsonAsync($"/ui/assets/{AssetId}", body);
+            if (resp.IsSuccessStatusCode)
+            {
+                MudDialog.Close(DialogResult.Ok(AssetId));
+            }
+            else
+            {
+                _error = $"Failed to update asset ({(int)resp.StatusCode}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Save error: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

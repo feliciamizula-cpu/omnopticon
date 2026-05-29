@@ -53,8 +53,15 @@
             <ChildContent>
                 @foreach (var item in _ctxItems)
                 {
-                    var action = item.Action;
-                    <MudMenuItem OnClick="@(async () => await action())">@item.Label</MudMenuItem>
+                    @if (item.IsSeparator)
+                    {
+                        <MudDivider />
+                    }
+                    else
+                    {
+                        var action = item.Action;
+                        <MudMenuItem OnClick="@(async () => await action())">@item.Label</MudMenuItem>
+                    }
                 }
             </ChildContent>
         </MudMenu>

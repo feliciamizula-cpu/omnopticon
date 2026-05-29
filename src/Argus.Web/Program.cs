@@ -131,6 +131,16 @@ app.MapPut("/ui/programs/{programId:guid}", async (
     return await gateway.PutJsonAsync(endpoints.ProgramScope, $"/programs/{programId}", payload, cancellationToken);
 });
 
+app.MapDelete("/ui/programs/{programId:guid}", async (
+    Guid programId,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.DeleteJsonAsync(endpoints.ProgramScope, $"/programs/{programId}", cancellationToken);
+});
+
 app.MapDelete("/ui/programs/{programId:guid}/scopes/{scopeId:guid}", async (
     Guid programId,
     Guid scopeId,
