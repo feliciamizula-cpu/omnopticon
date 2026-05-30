@@ -7,7 +7,7 @@ public sealed class WorkersApiClient(HttpClient http)
 {
     public async Task<WorkersPageSummaryDto> GetSummaryAsync(CancellationToken ct = default)
     {
-        return await http.GetFromJsonAsync<WorkersPageSummaryDto>"/worker-types/summary", ct)
+        return await http.GetFromJsonAsync<WorkersPageSummaryDto>("/worker-types/summary", ct)
                ?? throw new InvalidOperationException("Workers summary response was empty.");
     }
 

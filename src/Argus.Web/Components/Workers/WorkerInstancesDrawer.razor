@@ -2,51 +2,49 @@
 @using Argus.Web.Services
 
 <MudDrawer @bind-Open="_open" Variant="DrawerVariant.Responsive" Fixed="true" Elevation="1">
-    <TitleContent>
+    <div style="padding: 16px;">
         <MudText Typo="Typo.h6">@WorkerType Instances</MudText>
         <span style="opacity: 0.6; font-size: 0.9rem; margin-left: 8px">
             @CurrentInstances?.Count ?? 0 instances
         </span>
-    </TitleContent>
-    <DrawerContent>
-        <MudTable Items="@(CurrentInstances ?? [])" Hover="true" Dense="true" Striped="true" Loading="_loading">
-            <HeaderContent>
-                <MudTh><MudText Typo="Typo.caption">Worker ID</MudText></MudTh>
-                <MudTh><MudText Typo="Typo.caption">Status</MudText></MudTh>
-                <MudTh><MudText Typo="Typo.caption">Tasks</MudText></MudTh>
-                <MudTh><MudText Typo="Typo.caption">Utilization</MudText></MudTh>
-                <MudTh><MudText Typo="Typo.caption">Last Seen</MudText></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>
-                    <MudTooltip Text="@context.WorkerId">
-                        <MudText Typo="Typo.caption" Style="transform: translateY(2px)">@context.WorkerId[..8]...</MudText>
-                    </MudTooltip>
-                </MudTd>
-                <MudTd>
-                    @if (context.IsOnline)
-                    {
-                        <MudChip Color="Color.Success" Variant="Variant.Outlined" Size="Size.Small">Online</MudChip>
-                    }
-                    else
-                    {
-                        <MudChip Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small">Offline</MudChip>
-                    }
-                </MudTd>
-                <MudTd>
-                    <MudText Typo="Typo.caption">@context.RunningTasks/@context.MaxConcurrency</MudText>
-                </MudTd>
-                <MudTd>
-                    <MudProgressLinear Value="context.UtilizationPercent" 
-                                       Color="ProgressColor(context.UtilizationPercent)"
-                                       Variant="ProgressVariant.Text" Style="height: 16px; min-width: 60px" />
-                </MudTd>
-                <MudTd>
-                    <MudText Typo="Typo.caption">@FormatAgo(context.LastSeenAt)</MudText>
-                </MudTd>
-            </RowTemplate>
-        </MudTable>
-    </DrawerContent>
+    </div>
+    <MudTable Items="@(CurrentInstances ?? [])" Hover="true" Dense="true" Striped="true" Loading="_loading" Style="width: 100%;">
+        <HeaderContent>
+            <MudTh><MudText Typo="Typo.caption">Worker ID</MudText></MudTh>
+            <MudTh><MudText Typo="Typo.caption">Status</MudText></MudTh>
+            <MudTh><MudText Typo="Typo.caption">Tasks</MudText></MudTh>
+            <MudTh><MudText Typo="Typo.caption">Utilization</MudText></MudTh>
+            <MudTh><MudText Typo="Typo.caption">Last Seen</MudText></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudTooltip Text="@context.WorkerId">
+                    <MudText Typo="Typo.caption" Style="transform: translateY(2px)">@context.WorkerId[..Math.Min(8, context.WorkerId.Length)]...</MudText>
+                </MudTooltip>
+            </MudTd>
+            <MudTd>
+                @if (context.IsOnline)
+                {
+                    <MudChip T="string" Color="Color.Success" Variant="Variant.Outlined" Size="Size.Small">Online</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small">Offline</MudChip>
+                }
+            </MudTd>
+            <MudTd>
+                <MudText Typo="Typo.caption">@context.RunningTasks/@context.MaxConcurrency</MudText>
+            </MudTd>
+            <MudTd>
+                <MudProgressLinear Value="context.UtilizationPercent"
+                                   Color="ProgressColor(context.UtilizationPercent)"
+                                   Variant="ProgressVariant.Text" Style="height: 16px; min-width: 60px" />
+            </MudTd>
+            <MudTd>
+                <MudText Typo="Typo.caption">@FormatAgo(context.LastSeenAt)</MudText>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
 </MudDrawer>
 
 @code {
@@ -62,9 +60,9 @@
     private bool _open = true;
     private bool _loading = false;
     private List<WorkerInstanceDto>? _currentInstances;
-    
+
     public List<WorkerInstanceDto>? CurrentInstances => _currentInstances;
-    
+
     protected override async Task OnParametersSetAsync()
     {
         if (!string.IsNullOrWhiteSpace(WorkerType))
@@ -103,8 +101,8 @@
         {
             < 1 => $"{elapsed:%s}s ago",
             < 60 => $"{elapsed:%m}m ago",
-            < 24 => $"{elapsed:%h}h ago",
-            < 48 => "1d ago",
+            < 24 * 60 => $"{elapsed:%h}h ago",
+            < 48 * 60 => "1d ago",
             _ => $"{elapsed:%d}d ago"
         };
     }
