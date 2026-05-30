@@ -16,6 +16,8 @@ public sealed record AgentDto(
     string Model,
     string? Provider,
     string Priority,
+    string[] Capabilities,
+    string DefaultRuntime,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
@@ -28,7 +30,9 @@ public sealed record CreateAgentRequest(
     string? RoleDescription = null,
     int SortOrder = 0,
     string? Provider = null,
-    string Priority = "standard");
+    string Priority = "standard",
+    string[]? Capabilities = null,
+    string? DefaultRuntime = null);
 
 public sealed record UpdateAgentRequest(
     string? Name = null,
@@ -45,48 +49,63 @@ public sealed record UpdateAgentRequest(
     string? LastError = null,
     string? Provider = null,
     bool ClearProvider = false,
-    string? Priority = null);
+    string? Priority = null,
+    string[]? Capabilities = null,
+    string? DefaultRuntime = null);
 
 public sealed record AgentTaskDto(
     string TaskId,
     string Description,
+    string? Instructions,
     string Priority,
     string Status,
     string? AssignedTo,
     string? TargetRole,
     string? TaskType,
-    string? ScheduleExpression,
-    string? TriggerEvent,
+    string Runtime,
+    string[] RequiredCapabilities,
+    string? ScheduleExpression,   // back-compat read-only: first schedule's cron if any
+    string? TriggerEvent,         // back-compat read-only: first trigger's name if any
     string? ResultOutput,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ClaimedAt,
     DateTimeOffset? CompletedAt,
     DateTimeOffset? LastRunAt,
     DateTimeOffset? NextRunAt,
+    DateTimeOffset? EnabledAt,
+    DateTimeOffset? DisabledAt,
     string? RecoveryContext,
     int Attempts);
 
 public sealed record CreateAgentTaskRequest(
     string Description,
     string Priority,
+    string? Instructions = null,
     string? AssignedTo = null,
     string? TargetRole = null,
     string? TaskType = null,
-    string? ScheduleExpression = null,
-    string? TriggerEvent = null);
+    string Runtime = "default",
+    string[]? RequiredCapabilities = null,
+    string? ScheduleExpression = null,    // back-compat: creates one AgentTaskSchedule row
+    string? TriggerEvent = null);         // back-compat: creates one AgentTaskTrigger row
 
 public sealed record UpdateAgentTaskRequest(
     string? Description = null,
+    string? Instructions = null,
     string? Priority = null,
     string? Status = null,
     string? AssignedTo = null,
     string? TargetRole = null,
     string? TaskType = null,
+    string? Runtime = null,
+    string[]? RequiredCapabilities = null,
     string? ScheduleExpression = null,
     string? TriggerEvent = null,
     string? ResultOutput = null,
     DateTimeOffset? LastRunAt = null,
-    DateTimeOffset? NextRunAt = null);
+    DateTimeOffset? NextRunAt = null,
+    DateTimeOffset? EnabledAt = null,
+    DateTimeOffset? DisabledAt = null);
 
 public sealed record CodeReviewDto(
     Guid ReviewId,

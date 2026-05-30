@@ -21,14 +21,19 @@ public sealed class AgentRecord
     public string Model { get; set; } = "claude-sonnet-4-6";
     public string? Provider { get; set; }
     public string Priority { get; set; } = "standard";
+    public string CapabilitiesJson { get; set; } = "[]";
+    public string DefaultRuntime { get; set; } = AgentCapabilities.RuntimeInPod;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public AgentDto ToDto()
     {
         var responsibilities = System.Text.Json.JsonSerializer.Deserialize<string[]>(ResponsibilitiesJson) ?? [];
+        var capabilities = System.Text.Json.JsonSerializer.Deserialize<string[]>(CapabilitiesJson) ?? [];
         return new AgentDto(
             AgentId, Name, Role, RoleDescription, SortOrder, Status, responsibilities, CurrentTaskId, WorkStatus,
-            LastHeartbeatAt, LastError, Tool, Model, Provider, Priority, CreatedAt, UpdatedAt);
+            LastHeartbeatAt, LastError, Tool, Model, Provider, Priority,
+            capabilities, DefaultRuntime,
+            CreatedAt, UpdatedAt);
     }
 }
