@@ -98,6 +98,23 @@ internal static class AgentEndpoints
         app.MapPut("/agent-tasks/{taskId}", UpdateTask);
         app.MapDelete("/agent-tasks/{taskId}", DeleteTask);
         app.MapPost("/agent-tasks/{taskId}/run", RunTask);
+
+        // Schedules
+        app.MapGet   ("/agent-tasks/{taskId}/schedules",          ListSchedulesForTask);
+        app.MapPost  ("/agent-tasks/{taskId}/schedules",          CreateScheduleForTask);
+        app.MapPut   ("/agent-task-schedules/{scheduleId:guid}",  UpdateSchedule);
+        app.MapDelete("/agent-task-schedules/{scheduleId:guid}",  DeleteSchedule);
+
+        // Triggers
+        app.MapGet   ("/agent-tasks/{taskId}/triggers",           ListTriggersForTask);
+        app.MapPost  ("/agent-tasks/{taskId}/triggers",           CreateTriggerForTask);
+        app.MapPut   ("/agent-task-triggers/{triggerId:guid}",    UpdateTrigger);
+        app.MapDelete("/agent-task-triggers/{triggerId:guid}",    DeleteTrigger);
+
+        // Runs
+        app.MapGet   ("/agent-tasks/{taskId}/runs",               ListRunsForTask);
+        app.MapGet   ("/agents/{agentId:guid}/runs",              ListRunsForAgent);
+
         // Todo endpoints
         app.MapGet("/todos", ListTodos);
         app.MapPost("/todos", CreateTodo);
@@ -229,6 +246,89 @@ internal static class AgentEndpoints
         return run is null ? Results.Problem("Run failed to start.") : Results.Ok(run);
     }
 
+
+    // Schedule handlers
+    private static async Task<IResult> ListSchedulesForTask(string taskId, IAgentStore store, CancellationToken ct)
+    {
+        var task = await store.GetTaskAsync(taskId, ct);
+        if (task is null) return Results.NotFound();
+        var schedules = await store.ListSchedulesForTaskAsync(taskId, ct);
+        return Results.Ok(new { items = schedules, count = schedules.Count });
+    }
+
+    private static async Task<IResult> CreateScheduleForTask(
+        string taskId, CreateAgentTaskScheduleRequest request,
+        IAgentStore store, CancellationToken ct)
+    {
+        var task = await store.GetTaskAsync(taskId, ct);
+        if (task is null) return Results.NotFound();
+        var sched = await store.CreateScheduleAsync(taskId, request, ct);
+        return Results.Created($"/agent-task-schedules/{sched.ScheduleId}", sched);
+    }
+
+    private static async Task<IResult> UpdateSchedule(
+        Guid scheduleId, UpdateAgentTaskScheduleRequest request,
+        IAgentStore store, CancellationToken ct)
+    {
+        var sched = await store.UpdateScheduleAsync(scheduleId, request, ct);
+        return sched is not null ? Results.Ok(sched) : Results.NotFound();
+    }
+
+    private static async Task<IResult> DeleteSchedule(Guid scheduleId, IAgentStore store, CancellationToken ct)
+    {
+        var deleted = await store.DeleteScheduleAsync(scheduleId, ct);
+        return deleted ? Results.NoContent() : Results.NotFound();
+    }
+
+    // Trigger handlers
+    private static async Task<IResult> ListTriggersForTask(string taskId, IAgentStore store, CancellationToken ct)
+    {
+        var task = await store.GetTaskAsync(taskId, ct);
+        if (task is null) return Results.NotFound();
+        var triggers = await store.ListTriggersForTaskAsync(taskId, ct);
+        return Results.Ok(new { items = triggers, count = triggers.Count });
+    }
+
+    private static async Task<IResult> CreateTriggerForTask(
+        string taskId, CreateAgentTaskTriggerRequest request,
+        IAgentStore store, CancellationToken ct)
+    {
+        var task = await store.GetTaskAsync(taskId, ct);
+        if (task is null) return Results.NotFound();
+        var trigger = await store.CreateTriggerAsync(taskId, request, ct);
+        return Results.Created($"/agent-task-triggers/{trigger.TriggerId}", trigger);
+    }
+
+    private static async Task<IResult> UpdateTrigger(
+        Guid triggerId, UpdateAgentTaskTriggerRequest request,
+        IAgentStore store, CancellationToken ct)
+    {
+        var trigger = await store.UpdateTriggerAsync(triggerId, request, ct);
+        return trigger is not null ? Results.Ok(trigger) : Results.NotFound();
+    }
+
+    private static async Task<IResult> DeleteTrigger(Guid triggerId, IAgentStore store, CancellationToken ct)
+    {
+        var deleted = await store.DeleteTriggerAsync(triggerId, ct);
+        return deleted ? Results.NoContent() : Results.NotFound();
+    }
+
+    // Run handlers
+    private static async Task<IResult> ListRunsForTask(string taskId, int? take, IAgentStore store, CancellationToken ct)
+    {
+        var task = await store.GetTaskAsync(taskId, ct);
+        if (task is null) return Results.NotFound();
+        var runs = await store.ListRunsForTaskAsync(taskId, take ?? 50, ct);
+        return Results.Ok(new { items = runs, count = runs.Count });
+    }
+
+    private static async Task<IResult> ListRunsForAgent(Guid agentId, int? take, IAgentStore store, CancellationToken ct)
+    {
+        var agent = await store.GetAgentAsync(agentId, ct);
+        if (agent is null) return Results.NotFound();
+        var runs = await store.ListRunsForAgentAsync(agentId, take ?? 50, ct);
+        return Results.Ok(new { items = runs, count = runs.Count });
+    }
 
     // Todo handlers
     private static async Task<IResult> ListTodos(ITodoStore store, string? status, string? priority, CancellationToken ct)
