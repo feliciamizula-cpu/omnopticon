@@ -1,0 +1,53 @@
+name: OWASP ZAP Security Scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/zap-scan.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zap-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zap-scan:
+    name: ZAP API Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json', '**/Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore eShop.slnx
+
+      - name: Build
+        run: dotnet build eShop.slnx --configuration Release --no-restore
+
+      - name: Generate OpenAPI spec
+        run: dotnet tool install --global Swashbuckle.AspNetCore.Cli || true && dotnet swagger tofile --output swagger.json src/Argus.ApiGateway/bin/Release/net9.0/Argus.ApiGateway.dll
+
+      - name: ZAP Scan
+        uses: zaproxy/action-api-scan@v0.8.0
+        with:
+          target: './swagger.json'
+          args: '-a'
