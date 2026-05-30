@@ -39,6 +39,7 @@ public interface IAgentStore
 
     // Runs
     Task<AgentTaskRunDto> CreateRunAsync(AgentTaskRunDto seed, CancellationToken cancellationToken = default);
+    Task<AgentTaskRunDto?> GetRunAsync(Guid runId, CancellationToken cancellationToken = default);
     Task<AgentTaskRunDto?> UpdateRunAsync(Guid runId, string? status, DateTimeOffset? startedAt, DateTimeOffset? completedAt, string? output, string? error, string? workspaceRef, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentTaskRunDto>> ListRunsForTaskAsync(string taskId, int take = 50, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentTaskRunDto>> ListRunsForAgentAsync(Guid agentId, int take = 50, CancellationToken cancellationToken = default);

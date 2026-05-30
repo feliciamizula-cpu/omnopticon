@@ -1,12 +1,13 @@
 namespace Argus.AgentService.Agents;
 
 using Argus.AgentService.Stores;
+using Argus.Contracts.Agents;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Selects the first available agent for a given role using Microsoft.Extensions.AI's IChatClient abstraction.
-/// Selection order: SortOrder ascending within the role.
+/// Selection order: SortOrder ascending within the role. Optionally filters by required capabilities.
 /// </summary>
 public sealed class AgentSelectionService(
     IAgentStore store,
@@ -14,33 +15,33 @@ public sealed class AgentSelectionService(
 {
     public async Task<AgentExecutionContext?> SelectAsync(
         string role,
+        IReadOnlyList<string>? requiredCapabilities = null,
         CancellationToken ct = default)
     {
         var agents = await store.ListAgentsAsync(ct);
         var candidates = agents
             .Where(a => a.Role.Equals(role, StringComparison.OrdinalIgnoreCase)
                      && a.Status.Equals("active", StringComparison.OrdinalIgnoreCase))
+            .Where(a => requiredCapabilities is null || requiredCapabilities.Count == 0
+                     || requiredCapabilities.All(req => AgentCapabilities.Has(a.Capabilities, req)))
             .OrderBy(a => a.SortOrder)
             .ToList();
 
         if (candidates.Count == 0)
         {
-            logger.LogWarning("No active agents found for role '{Role}'", role);
+            logger.LogWarning(
+                "No active agent satisfies role '{Role}' with capabilities [{Caps}]",
+                role, string.Join(", ", requiredCapabilities ?? Array.Empty<string>()));
             return null;
         }
 
-        foreach (var agent in candidates)
-        {
-            logger.LogInformation(
-                "Selected agent '{Name}' (role={Role}, tool={Tool}, model={Model}, sortOrder={SortOrder})",
-                agent.Name, agent.Role, agent.Tool, agent.Model, agent.SortOrder);
+        var agent = candidates[0];
+        logger.LogInformation(
+            "Selected agent '{Name}' (role={Role}, tool={Tool}, model={Model}, sortOrder={SortOrder})",
+            agent.Name, agent.Role, agent.Tool, agent.Model, agent.SortOrder);
 
-            IChatClient chatClient = new CliChatClient(agent.Tool, agent.Model);
-            return new AgentExecutionContext(agent, chatClient);
-        }
-
-        logger.LogWarning("No runnable candidates found for role '{Role}'", role);
-        return null;
+        IChatClient chatClient = new CliChatClient(agent.Tool, agent.Model);
+        return new AgentExecutionContext(agent, chatClient);
     }
 
     /// <summary>

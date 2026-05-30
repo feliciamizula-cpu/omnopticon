@@ -497,6 +497,11 @@ public sealed class InMemoryAgentStore : IAgentStore
         return Task.FromResult(record.ToDto());
     }
 
+    public Task<AgentTaskRunDto?> GetRunAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(_runs.TryGetValue(runId, out var record) ? record.ToDto() : null);
+    }
+
     public Task<AgentTaskRunDto?> UpdateRunAsync(Guid runId, string? status, DateTimeOffset? startedAt, DateTimeOffset? completedAt, string? output, string? error, string? workspaceRef, CancellationToken cancellationToken = default)
     {
         if (!_runs.TryGetValue(runId, out var record))

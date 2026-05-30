@@ -556,6 +556,13 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
         return record.ToDto();
     }
 
+    public async Task<AgentTaskRunDto?> GetRunAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        var record = await _dbContext.AgentTaskRuns
+            .FirstOrDefaultAsync(r => r.RunId == runId, cancellationToken);
+        return record?.ToDto();
+    }
+
     public async Task<AgentTaskRunDto?> UpdateRunAsync(Guid runId, string? status, DateTimeOffset? startedAt, DateTimeOffset? completedAt, string? output, string? error, string? workspaceRef, CancellationToken cancellationToken = default)
     {
         var record = await _dbContext.AgentTaskRuns

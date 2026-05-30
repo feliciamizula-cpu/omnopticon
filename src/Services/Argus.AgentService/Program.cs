@@ -35,7 +35,15 @@ builder.Services.AddHttpClient();
 builder.Services.Configure<AgentProviderUsageOptions>(builder.Configuration.GetSection("AgentProviderUsage"));
 builder.Services.AddSingleton<IAgentProviderUsageService, AgentProviderUsageService>();
 builder.Services.AddScoped<AgentSelectionService>();
-builder.Services.AddScoped<TaskExecutionService>();
+builder.Services.AddScoped<AgentExecutionService>();
+builder.Services.AddSingleton<IRuntimeAdapter>(sp =>
+    new InPodRuntimeAdapter(
+        (tool, model) => new CliChatClient(tool, model),
+        sp.GetRequiredService<ILogger<InPodRuntimeAdapter>>()));
+builder.Services.AddSingleton<IRuntimeAdapter>(sp =>
+    new WorkspaceRuntimeAdapter(
+        (tool, model) => new CliChatClient(tool, model),
+        sp.GetRequiredService<ILogger<WorkspaceRuntimeAdapter>>()));
 builder.Services.AddHostedService<TaskSchedulerService>();
 builder.Services.AddSingleton<ITodoStore, InMemoryTodoStore>();
 builder.Services.AddProblemDetails();
@@ -208,30 +216,17 @@ internal static class AgentEndpoints
         return deleted ? Results.NoContent() : Results.NotFound();
     }
 
-    private static async Task<IResult> RunTask(string taskId, IAgentStore store, CancellationToken ct)
+    private static async Task<IResult> RunTask(
+        string taskId,
+        AgentExecutionService executor,
+        IAgentStore store,
+        CancellationToken ct)
     {
         var task = await store.GetTaskAsync(taskId, ct);
-        if (task is null)
-        {
-            return Results.NotFound();
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        DateTimeOffset? nextRunAt = null;
-        if (!string.IsNullOrWhiteSpace(task.ScheduleExpression))
-        {
-            nextRunAt = AgentScheduleCalculator.GetNextRun(task.ScheduleExpression, now) ?? now;
-        }
-
-        var updated = await store.UpdateTaskAsync(
-            taskId,
-            new UpdateAgentTaskRequest(
-                Status: string.IsNullOrWhiteSpace(task.ScheduleExpression) && string.IsNullOrWhiteSpace(task.TriggerEvent) ? "pending" : "scheduled",
-                LastRunAt: now,
-                NextRunAt: nextRunAt),
-            ct);
-
-        return updated is not null ? Results.Ok(updated) : Results.NotFound();
+        if (task is null) return Results.NotFound();
+        var run = await executor.ExecuteAsync(taskId, scheduleId: null, triggerId: null,
+            triggerSource: "manual", ct);
+        return run is null ? Results.Problem("Run failed to start.") : Results.Ok(run);
     }
 
 
