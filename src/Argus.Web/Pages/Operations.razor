@@ -3,6 +3,7 @@
 @using System.Text.Json.Nodes
 @using Argus.Web.Components
 @using Argus.Web.Components.Dialogs
+@using MudBlazor
 @inject HttpClient Http
 @inject ILogger<Operations> Logger
 @inject IDialogService DialogService
@@ -259,9 +260,7 @@
                     ? sc.EnumerateArray().ToList()
                     : new List<JsonElement>();
 
-                var domain = scopes.FirstOrDefault()?.TryGetProperty("pattern", out var p) == true
-                    ? p.GetString() ?? ""
-                    : "";
+                var domain = scopes.Count > 0 && scopes[0].TryGetProperty("pattern", out var p) ? p.GetString() ?? "" : "";
 
                 return new ProgramItem(
                     ProgramId:   e.TryGetProperty("programId", out var id)  ? id.GetGuid()  :

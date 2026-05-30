@@ -221,7 +221,7 @@
                 _session = await response.Content.ReadFromJsonAsync<RequestToolSessionDto>();
                 if (_session?.Exchanges.Count > 0)
                 {
-                    SelectExchange(_session.Exchanges.First().ExchangeId);
+                    await SelectExchange(_session.Exchanges.First().ExchangeId);
                 }
             }
             else

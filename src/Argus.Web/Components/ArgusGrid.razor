@@ -59,8 +59,7 @@
                     }
                     else
                     {
-                        var action = item.Action;
-                        <MudMenuItem OnClick="@(async () => await action())">@item.Label</MudMenuItem>
+                        <MudMenuItem OnClick="@(async () => await (item.Action?.Invoke() ?? Task.CompletedTask))">@item.Label</MudMenuItem>
                     }
                 }
             </ChildContent>
