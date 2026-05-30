@@ -218,6 +218,19 @@ services:
     tests: []
     healthUrl: /health
 
+  request-tool-service:
+    kind: service
+    project: src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj
+    assembly: Argus.RequestToolService
+    image: request-tool-service
+    composeService: request-tool-service
+    kubernetesDeployment: request-tool-service
+    kubernetesContainer: request-tool-service
+    paths:
+      - src/Services/Argus.RequestToolService/**
+    tests: []
+    healthUrl: /health
+
   argus-api-gateway:
     kind: gateway
     project: src/Argus.ApiGateway/Argus.ApiGateway.csproj
