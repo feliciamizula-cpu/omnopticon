@@ -2,6 +2,7 @@ namespace Argus.Contracts.Agents;
 
 public static class AgentCapabilities
 {
+    // ── Capability identifiers (granular allow-list) ─────────────────────────
     public const string ReadAppState        = "read_app_state";
     public const string ReadExternal        = "read_external";
     public const string WriteTodos          = "write_todos";
@@ -16,6 +17,14 @@ public static class AgentCapabilities
     public const string KubectlRead         = "kubectl_read";
     public const string KubectlApply        = "kubectl_apply";
 
+    public static readonly IReadOnlyList<string> AllCapabilities = new[]
+    {
+        ReadAppState, ReadExternal, WriteTodos, WriteTasks, WriteReports,
+        GitRead, GitCommit, GitPush, GitPushMain, GitHistoryRewrite,
+        DotnetBuild, KubectlRead, KubectlApply
+    };
+
+    // ── Runtime sentinel values (not capabilities) ───────────────────────────
     public const string RuntimeInPod     = "in_pod";
     public const string RuntimeWorkspace = "workspace";
     public const string RuntimeDefault   = "default";
@@ -37,11 +46,12 @@ public static class AgentCapabilities
         [KubectlApply]      = RuntimeWorkspace,
     };
 
+    // Direct implications only — Expand() performs the transitive BFS walk.
     private static readonly Dictionary<string, string[]> Implications = new(StringComparer.Ordinal)
     {
         [GitPush]           = new[] { GitCommit },
-        [GitPushMain]       = new[] { GitPush, GitCommit },
-        [GitHistoryRewrite] = new[] { GitPushMain, GitPush, GitCommit },
+        [GitPushMain]       = new[] { GitPush },
+        [GitHistoryRewrite] = new[] { GitPushMain },
     };
 
     public static string DefaultRuntimeFor(string capability) =>
@@ -50,16 +60,8 @@ public static class AgentCapabilities
     public static string DefaultRuntimeForCapabilities(IEnumerable<string> capabilities) =>
         capabilities.Any(c => DefaultRuntimeFor(c) == RuntimeWorkspace) ? RuntimeWorkspace : RuntimeInPod;
 
-    public static bool Has(IEnumerable<string> granted, string requested)
-    {
-        var set = granted.ToHashSet(StringComparer.Ordinal);
-        if (set.Contains(requested)) return true;
-        foreach (var g in set)
-        {
-            if (ImpliedSet(g).Contains(requested)) return true;
-        }
-        return false;
-    }
+    public static bool Has(IEnumerable<string> granted, string requested) =>
+        Expand(granted).Contains(requested);
 
     public static IReadOnlySet<string> Expand(IEnumerable<string> capabilities)
     {

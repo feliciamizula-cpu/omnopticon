@@ -26,8 +26,9 @@ public sealed class AgentCapabilitiesTests
         Assert.True(AgentCapabilities.Has(caps, AgentCapabilities.GitPush));
     }
 
+    // Renamed from GitHistoryRewrite_Implies_GitPushMain to honestly describe all three assertions.
     [Fact]
-    public void GitHistoryRewrite_Implies_GitPushMain()
+    public void GitHistoryRewrite_TransitivelyImplies_GitPushMain_GitPush_GitCommit()
     {
         var caps = new[] { AgentCapabilities.GitHistoryRewrite };
         Assert.True(AgentCapabilities.Has(caps, AgentCapabilities.GitPushMain));
@@ -59,5 +60,73 @@ public sealed class AgentCapabilitiesTests
     {
         var caps = new[] { AgentCapabilities.ReadAppState, AgentCapabilities.WriteTodos };
         Assert.Equal("in_pod", AgentCapabilities.DefaultRuntimeForCapabilities(caps));
+    }
+
+    // ── Expand() coverage ────────────────────────────────────────────────────
+
+    [Fact]
+    public void Expand_ReturnsInput_WhenNoImplications()
+    {
+        var result = AgentCapabilities.Expand(new[] { AgentCapabilities.ReadAppState, AgentCapabilities.WriteTodos });
+        Assert.Contains(AgentCapabilities.ReadAppState, result);
+        Assert.Contains(AgentCapabilities.WriteTodos, result);
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void Expand_WalksOneLevel()
+    {
+        var result = AgentCapabilities.Expand(new[] { AgentCapabilities.GitPush });
+        Assert.Contains(AgentCapabilities.GitPush, result);
+        Assert.Contains(AgentCapabilities.GitCommit, result);
+    }
+
+    [Fact]
+    public void Expand_WalksTransitively_FromGitHistoryRewrite()
+    {
+        var result = AgentCapabilities.Expand(new[] { AgentCapabilities.GitHistoryRewrite });
+        Assert.Contains(AgentCapabilities.GitHistoryRewrite, result);
+        Assert.Contains(AgentCapabilities.GitPushMain, result);
+        Assert.Contains(AgentCapabilities.GitPush, result);
+        Assert.Contains(AgentCapabilities.GitCommit, result);
+    }
+
+    [Fact]
+    public void Expand_OnEmptyInput_ReturnsEmpty()
+    {
+        var result = AgentCapabilities.Expand(Array.Empty<string>());
+        Assert.Empty(result);
+    }
+
+    // ── Boundary tests ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void PresetForRole_UnknownRole_FallsBackToReadAppStateOnly()
+    {
+        var preset = AgentCapabilities.PresetForRole("totally_made_up");
+        Assert.Single(preset);
+        Assert.Equal(AgentCapabilities.ReadAppState, preset[0]);
+    }
+
+    [Fact]
+    public void DefaultRuntimeFor_UnknownCapability_FallsBackToInPod()
+    {
+        Assert.Equal(AgentCapabilities.RuntimeInPod, AgentCapabilities.DefaultRuntimeFor("nonexistent_cap"));
+    }
+
+    // ── AllCapabilities consistency ──────────────────────────────────────────
+
+    [Fact]
+    public void AllCapabilities_IsConsistentWith_RuntimeMap()
+    {
+        foreach (var cap in AgentCapabilities.AllCapabilities)
+        {
+            // Should not fall back to default; every known cap must be in the map.
+            var runtime = AgentCapabilities.DefaultRuntimeFor(cap);
+            Assert.True(runtime == AgentCapabilities.RuntimeInPod
+                     || runtime == AgentCapabilities.RuntimeWorkspace,
+                $"Capability {cap} returned unexpected runtime {runtime}");
+        }
+        Assert.Equal(13, AgentCapabilities.AllCapabilities.Count);
     }
 }
