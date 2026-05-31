@@ -1,18 +1,17 @@
 @using Argus.Contracts.Workers
 @using Argus.Web.Services
 
-<MudDialog FullWidth="true" MaxWidth="MaxWidth.Small">
+<MudDialog>
     <DialogContent>
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" IconSize="Size.Medium" Class="mb-4">
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
             Manual scaling operations may not be supported in all environments.
         </MudAlert>
 
         <MudForm>
             <MudStack Row="true" Spacing="3">
                 <MudItem xs="6">
-                    <MudTextField @bind-Value="_minReplicas"
+                    <MudNumericField T="int" @bind-Value="_minReplicas"
                                   Label="Min Replicas"
-                                  InputType="InputType.Number"
                                   Min="0"
                                   Max="@_maxReplicas"
                                   Step="1"
@@ -20,9 +19,8 @@
                                   Margin="Margin.Dense" />
                 </MudItem>
                 <MudItem xs="6">
-                    <MudTextField @bind-Value="_maxReplicas"
+                    <MudNumericField T="int" @bind-Value="_maxReplicas"
                                   Label="Max Replicas"
-                                  InputType="InputType.Number"
                                   Min="@_minReplicas"
                                   Max="100"
                                   Step="1"
@@ -34,11 +32,9 @@
             <MudSlider @bind-Value="_desiredReplicas"
                        Min="@_minReplicas"
                        Max="@_maxReplicas"
-                       Discrete="true"
-                       TickSize="1"
                        Class="my-8" />
 
-            <MudCheckBox T="bool" @bind-Checked="_isPaused">Pause worker @if(_isPaused){<span style="margin-left: 8px">(desired replicas: 0)</span>}</MudCheckBox>
+            <MudCheckBox T="bool" @bind-Value="_isPaused">Pause worker @if(_isPaused){<span style="margin-left: 8px">(desired replicas: 0)</span>}</MudCheckBox>
 
             <div class="d-flex mt-6">
                 <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small" Style="margin-left: auto; margin-bottom: 8px">
@@ -63,7 +59,7 @@
 
 @code {
     [CascadingParameter]
-    private MudDialog? MudDialogInstance { get; set; }
+    private IMudDialogInstance? MudDialogInstance { get; set; }
 
     [Parameter]
     public WorkerTypeSummaryDto Worker { get; set; } = null!;
@@ -75,7 +71,7 @@
     public WorkersApiClient ApiClient { get; set; } = null!;
 
     [Parameter]
-    public EventCallback OnApplyScale { get; set; }
+    public EventCallback<(WorkerTypeSummaryDto Worker, int DesiredReplicas)> OnApplyScale { get; set; }
 
     private int _minReplicas;
     private int _maxReplicas;
@@ -93,7 +89,7 @@
 
     private void CancelDialog()
     {
-        MudDialogInstance?.Close();
+        MudDialogInstance?.Cancel();
     }
 
     private async Task ApplyScale()
@@ -137,6 +133,6 @@
         }
 
         await OnApplyScale.InvokeAsync((Worker, _desiredReplicas));
-        MudDialogInstance?.Close();
+        MudDialogInstance?.Close(DialogResult.Ok(true));
     }
 }

@@ -22,7 +22,7 @@
                     <MudSelectItem Value="@("Confirmed")">Confirmed</MudSelectItem>
                     <MudSelectItem Value="@("Archived")">Archived</MudSelectItem>
                 </MudSelect>
-                <MudTextField @bind-Value="_confidence" Label="Confidence" Type="number" Immediate />
+                <MudNumericField T="double" @bind-Value="_confidence" Label="Confidence" Immediate />
 
                 @if (!string.IsNullOrEmpty(_error))
                 {

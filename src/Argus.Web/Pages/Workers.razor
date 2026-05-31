@@ -25,7 +25,7 @@
 </div>
 
 <div class="argus-toolbar">
-    <MudTextField @bind-Value="_filter" Placeholder="Filter workers..." Variants="Variants.Outlined" Clearable="true" />
+    <MudTextField @bind-Value="_filter" Placeholder="Filter workers..." Variant="Variant.Outlined" Clearable="true" />
 
     <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RefreshAsync" Disabled="_loading">
         @(_loading ? "Refreshing..." : "Refresh")
@@ -33,7 +33,7 @@
 
     <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" OnClick="RefreshAsync" />
 
-    <MudSwitch @bind-Checked="_autoRefresh">Auto refresh</MudSwitch>
+    <MudSwitch T="bool" @bind-Value="_autoRefresh">Auto refresh</MudSwitch>
 </div>
 
 <ArgusGrid TItem="WorkerTypeSummaryDto"
@@ -56,10 +56,10 @@
 
 @if (_scaleDialogWorker is not null)
 {
-    <WorkerScaleDialog Worker="@_scaleDialogWorker" 
+    <WorkerScaleDialog Worker="@_scaleDialogWorker"
                        Settings="GetSettingsForWorker(_scaleDialogWorker.WorkerType)"
                        OnCancel="CloseScaleDialog"
-                       OnApplyScale="OnApplyScale"
+                       OnApplyScale="@(async (ValueTuple<WorkerTypeSummaryDto, int> args) => await OnApplyScale(args))"
                        ApiClient="WorkersApi" />
 }
 
@@ -68,7 +68,6 @@
     private WorkersPageSummaryDto? _summary;
     private WorkerTypeSummaryDto? _selected;
     private WorkerTypeSummaryDto? _scaleDialogWorker;
-    private WorkerTypeScaleSettingsDto? _scaleSettings;
     private bool _loading;
     private bool _autoRefresh = true;
     private string _filter = "";
@@ -89,9 +88,7 @@
             new GridColumn<WorkerTypeSummaryDto>
             {
                 Header = "Health",
-                Value = w => `
-                    <WorkerHealthChip Status="@w.HealthStatus" />`,
-                Width = "100px",
+                Value = w => w.HealthStatus.ToString(),
                 Sortable = false
             },
             new GridColumn<WorkerTypeSummaryDto>
@@ -150,7 +147,7 @@
             _summary = await WorkersApi.GetSummaryAsync();
             if (_scaleDialogWorker is not null)
             {
-                _scaleSettings = await WorkersApi.GetWorkerTypeAsync(_scaleDialogWorker.WorkerType);
+                _ = await WorkersApi.GetWorkerTypeAsync(_scaleDialogWorker.WorkerType);
             }
         }
         catch (Exception ex)
@@ -226,13 +223,12 @@
     {
         var actions = new List<ArgusMenuItem>
         {
-            new("Scale up", () => ScaleUpAsync(worker)),
-            new("Scale down", () => ScaleDownAsync(worker),
-                IsDisabled: worker.DesiredReplicas <= worker.MinReplicas),
-            new("Set desired replicas", () => OpenScaleDialog(worker)),
-            new("View instances", () => _selected = worker)
+            new("Scale up", async () => { await ScaleUpAsync(worker); }),
+            new("Scale down", async () => { await ScaleDownAsync(worker); }) { IsDisabled = worker.DesiredReplicas <= worker.MinReplicas },
+            new("Set desired replicas", async () => { OpenScaleDialog(worker); }),
+            new("View instances", async () => { _selected = worker; })
         };
-        
+
         actions.Add(new ArgusMenuItem("")); // Separator
 
         if (worker.IsPaused)
@@ -241,8 +237,7 @@
         }
         else
         {
-            actions.Add(new("Pause", () => PauseAsync(worker),
-                IsDisabled: worker.MinReplicas > 0));
+            actions.Add(new("Pause", () => PauseAsync(worker)) { IsDisabled = worker.MinReplicas > 0 });
         }
 
         return actions;
@@ -309,24 +304,29 @@
         _scaleDialogWorker = worker;
     }
 
+    private async Task OnSelectedChanged(WorkerTypeSummaryDto? worker)
+    {
+        _selected = worker;
+        await InvokeAsync(StateHasChanged);
+    }
+
     private void CloseScaleDialog()
     {
         _scaleDialogWorker = null;
-        _scaleSettings = null;
     }
 
-    private async Task OnApplyScale(WorkerTypeSummaryDto worker, int desiredReplicas)
+    private async Task OnApplyScale((WorkerTypeSummaryDto worker, int desiredReplicas) args)
     {
         try
         {
             _loading = true;
-            var request = new ScaleWorkerTypeRequest(desiredReplicas, "Manual scale from UI");
-            var result = await WorkersApi.ScaleAsync(worker.WorkerType, request);
-            await JS.InvokeVoidAsync("app.showAlert", $"Scale command sent: {desiredReplicas} replicas", "success");
+            var request = new ScaleWorkerTypeRequest(args.desiredReplicas, "Manual scale from UI");
+            var result = await WorkersApi.ScaleAsync(args.worker.WorkerType, request);
+            await JS.InvokeVoidAsync("app.showAlert", $"Scale command sent: {args.desiredReplicas} replicas", "success");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to apply scale to worker {WorkerType}", worker.WorkerType);
+            Logger.LogError(ex, "Failed to apply scale to worker {WorkerType}", args.worker.WorkerType);
             await JS.InvokeVoidAsync("app.showAlert", $"Failed to scale: {ex.Message}", "error");
         }
         finally
@@ -388,13 +388,13 @@
         if (timestamp == null) return "—";
 
         var elapsed = DateTimeOffset.Now - timestamp.Value;
-        return elapsed.TotalMinutes switch
-        {
-            < 1 => $"{elapsed:%s}s ago",
-            < 60 => $"{elapsed:%m}m ago",
-            < 24 => $"{elapsed:%h}h ago",
-            _ => $"{elapsed:%d}d ago"
-        };
+        if (elapsed.TotalMinutes < 1)
+            return $"{elapsed:%s}s ago";
+        if (elapsed.TotalMinutes < 60)
+            return $"{elapsed:%m}m ago";
+        if (elapsed.TotalMinutes < 1440)
+            return $"{elapsed:%h}h ago";
+        return $"{elapsed:%d}d ago";
     }
 
     public async ValueTask DisposeAsync()

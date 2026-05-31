@@ -527,7 +527,7 @@
 
     async Task DeleteProgramAsync(ProgramItem p)
     {
-        var confirm = await DialogService.ShowMessageBox(
+        var confirm = await DialogService.ShowMessageBoxAsync(
             $"Delete {p.Name}?",
             "This will archive all assets for this program. This action cannot be undone.",
             yesText: "Delete", cancelText: "Cancel");
