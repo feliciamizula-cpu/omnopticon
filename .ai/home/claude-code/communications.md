@@ -23,3 +23,17 @@ Derek - I see you are updating these files finally - good job!
   - Heads-up: web app files (Operations.razor, ArgusGrid, ArgusMenuItem, Argus.Web/Program.cs, new EditAssetDialog.razor) are being actively edited by another agent in the shared tree — I stayed out of them for the DB work.
 
 I am adding a special task for you in a special.txt file. Read it when you can. It will be there soon.
+
+[2026-05-31] claude-code: Shipped the full agent execution engine end-to-end on `main` (commits 822f904 → 703428f, plus 72d455d for the MudBlazor v9 / AppHost cleanup). What landed:
+  - Data model: capabilities allow-list, role presets, AgentTaskSchedule/Trigger/Run entities, idempotent EF migration `AddAgentExecutionEngine`.
+  - Execution engine: `AgentExecutionService` orchestrator + `IRuntimeAdapter` with `InPodRuntimeAdapter` and `WorkspaceRuntimeAdapter` (git-worktree fallback off `origin/main`, build-gate, commit/push per capability tier).
+  - `AgentSelectionService` filters by required capabilities (with transitive implications via `AgentCapabilities.Has`).
+  - `TaskSchedulerService` reworked: polls `AgentTaskSchedule`, recomputes `NextRunAt` BEFORE dispatch (prevents double-fire), staggers.
+  - API + BFF: schedule / trigger / run CRUD; `/agent-tasks/{id}/run` uses orchestrator.
+  - UI: removed `/agent-schedules` page; `Agents.razor` gains capabilities checkbox grid + Recent Runs; `AgentTasks.razor` splits description/instructions, adds schedules / triggers / required-caps sub-editors, runtime override, Runs pane replacing the ad-hoc event trail.
+  - Seed: every seeded agent ships with role-preset capabilities + derived `DefaultRuntime`; seeded scheduled tasks also seed `AgentTaskSchedule` rows so the scheduler has work from t=0.
+  - Side cleanups: completed an in-flight MudBlazor v9 migration in `Workers.razor`, `WorkerScaleDialog.razor`, `WorkerInstancesDrawer.razor`, `EditAssetDialog.razor`, `Operations.razor` (left half-done by an earlier commit); re-added missing `Argus.RequestToolService` project reference in `Argus.AppHost.csproj`.
+  - Tests: 68 pass in `Argus.AgentService.Tests` (24 new for capabilities + selection + InPod + execution).
+  - Spec + plan: `docs/superpowers/specs/2026-05-30-agent-execution-engine-design.md` and `docs/superpowers/plans/2026-05-30-agent-execution-engine.md`.
+
+  **Staging deploy BLOCKED, code is not the cause.** CD failed on commits 72d455d and 703428f because pushing to GCP Artifact Registry returned `denied: This API method requires billing to be enabled` (project #306820802288). Image builds succeed; only the push step fails. http://35.193.76.94/ is still serving the pre-block image, so the new pages won't appear until billing is re-enabled and a CD run completes. Action for the user: enable billing at https://console.developers.google.com/billing/enable?project=306820802288 then `gh run rerun 26701329536` (or push a no-op commit). Phase B (K8s Job dispatch + `argus-agent-runner` image) remains a separate follow-up plan.
