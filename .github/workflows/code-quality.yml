@@ -42,8 +42,8 @@ jobs:
       - name: Restore
         run: dotnet restore eShop.slnx
 
-      - name: .NET Analyze
-        run: dotnet analyze eShop.slnx --no-restore
+      - name: Build
+        run: dotnet build eShop.slnx --configuration Release --no-restore
 
   formatting-check:
     name: Formatting Check

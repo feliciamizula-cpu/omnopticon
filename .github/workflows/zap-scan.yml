@@ -44,7 +44,10 @@ jobs:
         run: dotnet build eShop.slnx --configuration Release --no-restore
 
       - name: Generate OpenAPI spec
-        run: dotnet tool install --global Swashbuckle.AspNetCore.Cli || true && dotnet swagger tofile --output swagger.json src/Argus.ApiGateway/bin/Release/net9.0/Argus.ApiGateway.dll
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet tool install --global Swashbuckle.AspNetCore.Cli || true
+          dotnet swagger tofile --output swagger.json src/Argus.ApiGateway/bin/Release/net10.0/Argus.ApiGateway.dll
 
       - name: ZAP Scan
         uses: zaproxy/action-api-scan@v0.8.0
