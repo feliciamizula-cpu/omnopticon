@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Argus.AgentService.Agents;
 using Argus.AgentService.Data;
+using Argus.Contracts.Agents;
 
 internal static class AgentDevelopmentSeedData
 {
@@ -29,8 +30,11 @@ internal static class AgentDevelopmentSeedData
             string? provider,
             string[] responsibilities,
             string priority,
-            string status = "active") =>
-            new()
+            string status = "active",
+            string[]? capabilityOverride = null)
+        {
+            var caps = capabilityOverride ?? AgentCapabilities.PresetForRole(role).ToArray();
+            return new()
             {
                 AgentId = GuidFromId(id),
                 Name = name,
@@ -44,10 +48,13 @@ internal static class AgentDevelopmentSeedData
                 Provider = provider,
                 Priority = priority,
                 ResponsibilitiesJson = Json(responsibilities),
+                CapabilitiesJson = JsonSerializer.Serialize(caps),
+                DefaultRuntime = AgentCapabilities.DefaultRuntimeForCapabilities(caps),
                 LastHeartbeatAt = now.AddHours(-1),
                 CreatedAt = now.AddHours(-1),
                 UpdatedAt = now.AddMinutes(-30)
             };
+        }
 
         return
         [
@@ -281,6 +288,43 @@ internal static class AgentDevelopmentSeedData
                 targetRole: "senior_system_architect", taskType: "system_report",
                 scheduleExpression: "0 */4 * * *")
         ];
+    }
+
+    public static IReadOnlyList<AgentTaskScheduleRecord> CreateSchedules(IEnumerable<AgentTaskRecord> tasks, DateTimeOffset now)
+    {
+        var schedules = new List<AgentTaskScheduleRecord>();
+        foreach (var t in tasks)
+        {
+            if (string.IsNullOrWhiteSpace(t.ScheduleExpression)) continue;
+            schedules.Add(new AgentTaskScheduleRecord
+            {
+                ScheduleId = Guid.NewGuid(),
+                TaskId = t.TaskId,
+                Cron = t.ScheduleExpression!,
+                Enabled = true,
+                NextRunAt = now,
+                CreatedAt = now
+            });
+        }
+        return schedules;
+    }
+
+    public static IReadOnlyList<AgentTaskTriggerRecord> CreateTriggers(IEnumerable<AgentTaskRecord> tasks, DateTimeOffset now)
+    {
+        var triggers = new List<AgentTaskTriggerRecord>();
+        foreach (var t in tasks)
+        {
+            if (string.IsNullOrWhiteSpace(t.TriggerEvent)) continue;
+            triggers.Add(new AgentTaskTriggerRecord
+            {
+                TriggerId = Guid.NewGuid(),
+                TaskId = t.TaskId,
+                EventName = t.TriggerEvent!,
+                Enabled = true,
+                CreatedAt = now
+            });
+        }
+        return triggers;
     }
 
     public static int NextNumericTaskId(IEnumerable<string> taskIds)

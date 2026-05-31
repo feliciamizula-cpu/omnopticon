@@ -37,9 +37,26 @@ public sealed class InMemoryAgentStore : IAgentStore
             _agents.TryAdd(agent.AgentId, agent);
         }
 
-        foreach (var task in AgentDevelopmentSeedData.CreateTasks(now))
+        var seedTasks = AgentDevelopmentSeedData.CreateTasks(now);
+        foreach (var task in seedTasks)
         {
             _tasks.TryAdd(task.TaskId, task);
+        }
+
+        // Seed schedule and trigger child rows (guard: only if none exist yet)
+        if (!_schedules.Any())
+        {
+            foreach (var sched in AgentDevelopmentSeedData.CreateSchedules(seedTasks, now))
+            {
+                _schedules.TryAdd(sched.ScheduleId, sched);
+            }
+        }
+        if (!_triggers.Any())
+        {
+            foreach (var trig in AgentDevelopmentSeedData.CreateTriggers(seedTasks, now))
+            {
+                _triggers.TryAdd(trig.TriggerId, trig);
+            }
         }
 
         foreach (var account in ProviderUsageSeedData.CreateAccounts(now))

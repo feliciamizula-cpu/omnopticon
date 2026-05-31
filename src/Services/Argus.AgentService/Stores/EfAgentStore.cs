@@ -37,9 +37,11 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
         }
 
         var hasTasks = await _dbContext.AgentTasks.AnyAsync(cancellationToken);
+        var seedTasks = (IReadOnlyList<AgentTaskRecord>?)null;
         if (!hasTasks)
         {
-            _dbContext.AgentTasks.AddRange(AgentDevelopmentSeedData.CreateTasks(now));
+            seedTasks = AgentDevelopmentSeedData.CreateTasks(now);
+            _dbContext.AgentTasks.AddRange(seedTasks);
         }
 
         var hasProviderAccounts = await _dbContext.ProviderAccounts.AnyAsync(cancellationToken);
@@ -51,6 +53,24 @@ public sealed class EfAgentStore(AgentDbContext dbContext) : IAgentStore
         if (!hasAgents || !hasTasks || !hasProviderAccounts)
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        // Seed schedule and trigger child rows (safe to run even if tasks were seeded above).
+        if (seedTasks is not null)
+        {
+            var hasSchedules = await _dbContext.AgentTaskSchedules.AnyAsync(cancellationToken);
+            if (!hasSchedules)
+            {
+                _dbContext.AgentTaskSchedules.AddRange(AgentDevelopmentSeedData.CreateSchedules(seedTasks, now));
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            var hasTriggers = await _dbContext.AgentTaskTriggers.AnyAsync(cancellationToken);
+            if (!hasTriggers)
+            {
+                _dbContext.AgentTaskTriggers.AddRange(AgentDevelopmentSeedData.CreateTriggers(seedTasks, now));
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
         }
     }
 

@@ -9,6 +9,23 @@
 @inject IJSRuntime JS
 @inject DevelopmentRealtimeClient Realtime
 
+<style>
+    .ac-cap-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px 8px;
+        padding: 6px 0 4px;
+    }
+    .ac-cap-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-size: 11.5px;
+    }
+    .ac-cap-name { flex: 1; font-size: 11px; }
+</style>
+
 <PageHeader Title="Agent Tasks" Subtitle="@($"{Rows.Count:N0} visible · {_tasks.Count:N0} total")" />
 
 <div class="page-body dev-page">
@@ -116,7 +133,7 @@
                         <tbody>
                             @foreach (var task in Rows)
                             {
-                                <tr class="@(SelectedTask?.TaskId == task.TaskId ? "selected" : "")" @onclick="() => SelectTask(task)">
+                                <tr class="@(SelectedTask?.TaskId == task.TaskId ? "selected" : "")" @onclick="async () => await SelectTask(task)">
                                     <td><span class="dot @TaskDot(task.Status)"></span></td>
                                     <td style="color: var(--accent);">@task.TaskId</td>
                                     <td><span class="dev-pill @PriorityTone(task.Priority)">@PriorityLabel(task.Priority)</span></td>
@@ -156,7 +173,7 @@
 
                             @if (_editing)
                             {
-                                <textarea class="dev-input" rows="3" style="margin-top: 8px;" @bind="_taskForm.Description" @bind:event="oninput"></textarea>
+                                <input class="dev-input" style="margin-top: 8px;" @bind="_taskForm.Description" @bind:event="oninput" />
                             }
                             else
                             {
@@ -244,11 +261,11 @@
                                 <div class="dev-note warn">@selected.RecoveryContext</div>
                             }
 
-                            <div class="section-label">AGENT PROMPT / DESCRIPTION</div>
+                            <div class="section-label">DESCRIPTION (LABEL)</div>
                             @if (_editing)
                             {
                                 <div style="padding: 0 12px 8px;">
-                                    <textarea class="dev-input" rows="7" @bind="_taskForm.Description" @bind:event="oninput"></textarea>
+                                    <input class="dev-input" @bind="_taskForm.Description" @bind:event="oninput" />
                                 </div>
                             }
                             else
@@ -256,27 +273,146 @@
                                 <div class="dev-note">@selected.Description</div>
                             }
 
-                            <div class="section-label">EVENT TRAIL</div>
-                            <div class="dev-event-row">
-                                <span class="t">@selected.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</span>
-                                <span class="k cyan">CREATED</span>
-                                <span class="body">task added to development queue</span>
-                            </div>
-                            @if (selected.ClaimedAt is not null)
+                            <div class="section-label">INSTRUCTIONS</div>
+                            @if (_editing)
                             {
-                                <div class="dev-event-row">
-                                    <span class="t">@selected.ClaimedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
-                                    <span class="k amber">CLAIMED</span>
-                                    <span class="body">by @(selected.AssignedTo ?? "pool")</span>
+                                <div style="padding: 0 12px 8px;">
+                                    <textarea class="dev-input" rows="8" @bind="_taskForm.Instructions" @bind:event="oninput"></textarea>
                                 </div>
                             }
-                            @if (selected.CompletedAt is not null)
+                            else
                             {
-                                <div class="dev-event-row">
-                                    <span class="t">@selected.CompletedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
-                                    <span class="k green">DONE</span>
-                                    <span class="body">task reached @selected.Status</span>
+                                <div class="dev-note">@(selected.Instructions ?? selected.Description)</div>
+                            }
+
+                            <div class="section-label">REQUIRED CAPABILITIES</div>
+                            @if (_editing)
+                            {
+                                <div style="padding: 0 12px 8px;">
+                                    <div class="ac-cap-grid">
+                                        @foreach (var cap in AllCapabilities)
+                                        {
+                                            <label class="ac-cap-row">
+                                                <input type="checkbox"
+                                                       checked="@_taskForm.RequiredCapabilities.Contains(cap)"
+                                                       @onchange="e => ToggleRequired(cap, (bool)e.Value!)" />
+                                                <span class="ac-cap-name mono">@cap</span>
+                                            </label>
+                                        }
+                                    </div>
                                 </div>
+                            }
+                            else
+                            {
+                                <div class="dev-chipline" style="padding: 0 12px 10px; margin-top: 0;">
+                                    @if (selected.RequiredCapabilities.Length == 0)
+                                    {
+                                        <span class="dev-chip">// none required</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var cap in selected.RequiredCapabilities)
+                                        {
+                                            <span class="dev-chip mono">@cap</span>
+                                        }
+                                    }
+                                </div>
+                            }
+
+                            <div class="section-label">RUNTIME</div>
+                            @if (_editing)
+                            {
+                                <div style="padding: 0 12px 8px;">
+                                    <select class="dev-input" @bind="_taskForm.Runtime">
+                                        <option value="default">default (agent's default)</option>
+                                        <option value="in_pod">in_pod</option>
+                                        <option value="workspace">workspace</option>
+                                    </select>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="dev-note">@(string.IsNullOrWhiteSpace(selected.Runtime) || selected.Runtime == "default" ? "default (agent's default)" : selected.Runtime)</div>
+                            }
+
+                            <div class="section-label">SCHEDULES</div>
+                            @if (_schedules.Count == 0)
+                            {
+                                <div class="dev-empty">// no schedules — on-demand only</div>
+                            }
+                            else
+                            {
+                                <table class="kv-table">
+                                    <thead><tr><th>Cron</th><th>Label</th><th>Enabled</th><th>Next</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var s in _schedules)
+                                        {
+                                            <tr>
+                                                <td class="mono">@s.Cron</td>
+                                                <td>@s.Label</td>
+                                                <td><input type="checkbox" checked="@s.Enabled"
+                                                          @onchange="async e => await ToggleSchedule(s.ScheduleId, (bool)e.Value!)" /></td>
+                                                <td class="tabular">@(s.NextRunAt?.ToLocalTime().ToString("HH:mm") ?? "—")</td>
+                                                <td><button class="btn danger tiny" @onclick="async () => await DeleteSchedule(s.ScheduleId)">x</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                            <div class="dev-action-row" style="padding: 4px 12px 8px;">
+                                <input class="dev-input" style="flex:1;" @bind="_newScheduleCron" placeholder="*/15 * * * *" />
+                                <input class="dev-input" style="flex:1;" @bind="_newScheduleLabel" placeholder="label (optional)" />
+                                <button class="btn primary tiny" @onclick="AddSchedule">+ Schedule</button>
+                            </div>
+
+                            <div class="section-label">TRIGGERS</div>
+                            @if (_triggers.Count == 0)
+                            {
+                                <div class="dev-empty">// no trigger events configured</div>
+                            }
+                            else
+                            {
+                                <table class="kv-table">
+                                    <thead><tr><th>Event</th><th>Enabled</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var t in _triggers)
+                                        {
+                                            <tr>
+                                                <td class="mono">@t.EventName</td>
+                                                <td><input type="checkbox" checked="@t.Enabled"
+                                                          @onchange="async e => await ToggleTrigger(t.TriggerId, (bool)e.Value!)" /></td>
+                                                <td><button class="btn danger tiny" @onclick="async () => await DeleteTrigger(t.TriggerId)">x</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                            <div class="dev-action-row" style="padding: 4px 12px 8px;">
+                                <input class="dev-input" style="flex:1;" @bind="_newTriggerEventName" placeholder="agent_task_completed" />
+                                <button class="btn primary tiny" @onclick="AddTrigger">+ Trigger</button>
+                            </div>
+
+                            <div class="section-label">RUNS</div>
+                            @if (_runs.Count == 0)
+                            {
+                                <div class="dev-empty">// no runs yet</div>
+                            }
+                            else
+                            {
+                                <table class="kv-table">
+                                    <thead><tr><th>Started</th><th>Status</th><th>Runtime</th><th>Agent</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var r in _runs)
+                                        {
+                                            <tr>
+                                                <td class="tabular">@(r.StartedAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—")</td>
+                                                <td><span class="dev-pill @RunStatusTone(r.Status)">@r.Status</span></td>
+                                                <td>@r.Runtime</td>
+                                                <td>@AgentChip(r.AgentId?.ToString())</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
                             }
 
                             <div class="section-label">ACTIONS</div>
@@ -316,8 +452,12 @@
                 <div class="dev-modal-body">
                     <div class="dev-form-grid">
                         <div class="dev-form-field full">
-                            <label>Short description / prompt</label>
-                            <textarea class="dev-input" rows="6" @bind="_newTask.Description" @bind:event="oninput" placeholder="Implement the new worker status panel and add tests."></textarea>
+                            <label>Description (label)</label>
+                            <input class="dev-input" @bind="_newTask.Description" @bind:event="oninput" placeholder="Implement the new worker status panel." />
+                        </div>
+                        <div class="dev-form-field full">
+                            <label>Instructions (full prompt)</label>
+                            <textarea class="dev-input" rows="6" @bind="_newTask.Instructions" @bind:event="oninput" placeholder="Implement the new worker status panel and add tests. Ensure all existing tests pass."></textarea>
                         </div>
                         <div class="dev-form-field">
                             <label>Priority</label>
@@ -337,6 +477,14 @@
                                 {
                                     <option value="@agent.AgentId">@agent.Name · @agent.Tool/@agent.Role</option>
                                 }
+                            </select>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Runtime</label>
+                            <select class="dev-input" @bind="_newTask.Runtime">
+                                <option value="default">default (agent's default)</option>
+                                <option value="in_pod">in_pod</option>
+                                <option value="workspace">workspace</option>
                             </select>
                         </div>
                     </div>
@@ -371,6 +519,14 @@
     private bool _showTaskModal;
     private TaskForm _taskForm = new();
     private TaskForm _newTask = new() { Priority = "normal" };
+
+    // Sub-editor state
+    private List<AgentTaskScheduleDto> _schedules = new();
+    private List<AgentTaskTriggerDto> _triggers = new();
+    private List<AgentTaskRunDto> _runs = new();
+    private string _newScheduleCron = "";
+    private string _newScheduleLabel = "";
+    private string _newTriggerEventName = "";
 
     private static readonly string[] Priorities = ["critical", "high", "medium", "normal", "low"];
     private static readonly string[] Statuses = ["pending", "claimed", "in_progress", "blocked", "completed", "failed"];
@@ -539,10 +695,11 @@
         _selectedTaskId = Rows.FirstOrDefault()?.TaskId ?? _selectedTaskId;
     }
 
-    private void SelectTask(AgentTaskDto task)
+    private async Task SelectTask(AgentTaskDto task)
     {
         _selectedTaskId = task.TaskId;
         CancelEdit();
+        await Task.WhenAll(LoadSchedules(), LoadTriggers(), LoadRuns());
     }
 
     private void BeginEdit()
@@ -556,9 +713,12 @@
         _taskForm = new TaskForm
         {
             Description = task.Description,
+            Instructions = task.Instructions ?? "",
             Priority = PriorityKey(task.Priority),
             Status = StatusKey(task.Status),
-            AssignedTo = task.AssignedTo ?? ""
+            AssignedTo = task.AssignedTo ?? "",
+            Runtime = string.IsNullOrWhiteSpace(task.Runtime) ? "default" : task.Runtime,
+            RequiredCapabilities = new HashSet<string>(task.RequiredCapabilities, StringComparer.Ordinal)
         };
         _editing = true;
     }
@@ -581,9 +741,12 @@
         {
             var request = new UpdateAgentTaskRequest(
                 Description: _taskForm.Description,
+                Instructions: string.IsNullOrWhiteSpace(_taskForm.Instructions) ? null : _taskForm.Instructions,
                 Priority: _taskForm.Priority,
                 Status: _taskForm.Status,
-                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? null : _taskForm.AssignedTo);
+                AssignedTo: string.IsNullOrWhiteSpace(_taskForm.AssignedTo) ? null : _taskForm.AssignedTo,
+                Runtime: string.IsNullOrWhiteSpace(_taskForm.Runtime) || _taskForm.Runtime == "default" ? null : _taskForm.Runtime,
+                RequiredCapabilities: _taskForm.RequiredCapabilities.ToArray());
 
             var response = await Http.PutAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(task.TaskId)}"), request);
             if (!response.IsSuccessStatusCode)
@@ -668,7 +831,10 @@
             var request = new CreateAgentTaskRequest(
                 _newTask.Description.Trim(),
                 _newTask.Priority,
-                string.IsNullOrWhiteSpace(_newTask.AssignedTo) ? null : _newTask.AssignedTo);
+                Instructions: string.IsNullOrWhiteSpace(_newTask.Instructions) ? null : _newTask.Instructions,
+                AssignedTo: string.IsNullOrWhiteSpace(_newTask.AssignedTo) ? null : _newTask.AssignedTo,
+                Runtime: _newTask.Runtime == "default" ? "default" : _newTask.Runtime,
+                RequiredCapabilities: _newTask.RequiredCapabilities.Count == 0 ? null : _newTask.RequiredCapabilities.ToArray());
 
             var response = await Http.PostAsJsonAsync(Ui("/ui/agent-tasks"), request);
             if (!response.IsSuccessStatusCode)
@@ -708,6 +874,87 @@
   <span class="meta">{Escape(ToolLabel(agent.Tool))}</span>
 </span>
 """);
+    }
+
+    private async Task LoadSchedules()
+    {
+        if (SelectedTask is null) { _schedules = new(); return; }
+        try
+        {
+            var resp = await Http.GetAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(SelectedTask.TaskId)}/schedules"));
+            _schedules = await ReadItemsAsync<AgentTaskScheduleDto>(resp);
+        }
+        catch { _schedules = new(); }
+    }
+
+    private async Task LoadTriggers()
+    {
+        if (SelectedTask is null) { _triggers = new(); return; }
+        try
+        {
+            var resp = await Http.GetAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(SelectedTask.TaskId)}/triggers"));
+            _triggers = await ReadItemsAsync<AgentTaskTriggerDto>(resp);
+        }
+        catch { _triggers = new(); }
+    }
+
+    private async Task LoadRuns()
+    {
+        if (SelectedTask is null) { _runs = new(); return; }
+        try
+        {
+            var resp = await Http.GetAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(SelectedTask.TaskId)}/runs"));
+            _runs = await ReadItemsAsync<AgentTaskRunDto>(resp);
+        }
+        catch { _runs = new(); }
+    }
+
+    private async Task AddSchedule()
+    {
+        if (SelectedTask is null || string.IsNullOrWhiteSpace(_newScheduleCron)) return;
+        var req = new CreateAgentTaskScheduleRequest(
+            _newScheduleCron.Trim(),
+            string.IsNullOrWhiteSpace(_newScheduleLabel) ? null : _newScheduleLabel.Trim(),
+            true);
+        await Http.PostAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(SelectedTask.TaskId)}/schedules"), req);
+        _newScheduleCron = "";
+        _newScheduleLabel = "";
+        await LoadSchedules();
+    }
+
+    private async Task ToggleSchedule(Guid id, bool enabled)
+    {
+        await Http.PutAsJsonAsync(Ui($"/ui/agent-task-schedules/{id}"),
+            new UpdateAgentTaskScheduleRequest(Enabled: enabled));
+        await LoadSchedules();
+    }
+
+    private async Task DeleteSchedule(Guid id)
+    {
+        await Http.DeleteAsync(Ui($"/ui/agent-task-schedules/{id}"));
+        await LoadSchedules();
+    }
+
+    private async Task AddTrigger()
+    {
+        if (SelectedTask is null || string.IsNullOrWhiteSpace(_newTriggerEventName)) return;
+        var req = new CreateAgentTaskTriggerRequest(_newTriggerEventName.Trim(), true);
+        await Http.PostAsJsonAsync(Ui($"/ui/agent-tasks/{Uri.EscapeDataString(SelectedTask.TaskId)}/triggers"), req);
+        _newTriggerEventName = "";
+        await LoadTriggers();
+    }
+
+    private async Task ToggleTrigger(Guid id, bool enabled)
+    {
+        await Http.PutAsJsonAsync(Ui($"/ui/agent-task-triggers/{id}"),
+            new UpdateAgentTaskTriggerRequest(Enabled: enabled));
+        await LoadTriggers();
+    }
+
+    private async Task DeleteTrigger(Guid id)
+    {
+        await Http.DeleteAsync(Ui($"/ui/agent-task-triggers/{id}"));
+        await LoadTriggers();
     }
 
     private static bool IsQueueTask(AgentTaskDto task) =>
@@ -847,11 +1094,35 @@
 
     private sealed record QueueTab(string Id, string Label, int Count);
 
+    private static readonly string[] AllCapabilities =
+    [
+        "read_app_state", "read_external", "write_todos", "write_tasks", "write_reports",
+        "git_read", "git_commit", "git_push", "git_push_main", "git_history_rewrite",
+        "dotnet_build", "kubectl_read", "kubectl_apply"
+    ];
+
+    private void ToggleRequired(string cap, bool on)
+    {
+        if (on) _taskForm.RequiredCapabilities.Add(cap);
+        else _taskForm.RequiredCapabilities.Remove(cap);
+    }
+
+    private static string RunStatusTone(string status) => status switch
+    {
+        "completed" => "green",
+        "failed"    => "red",
+        "running"   => "cyan",
+        _           => "dim"
+    };
+
     private sealed class TaskForm
     {
         public string Description { get; set; } = "";
+        public string Instructions { get; set; } = "";
         public string Priority { get; set; } = "normal";
         public string Status { get; set; } = "pending";
         public string AssignedTo { get; set; } = "";
+        public string Runtime { get; set; } = "default";
+        public HashSet<string> RequiredCapabilities { get; set; } = new(StringComparer.Ordinal);
     }
 }

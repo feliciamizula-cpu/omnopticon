@@ -9,6 +9,24 @@
 @inject IJSRuntime JS
 @inject DevelopmentRealtimeClient Realtime
 
+<style>
+    .ac-cap-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px 8px;
+        padding: 6px 0 4px;
+    }
+    .ac-cap-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-size: 11.5px;
+    }
+    .ac-cap-name { flex: 1; font-size: 11px; }
+    .ac-cap-runtime { font-size: 10px; }
+</style>
+
 <PageHeader Title="Agent Configuration" Subtitle="@($"{_agents.Count:N0} agent configuration{(_agents.Count == 1 ? "" : "s")}")" />
 
 <div class="deployment-freshness @DeploymentFreshnessClass">
@@ -21,7 +39,6 @@
         <div class="page-tabs">
             <a class="page-tab active" href="/agents">Agents <span class="tab-count">@_agents.Count</span></a>
             <a class="page-tab" href="/agent-tasks">Agent Tasks</a>
-            <a class="page-tab" href="/agent-schedules">Schedules</a>
             <a class="page-tab" href="/provider-usage">Provider Usage</a>
             <div class="page-tab-spacer"></div>
             <div class="page-tab-actions">
@@ -80,7 +97,7 @@
                                 @foreach (var agent in SortedFilteredAgents)
                                 {
                                     <tr class="@(_selectedAgentId == agent.AgentId ? "selected" : "") @(!IsActive(agent) ? "ac-disabled" : "")"
-                                        @onclick="() => SelectAgent(agent)">
+                                        @onclick="async () => await SelectAgent(agent)">
                                         <td class="ac-col-enabled">
                                             <span class="dot @(IsActive(agent) ? "green" : "")"></span>
                                         </td>
@@ -188,6 +205,29 @@
                                 <button class="btn ghost tiny" @onclick="() => OpenEditModal(agent)">Edit Config</button>
                                 <button class="btn danger tiny" @onclick="() => DeleteAgent(agent.AgentId)">Remove</button>
                             </div>
+
+                            <div class="section-label">RECENT RUNS</div>
+                            @if (_recentRuns.Count == 0)
+                            {
+                                <div class="dev-empty">// no runs yet</div>
+                            }
+                            else
+                            {
+                                <table class="kv-table">
+                                    <thead><tr><th>Started</th><th>Status</th><th>Runtime</th><th>Task</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var r in _recentRuns)
+                                        {
+                                            <tr>
+                                                <td class="tabular">@(r.StartedAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—")</td>
+                                                <td><span class="dev-pill @StatusTone(r.Status)">@r.Status</span></td>
+                                                <td>@r.Runtime</td>
+                                                <td class="mono">@r.TaskId</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
                         </div>
                     }
                 </div>
@@ -276,6 +316,36 @@
                             <label>Command</label>
                             <div class="dev-note" style="margin: 0;">@ToolCommand(_agentForm.Tool) @_agentForm.Model</div>
                         </div>
+                        <div class="dev-form-field full">
+                            <label>Capabilities</label>
+                            <div class="ac-cap-grid">
+                                @foreach (var cap in AllCapabilities)
+                                {
+                                    <label class="ac-cap-row">
+                                        <input type="checkbox"
+                                               checked="@_agentForm.Capabilities.Contains(cap)"
+                                               @onchange="e => ToggleCapability(cap, (bool)e.Value!)" />
+                                        <span class="ac-cap-name mono">@cap</span>
+                                        <span class="ac-cap-runtime tone-@(RuntimeFor(cap) == "workspace" ? "amber" : "cyan")">@RuntimeFor(cap)</span>
+                                    </label>
+                                }
+                            </div>
+                            <div class="dev-note">
+                                Resolved default runtime: <b>@ResolvedRuntime()</b>
+                                @if (_agentForm.Capabilities.Contains("git_push_main") || _agentForm.Capabilities.Contains("git_history_rewrite"))
+                                {
+                                    <span class="tone-red"> — grants the ability to write directly to main.</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="dev-form-field">
+                            <label>Runtime override</label>
+                            <select class="dev-input" @bind="_agentForm.DefaultRuntimeOverride">
+                                <option value="">(use resolved: @ResolvedRuntime())</option>
+                                <option value="in_pod">in_pod</option>
+                                <option value="workspace">workspace</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
                 <div class="dev-modal-foot">
@@ -305,6 +375,7 @@
     private bool _showAgentModal;
     private Guid? _editingAgentId;
     private AgentForm _agentForm = new();
+    private List<AgentTaskRunDto> _recentRuns = new();
 
     private static readonly DateTimeOffset AppStartedAt = DateTimeOffset.UtcNow;
 
@@ -447,9 +518,18 @@
         return new List<T>();
     }
 
-    private void SelectAgent(AgentDto agent)
+    private async Task SelectAgent(AgentDto agent)
     {
         _selectedAgentId = agent.AgentId;
+        try
+        {
+            var response = await Http.GetAsync(Ui($"/ui/agents/{agent.AgentId}/runs"));
+            _recentRuns = await ReadItemsAsync<AgentTaskRunDto>(response);
+        }
+        catch
+        {
+            _recentRuns = new();
+        }
     }
 
     private void SortBy(string col)
@@ -471,15 +551,18 @@
     private void OpenCreateModal()
     {
         _editingAgentId = null;
+        var defaultRole = "developer";
         _agentForm = new AgentForm
         {
             Name = $"Agent {_agents.Count + 1}",
-            Role = "developer",
+            Role = defaultRole,
             Tool = "claude",
             Model = "claude-sonnet-4-6",
             SortOrder = 10,
             Priority = "standard",
-            ResponsibilitiesText = "implementation, tests, code review"
+            ResponsibilitiesText = "implementation, tests, code review",
+            Capabilities = new HashSet<string>(AgentCapabilities.PresetForRole(defaultRole), StringComparer.Ordinal),
+            DefaultRuntimeOverride = ""
         };
         _showAgentModal = true;
     }
@@ -497,7 +580,9 @@
             Model = agent.Model,
             Provider = agent.Provider ?? "",
             Priority = agent.Priority,
-            ResponsibilitiesText = string.Join(", ", agent.Responsibilities)
+            ResponsibilitiesText = string.Join(", ", agent.Responsibilities),
+            Capabilities = new HashSet<string>(agent.Capabilities, StringComparer.Ordinal),
+            DefaultRuntimeOverride = agent.DefaultRuntime ?? ""
         };
         _showAgentModal = true;
     }
@@ -522,6 +607,8 @@
             var wasEdit = _editingAgentId is not null;
 
             var providerValue = string.IsNullOrWhiteSpace(_agentForm.Provider) ? null : _agentForm.Provider.Trim();
+            var caps = _agentForm.Capabilities.ToArray();
+            var runtime = string.IsNullOrWhiteSpace(_agentForm.DefaultRuntimeOverride) ? null : _agentForm.DefaultRuntimeOverride;
 
             if (_editingAgentId is Guid id)
             {
@@ -535,7 +622,9 @@
                     Model: _agentForm.Model.Trim(),
                     Provider: providerValue,
                     ClearProvider: providerValue is null,
-                    Priority: _agentForm.Priority);
+                    Priority: _agentForm.Priority,
+                    Capabilities: caps,
+                    DefaultRuntime: runtime);
 
                 response = await Http.PutAsJsonAsync(Ui($"/ui/agents/{id}"), request);
             }
@@ -550,7 +639,9 @@
                     string.IsNullOrWhiteSpace(_agentForm.RoleDescription) ? null : _agentForm.RoleDescription.Trim(),
                     _agentForm.SortOrder,
                     providerValue,
-                    _agentForm.Priority);
+                    _agentForm.Priority,
+                    Capabilities: caps,
+                    DefaultRuntime: runtime);
 
                 response = await Http.PostAsJsonAsync(Ui("/ui/agents"), request);
             }
@@ -756,6 +847,41 @@
 
     private static string ShortId(Guid id) => id.ToString("N")[..8];
 
+    private static readonly string[] AllCapabilities =
+    [
+        "read_app_state", "read_external", "write_todos", "write_tasks", "write_reports",
+        "git_read", "git_commit", "git_push", "git_push_main", "git_history_rewrite",
+        "dotnet_build", "kubectl_read", "kubectl_apply"
+    ];
+
+    private static string RuntimeFor(string cap) => cap switch
+    {
+        "git_read" or "git_commit" or "git_push" or "git_push_main"
+            or "git_history_rewrite" or "dotnet_build" or "kubectl_apply" => "workspace",
+        _ => "in_pod"
+    };
+
+    private string ResolvedRuntime()
+    {
+        if (!string.IsNullOrWhiteSpace(_agentForm.DefaultRuntimeOverride))
+            return _agentForm.DefaultRuntimeOverride;
+        return _agentForm.Capabilities.Any(c => RuntimeFor(c) == "workspace") ? "workspace" : "in_pod";
+    }
+
+    private void ToggleCapability(string cap, bool on)
+    {
+        if (on) _agentForm.Capabilities.Add(cap);
+        else _agentForm.Capabilities.Remove(cap);
+    }
+
+    private static string StatusTone(string status) => status switch
+    {
+        "completed" => "green",
+        "failed"    => "red",
+        "running"   => "cyan",
+        _           => "dim"
+    };
+
     private sealed class AgentForm
     {
         public string Name { get; set; } = "";
@@ -767,5 +893,7 @@
         public string Provider { get; set; } = "";
         public string Priority { get; set; } = "standard";
         public string ResponsibilitiesText { get; set; } = "";
+        public HashSet<string> Capabilities { get; set; } = new(StringComparer.Ordinal);
+        public string DefaultRuntimeOverride { get; set; } = "";
     }
 }
