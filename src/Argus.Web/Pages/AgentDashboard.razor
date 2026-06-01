@@ -222,24 +222,14 @@
 
 <PageHeader Title="Agent Dashboard" Subtitle="@($"{RunningAgents.Count:N0} running · {_agents.Count:N0} configurations · {QueueTasks.Count:N0} queued")" />
 
-<div class="deployment-freshness @DeploymentFreshnessClass">
-    <span class="freshness-dot"></span>
-    <span class="freshness-label">@DeploymentFreshnessText</span>
-</div>
-
 <div class="page-body dev-page agent-dashboard-page">
     <div class="dev-main">
-        <div class="page-tabs">
-            <a class="page-tab active" href="/agent-dashboard">Dashboard</a>
-            <a class="page-tab" href="/agents">Agent Config <span class="tab-count">@_agents.Count</span></a>
-            <a class="page-tab" href="/agent-tasks">Agent Tasks <span class="tab-count">@_tasks.Count</span></a>
-            <a class="page-tab" href="/provider-usage">Provider Usage</a>
-            <div class="page-tab-spacer"></div>
-            <div class="page-tab-actions">
+        <AgentNavTabs AgentCount="_agents.Count" TaskCount="_tasks.Count">
+            <Actions>
                 <button class="btn primary tiny" @onclick="ResetComposer">+ Ad-Hoc Task</button>
                 <button class="btn ghost tiny" @onclick="() => LoadData()">Refresh</button>
-            </div>
-        </div>
+            </Actions>
+        </AgentNavTabs>
 
         @if (!string.IsNullOrWhiteSpace(_error))
         {
@@ -697,8 +687,6 @@
     private AgentForm _agentForm = new();
     private TaskComposer _newTask = TaskComposer.Default();
 
-    private static readonly DateTimeOffset AppStartedAt = DateTimeOffset.UtcNow;
-
     private IReadOnlyList<AgentDto> RunningAgents =>
         _agents.Where(IsRunning)
             .OrderByDescending(a => a.LastHeartbeatAt ?? DateTimeOffset.MinValue)
@@ -729,28 +717,6 @@
         && !string.IsNullOrWhiteSpace(_agentForm.Role)
         && !string.IsNullOrWhiteSpace(_agentForm.Tool)
         && !string.IsNullOrWhiteSpace(_agentForm.Model);
-
-    private string DeploymentFreshnessText
-    {
-        get
-        {
-            var age = DateTimeOffset.UtcNow - AppStartedAt;
-            if (age.TotalMinutes <= 5) return "Fresh Deployment";
-            if (age.TotalMinutes <= 60) return "Deployment Ok";
-            return "Deployment Stale";
-        }
-    }
-
-    private string DeploymentFreshnessClass
-    {
-        get
-        {
-            var age = DateTimeOffset.UtcNow - AppStartedAt;
-            if (age.TotalMinutes <= 5) return "fresh";
-            if (age.TotalMinutes <= 60) return "ok";
-            return "stale";
-        }
-    }
 
     private static readonly (string Value, string Label)[] WorkerTypeOptions =
     [

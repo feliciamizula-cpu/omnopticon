@@ -1,0 +1,53 @@
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="page-tabs">
+    <a class="page-tab @(IsActive("/agent-dashboard") ? "active" : "")" href="/agent-dashboard">Dashboard</a>
+    <a class="page-tab @(IsActive("/agents") ? "active" : "")" href="/agents">
+        Agent Config @if (AgentCount > 0)
+        {
+            <span class="tab-count">@AgentCount</span>
+        }
+    </a>
+    <a class="page-tab @(IsActive("/agent-tasks") ? "active" : "")" href="/agent-tasks">
+        Agent Tasks @if (TaskCount > 0)
+        {
+            <span class="tab-count">@TaskCount</span>
+        }
+    </a>
+    <a class="page-tab @(IsActive("/provider-usage") ? "active" : "")" href="/provider-usage">Provider Usage</a>
+    <div class="page-tab-spacer"></div>
+    @if (Actions is not null)
+    {
+        <div class="page-tab-actions">
+            @Actions
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int AgentCount { get; set; }
+    [Parameter] public int TaskCount { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsActive(string path)
+    {
+        var current = Nav.ToBaseRelativePath(Nav.Uri);
+        return current.StartsWith(path.TrimStart('/'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

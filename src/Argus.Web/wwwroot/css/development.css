@@ -2569,6 +2569,7 @@ textarea.dev-input {
   padding: 8px 16px;
   background: var(--line-1);
   border-bottom: 1px solid var(--line-1);
+  flex-shrink: 0;
 }
 
 .ops-stats-bar {
@@ -2579,6 +2580,7 @@ textarea.dev-input {
   background: var(--bg-2);
   border-bottom: 1px solid var(--line-2);
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .ops-stat-item {
@@ -2619,15 +2621,47 @@ textarea.dev-input {
   max-width: 320px;
 }
 
-.ops-layout {
-  display: grid;
-  /* 4 columns: Programs | Assets | Technologies | Activity */
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(200px, 280px) minmax(180px, 220px);
-  grid-template-rows: 1fr;
-  gap: 1px;
+.ops-page {
+  display: flex;
+  flex-direction: column;
   height: calc(100vh - 90px);
+  overflow: hidden;
+}
+
+.ops-layout {
+  /* Vertical stack: Programs (short) on top, Assets filling the remainder, then Technologies,
+     with the Activity feed as a short strip at the bottom. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   background: var(--line-1);
   overflow: hidden;
+}
+
+/* Programs: full-width band, tall enough to show at least ~6 rows. */
+.ops-row-short {
+  flex: 0 0 auto;
+  height: 260px;
+}
+
+/* Assets: the dominant grid — fills remaining space but never collapses below a usable
+   minimum (so it stays a stable size instead of shrinking to a single row). */
+.ops-row-fill {
+  flex: 1 1 auto;
+  min-height: 280px;
+}
+
+/* Technologies: secondary band below the assets grid. */
+.ops-row-tech {
+  flex: 0 0 auto;
+  height: 170px;
+}
+
+/* Activity feed: compact strip at the very bottom. */
+.ops-row-activity {
+  flex: 0 0 auto;
+  height: 80px;
 }
 
 .ops-panel {

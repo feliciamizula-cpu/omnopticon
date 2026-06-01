@@ -13,6 +13,7 @@
 
 <PageTitle>Operations</PageTitle>
 
+<div class="ops-page">
 <div class="ops-toolbar">
     <MudButton Variant="Variant.Filled"
                Color="@(_processingEnabled ? Color.Error : Color.Success)"
@@ -57,7 +58,7 @@
 <div class="ops-layout">
 
     @* ── Programs panel ── *@
-    <MudPaper Class="ops-panel" Elevation="0" Square="true">
+    <MudPaper Class="ops-panel ops-row-short" Elevation="0" Square="true">
         <div class="ops-panel-header">
             <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Programs</MudText>
             <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ops-count-chip">@_programs.Count</MudChip>
@@ -84,7 +85,7 @@
     </MudPaper>
 
     @* ── Assets panel ── *@
-    <MudPaper Class="ops-panel ops-panel-wide" Elevation="0" Square="true">
+    <MudPaper Class="ops-panel ops-panel-wide ops-row-fill" Elevation="0" Square="true">
         <div class="ops-panel-header">
             <div class="ops-assets-header-left">
                 <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Assets</MudText>
@@ -209,7 +210,7 @@
     </MudPaper>
 
     @* ── Technologies panel ── *@
-    <MudPaper Class="ops-panel ops-panel-wide" Elevation="0" Square="true">
+    <MudPaper Class="ops-panel ops-panel-wide ops-row-tech" Elevation="0" Square="true">
         <div class="ops-panel-header">
             <div class="ops-assets-header-left">
                 <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Technologies</MudText>
@@ -235,7 +236,7 @@
     </MudPaper>
 
     @* ── Activity feed ── *@
-    <MudPaper Class="ops-panel ops-panel-narrow" Elevation="0" Square="true">
+    <MudPaper Class="ops-panel ops-row-activity" Elevation="0" Square="true">
         <div class="ops-panel-header">
             <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Activity</MudText>
         </div>
@@ -255,6 +256,7 @@
         </div>
     </MudPaper>
 
+</div>
 </div>
 
 @code {

@@ -59,9 +59,9 @@ internal static class AgentDevelopmentSeedData
         return
         [
             // ── Junior Developer ────────────────────────────────────────────
-            Agent("jrdev-nvidia-m27", "MiniMax M2.7 (NVIDIA)", "junior_developer",
+            Agent("jrdev-opencode-m3-free", "MiniMax M3 Free (OpenCode Zen)", "junior_developer",
                 "Small, well-scoped implementation tasks, tests, and easy bug fixes", 1,
-                "opencode", "nvidia/minimaxai/minimax-m2.7", "NVIDIA",
+                "opencode", "opencode/minimax-m3-free", "OpenCode Zen",
                 ["small bug fixes", "unit tests", "well-scoped implementation"], "low"),
 
             Agent("jrdev-nvidia-gpt-oss-120b", "GPT-OSS 120B (NVIDIA)", "junior_developer",
@@ -110,9 +110,9 @@ internal static class AgentDevelopmentSeedData
                 "codex", "gpt-5.3-codex", "OpenAI",
                 ["backend services", "worker reliability", "tests"], "standard"),
 
-            Agent("dev-nvidia-m27", "MiniMax M2.7 (NVIDIA)", "developer",
+            Agent("dev-opencode-m3-free", "MiniMax M3 Free (OpenCode Zen)", "developer",
                 "Moderate feature work, bug fixes, integration tests, and code review support", 3,
-                "opencode", "nvidia/minimaxai/minimax-m2.7", "NVIDIA",
+                "opencode", "opencode/minimax-m3-free", "OpenCode Zen",
                 ["feature implementation", "bug investigation"], "standard"),
 
             Agent("dev-openrouter-gpt-oss-120b", "GPT-OSS 120B (OpenRouter)", "developer",
@@ -147,9 +147,9 @@ internal static class AgentDevelopmentSeedData
                 "opencode", "nvidia/qwen/qwen3-coder-480b-a35b-instruct", "NVIDIA",
                 ["system design", "architecture review"], "standard"),
 
-            Agent("jrarch-nvidia-m27", "MiniMax M2.7 (NVIDIA)", "junior_system_architect",
+            Agent("jrarch-opencode-m3-free", "MiniMax M3 Free (OpenCode Zen)", "junior_system_architect",
                 "System design support, cross-service architecture review, and technical analysis", 3,
-                "opencode", "nvidia/minimaxai/minimax-m2.7", "NVIDIA",
+                "opencode", "opencode/minimax-m3-free", "OpenCode Zen",
                 ["architecture review", "technical analysis"], "standard"),
 
             // ── Senior System Architect ─────────────────────────────────────

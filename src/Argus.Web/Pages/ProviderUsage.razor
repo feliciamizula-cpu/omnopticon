@@ -14,11 +14,8 @@
 
 <ErrorBoundary>
     <div class="page-body provider-usage-page">
-        <div class="pu-breadcrumb-bar">
-            <h1>Provider-usage</h1>
-            <span>·</span>
-            <p>Usage windows, remaining capacity, and reset tracking</p>
-        </div>
+        <PageHeader Title="Provider Usage" Subtitle="@($"{ActiveProviderCount:N0} active · {CriticalWindowCount:N0} critical · {WarningWindowCount:N0} warning")" />
+        <AgentNavTabs />
 
         <div class="pu-summary-bar">
             <div class="pu-summary-item">
