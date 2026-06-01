@@ -1,0 +1,298 @@
+[
+  {
+    "name": "private_key_block",
+    "scope": "file_contents",
+    "regex": "-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----[\\s\\S]{32,}?-----END (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----",
+    "description": "Detect exposed private keys embedded in HTML, JS, or downloaded source files.",
+    "output_filename": "private_key_block.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "aws_secret_access_key_labeled",
+    "scope": "file_contents",
+    "regex": "(?i)(?:aws_secret_access_key|awsSecretAccessKey)\\s*[:=]\\s*[\"']([A-Za-z0-9/+=]{40})[\"']",
+    "description": "Find AWS Secret Access Keys when clearly labeled in source or config-like content.",
+    "output_filename": "aws_secret_access_key_labeled.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "aws_access_key_id_labeled",
+    "scope": "file_contents",
+    "regex": "(?i)(?:aws_access_key_id|awsAccessKeyId)\\s*[:=]\\s*[\"']((?:AKIA|ASIA)[A-Z0-9]{16})[\"']",
+    "description": "Find labeled AWS Access Key IDs in source or config-like content.",
+    "output_filename": "aws_access_key_id_labeled.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "github_pat_token",
+    "scope": "file_contents",
+    "regex": "\\bgh[pousr]_[A-Za-z0-9]{36,255}\\b",
+    "description": "Detect GitHub personal, fine-grained, app, or refresh tokens with GitHub's token prefixes.",
+    "output_filename": "github_pat_token.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "gitlab_pat_token_labeled",
+    "scope": "file_contents",
+    "regex": "(?i)(?:gitlab(?:_personal)?_access_token|gitlab_token|glpat)\\s*[:=]\\s*[\"'](glpat-[A-Za-z0-9_\\-]{20,255})[\"']",
+    "description": "Detect labeled GitLab personal access tokens.",
+    "output_filename": "gitlab_pat_token_labeled.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "slack_token",
+    "scope": "file_contents",
+    "regex": "\\bxox(?:a|b|p|o|r|s)-[A-Za-z0-9-]{10,200}\\b",
+    "description": "Detect Slack access tokens with canonical prefixes.",
+    "output_filename": "slack_token.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "stripe_live_secret_key",
+    "scope": "file_contents",
+    "regex": "\\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\\b",
+    "description": "Detect live Stripe secret or restricted keys in downloaded content.",
+    "output_filename": "stripe_live_secret_key.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "sendgrid_api_key",
+    "scope": "file_contents",
+    "regex": "\\bSG\\.[A-Za-z0-9_\\-]{20,}\\.[A-Za-z0-9_\\-]{20,}\\b",
+    "description": "Detect SendGrid API keys with the standard three-part format.",
+    "output_filename": "sendgrid_api_key.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "mailgun_api_key_labeled",
+    "scope": "file_contents",
+    "regex": "(?i)(?:mailgun(?:_api)?_key|mailgunKey)\\s*[:=]\\s*[\"'](key-[A-Fa-f0-9]{32})[\"']",
+    "description": "Detect Mailgun API keys when clearly labeled in source or config.",
+    "output_filename": "mailgun_api_key_labeled.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "twilio_sid_and_auth_token_pair",
+    "scope": "file_contents",
+    "regex": "(?is)\\bAC[a-f0-9]{32}\\b[\\s\\S]{0,120}?(?:(?:auth_token|authToken)\\s*[:=]\\s*[\"']([A-Fa-f0-9]{32})[\"'])",
+    "description": "Detect a Twilio Account SID near a labeled 32-hex Auth Token, reducing false positives.",
+    "output_filename": "twilio_sid_and_auth_token_pair.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "jwt_hardcoded_bearer",
+    "scope": "request_response",
+    "regex": "(?i)Authorization\\s*:\\s*Bearer\\s+(eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9._-]{8,}\\.[A-Za-z0-9._-]{8,})",
+    "description": "Extract JWT bearer tokens directly present in HTTP headers.",
+    "output_filename": "jwt_hardcoded_bearer.txt",
+    "importance_score": 7
+  },
+  {
+    "name": "basic_auth_in_url",
+    "scope": "url",
+    "regex": "(?i)https?:\\/\\/[^\\s:@\\/]+:[^\\s@\\/]+@[^\\s\\/]+",
+    "description": "Detect URLs embedding Basic Auth credentials, which are almost always sensitive.",
+    "output_filename": "basic_auth_in_url.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "database_connection_string_with_password",
+    "scope": "file_contents",
+    "regex": "(?i)\\b(?:jdbc:(?:mysql|mariadb|postgresql|sqlserver|oracle|db2):\\/\\/[^\\s\"']+|Server=[^;\\r\\n]+;Database=[^;\\r\\n]+;)[^\\r\\n\"']{0,200}?(?:password|pwd)\\s*=\\s*[^;\\s\"']+",
+    "description": "Detect database connection strings that include a password.",
+    "output_filename": "database_connection_string_with_password.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "mongodb_uri_with_credentials",
+    "scope": "file_contents",
+    "regex": "\\bmongodb(?:\\+srv)?:\\/\\/[^\\s:@\\/]+:[^\\s@\\/]+@[^\\s\"']+",
+    "description": "Detect MongoDB connection URIs containing embedded credentials.",
+    "output_filename": "mongodb_uri_with_credentials.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "redis_uri_with_credentials",
+    "scope": "file_contents",
+    "regex": "\\bredis(?:s)?:\\/\\/:[^\\s@\\/]+@[^\\s\"']+",
+    "description": "Detect Redis URIs containing an embedded password.",
+    "output_filename": "redis_uri_with_credentials.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "smtp_password_config",
+    "scope": "file_contents",
+    "regex": "(?i)(?:mail\\.smtp\\.password|smtp_password|smtpPass|spring\\.mail\\.password)\\s*[:=]\\s*[\"']([^\"'\\r\\n]{6,})[\"']",
+    "description": "Detect clearly labeled SMTP passwords in application configuration or scripts.",
+    "output_filename": "smtp_password_config.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "java_stack_trace",
+    "scope": "request_response",
+    "regex": "(?m)^\\s*at\\s+[a-zA-Z_$][\\w$]*(?:\\.[a-zA-Z_$][\\w$]*)+\\.[a-zA-Z_$][\\w$]*\\([^\\n\\r)]*\\.java:\\d+\\)$",
+    "description": "Detect Java stack trace frames in HTTP responses, often exposing internal code paths and libraries.",
+    "output_filename": "java_stack_trace.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "spring_whitelabel_error",
+    "scope": "request_response",
+    "regex": "(?is)Whitelabel Error Page.*?(?:timestamp|status|error|path)\\s*[:<]",
+    "description": "Detect Spring Boot Whitelabel Error Pages exposing framework and routing details.",
+    "output_filename": "spring_whitelabel_error.txt",
+    "importance_score": 7
+  },
+  {
+    "name": "tomcat_error_report",
+    "scope": "request_response",
+    "regex": "(?is)<title>\\s*(?:Apache Tomcat(?:\\/\\d+(?:\\.\\d+)*)?\\s*-\\s*)?Error report\\s*<\\/title>",
+    "description": "Detect Apache Tomcat error report pages that may reveal server version and internal details.",
+    "output_filename": "tomcat_error_report.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "jboss_wildfly_error_signature",
+    "scope": "request_response",
+    "regex": "(?is)(?:org\\.jboss\\.[\\w.$]+Exception|WFLY[A-Z0-9]{4,}:|JBWEB\\d{6}:)",
+    "description": "Detect JBoss or WildFly-specific error signatures in server responses.",
+    "output_filename": "jboss_wildfly_error_signature.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "jetty_error_page",
+    "scope": "request_response",
+    "regex": "(?is)<title>\\s*Error\\s*(?:\\d{3})?\\s*[^<]*Jetty[^<]*<\\/title>|Powered by Jetty:\\/\\/",
+    "description": "Detect Jetty-generated error pages revealing the application server.",
+    "output_filename": "jetty_error_page.txt",
+    "importance_score": 7
+  },
+  {
+    "name": "php_stack_trace_or_warning",
+    "scope": "request_response",
+    "regex": "(?im)(?:Fatal error|Parse error|Warning):\\s+.*?\\sin\\s+[^\\s]+\\.php\\s+on\\s+line\\s+\\d+",
+    "description": "Detect PHP errors leaking filesystem paths and code context.",
+    "output_filename": "php_stack_trace_or_warning.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "aspnet_detailed_error",
+    "scope": "request_response",
+    "regex": "(?is)(?:Server Error in '\\/' Application\\.|Exception Details:\\s*System\\.[A-Za-z0-9_.]+|<b>Version Information:<\\/b>)",
+    "description": "Detect verbose ASP.NET error pages disclosing stack traces or framework details.",
+    "output_filename": "aspnet_detailed_error.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "python_traceback",
+    "scope": "request_response",
+    "regex": "(?is)Traceback \\(most recent call last\\):[\\s\\S]{20,}?\\n[A-Za-z_][A-Za-z0-9_]*Error:",
+    "description": "Detect Python tracebacks in HTTP responses, often exposing code paths and secrets.",
+    "output_filename": "python_traceback.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "webpack_source_map_reference",
+    "scope": "file_contents",
+    "regex": "(?im)^\\s*\\/\\/[#@]\\s*sourceMappingURL\\s*=\\s*[^\\s]+\\.map\\s*$",
+    "description": "Detect JavaScript source map references that may lead to downloadable original source.",
+    "output_filename": "webpack_source_map_reference.txt",
+    "importance_score": 6
+  },
+  {
+    "name": "exposed_git_head",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:\\.git\\/HEAD|\\.git\\/config|\\.git\\/index|\\.git\\/logs\\/HEAD)(?:$|[?#])",
+    "description": "Detect direct access to highly sensitive Git repository metadata paths.",
+    "output_filename": "exposed_git_head.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "exposed_svn_entries",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:\\.svn\\/entries|\\.svn\\/wc\\.db)(?:$|[?#])",
+    "description": "Detect Subversion metadata files exposed over HTTP.",
+    "output_filename": "exposed_svn_entries.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "env_file_exposure",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:\\.env(?:\\.[A-Za-z0-9_.-]+)?)(?:$|[?#])",
+    "description": "Detect exposed .env files that frequently contain credentials and secrets.",
+    "output_filename": "env_file_exposure.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "java_webinf_sensitive_files",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:WEB-INF\\/(?:web\\.xml|classes\\/|lib\\/)|META-INF\\/)(?:$|[?#])",
+    "description": "Detect Java application internals exposed over HTTP, including deployment descriptors and class or library directories.",
+    "output_filename": "java_webinf_sensitive_files.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "backup_or_archive_source_files",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)[^?#]+\\.(?:bak|old|orig|backup|zip|tar|gz|tgz|7z)(?:$|[?#])",
+    "description": "Detect likely backup or archive files exposed over HTTP that may contain source code or configuration.",
+    "output_filename": "backup_or_archive_source_files.txt",
+    "importance_score": 8
+  },
+  {
+    "name": "database_dump_files",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)[^?#]+\\.(?:sql|sqlite|db)(?:$|[?#])",
+    "description": "Detect directly accessible database dump or database files.",
+    "output_filename": "database_dump_files.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "htaccess_or_htpasswd_exposure",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:\\.htaccess|\\.htpasswd)(?:$|[?#])",
+    "description": "Detect Apache control files exposed over HTTP.",
+    "output_filename": "htaccess_or_htpasswd_exposure.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "docker_or_kubernetes_config",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:docker-compose\\.ya?ml|Dockerfile|\\.kube\\/config|kubeconfig)(?:$|[?#])",
+    "description": "Detect exposed container or Kubernetes configuration files that may contain secrets or infrastructure details.",
+    "output_filename": "docker_or_kubernetes_config.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "wordpress_debug_log",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:wp-content\\/debug\\.log)(?:$|[?#])",
+    "description": "Detect exposed WordPress debug logs, which often contain stack traces, file paths, and credentials.",
+    "output_filename": "wordpress_debug_log.txt",
+    "importance_score": 9
+  },
+  {
+    "name": "composer_or_npm_lockfiles",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)(?:composer\\.(?:json|lock)|package-lock\\.json|yarn\\.lock|pnpm-lock\\.ya?ml)(?:$|[?#])",
+    "description": "Detect exposed dependency manifests and lockfiles that reveal versions and internal package names.",
+    "output_filename": "composer_or_npm_lockfiles.txt",
+    "importance_score": 6
+  },
+  {
+    "name": "android_keystore_or_jks",
+    "scope": "url",
+    "regex": "(?i)(?:^|\\/)[^?#]+\\.(?:jks|keystore|p12|pfx)(?:$|[?#])",
+    "description": "Detect exposed certificate stores or keystore files that may contain signing or TLS material.",
+    "output_filename": "android_keystore_or_jks.txt",
+    "importance_score": 10
+  },
+  {
+    "name": "test_filter",
+    "scope": "url",
+    "regex": ".*api.*",
+    "description": "Detect any url with /api/ in it.",
+    "output_filename": "test_filter.txt",
+    "importance_score": 10
+  }
+]
