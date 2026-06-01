@@ -79,7 +79,7 @@ RUN apt-get update \
         && rm -rf /tmp/subfinder /tmp/subfinder.zip; \
     fi \
     && if [ "$ASSEMBLY_NAME" = "Argus.Workers.Sublist3r" ]; then \
-        pip3 install --no-cache-dir sublist3r 2>/dev/null || pip install --no-cache-dir sublist3r; \
+        pip3 install --no-cache-dir --break-system-packages sublist3r; \
     fi \
     && if [ "$ASSEMBLY_NAME" = "Argus.AgentService" ]; then apt-get install -y --no-install-recommends nodejs npm && npm install -g @openai/codex@0.133.0; fi \
     && rm -rf /var/lib/apt/lists/*
