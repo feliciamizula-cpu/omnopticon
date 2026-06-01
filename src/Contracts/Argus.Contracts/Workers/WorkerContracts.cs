@@ -6,7 +6,11 @@ public sealed record WorkerCapabilityDescriptor(
     IReadOnlyCollection<string> ProducedAssetTypes,
     bool RequiresHttp,
     bool SupportsCheckpoint,
-    int MaxConcurrency);
+    int MaxConcurrency,
+    // Integration-event types this worker consumes. Null = the default recon set
+    // (AssetDiscovered, AssetConfirmed, WorkerProcessRequested). The storage worker overrides this
+    // to ["AssetProduced"] so only it consumes produced-asset events.
+    IReadOnlyCollection<string>? SubscribedEventTypes = null);
 
 public sealed record WorkerRegistrationRequest(
     string WorkerId,

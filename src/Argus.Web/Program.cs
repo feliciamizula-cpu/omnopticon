@@ -27,7 +27,12 @@ builder.Services.AddMudServices();
     builder.Services.AddRazorComponents()
         .AddInteractiveServerComponents();
 
-    builder.Services.AddScoped<WorkersApiClient>();
+    builder.Services.AddHttpClient<WorkersApiClient>(client =>
+    {
+        // Worker endpoints (/workers, /worker-types/*, /worker-scale-commands) live on the realtime
+        // service. Without this, the client inherited the web app's own base URL and 404'd.
+        client.BaseAddress = new Uri(ArgusServiceEndpoints.From(builder.Configuration).Realtime);
+    });
 
 builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(o =>
     o.DetailedErrors = true);

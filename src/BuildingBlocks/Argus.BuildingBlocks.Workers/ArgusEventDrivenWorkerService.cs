@@ -28,6 +28,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
     private readonly ConcurrentDictionary<Guid, Task> _runningTasks = new();
+    private readonly WorkerEventPublisher _eventPublisher;
 
     public ArgusEventDrivenWorkerService(
         IReconWorker worker,
@@ -48,6 +49,8 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         {
             Converters = { new JsonStringEnumConverter() }
         };
+        var exchange = string.IsNullOrWhiteSpace(_options.EventExchangeName) ? "argus.integration.events" : _options.EventExchangeName;
+        _eventPublisher = new WorkerEventPublisher(_options.EventBusConnectionString, exchange, _worker.Capability.WorkerType, _logger);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -56,6 +59,10 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             _worker.Capability.WorkerType, _worker.Capability.MaxConcurrency);
 
         await RegisterWorkerAsync(stoppingToken);
+
+        // Continuous heartbeat for the worker's whole lifetime, so idle workers stay "online".
+        // (Previously heartbeats only fired while a task was processing, so idle workers went stale.)
+        var heartbeatLoop = StartHeartbeatTimerAsync(stoppingToken);
 
         try
         {
@@ -136,6 +143,8 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         catch (OperationCanceledException)
         {
         }
+
+        await _eventPublisher.DisposeAsync();
     }
 
     private async Task FailRemainingTasksWithCheckpointAsync(CancellationToken cancellationToken)
@@ -226,8 +235,9 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             _logger.LogDebug("Task {TaskId} fetched and validated scope snapshot {SnapshotId}", task.TaskId, snapshot.SnapshotId);
         }
 
+        // Scoped CTS for this task's progress/rate-limit/backpressure callbacks. Heartbeats are now
+        // driven by the worker-lifetime loop in ExecuteAsync, so no per-task heartbeat is started here.
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var heartbeatTask = StartHeartbeatTimerAsync(heartbeatCts.Token);
 
         var context = new WorkerExecutionContext(
             _options.WorkerId,
@@ -249,16 +259,29 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
                 await Task.Delay(result.RetryAfter.Value, heartbeatCts.Token);
             }
 
+            // Single-writer model: recon workers do NOT write to asset-service. They emit AssetProduced
+            // for each in-scope asset; the storage worker is the sole consumer and the sole writer.
             foreach (var asset in result.ProducedAssets)
             {
                 if (await IsProducedAssetInScopeAsync(task, asset, heartbeatCts.Token))
                 {
-                    var createdAsset = await PublishAssetAsync(task, asset, heartbeatCts.Token);
-                    if (createdAsset is not null)
-                    {
-                        await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
-                        _metrics.RecordAssetProduced(task.ProgramId, _worker.Capability.WorkerType, asset.AssetType);
-                    }
+                    await _eventPublisher.PublishAsync(
+                        new AssetProduced(
+                            task.ProgramId,
+                            task.ScopeId,
+                            task.InputAssetId,
+                            asset.AssetType,
+                            asset.Value,
+                            asset.Subtype,
+                            asset.Confidence,
+                            asset.Metadata,
+                            asset.Tags,
+                            _worker.Capability.WorkerType,
+                            task.TaskId.ToString()),
+                        nameof(AssetProduced),
+                        heartbeatCts.Token);
+
+                    _metrics.RecordAssetProduced(task.ProgramId, _worker.Capability.WorkerType, asset.AssetType);
                 }
             }
 
@@ -279,7 +302,6 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         {
             _taskCheckpoints.TryRemove(task.TaskId, out _);
             heartbeatCts.Cancel();
-            await heartbeatTask;
             notification.CompletionCts.Cancel();
         }
     }

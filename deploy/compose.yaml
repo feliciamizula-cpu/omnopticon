@@ -361,6 +361,27 @@ services:
         PROJECT_PATH: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
         ASSEMBLY_NAME: Argus.Workers.AssetScoring
 
+  asset-storage-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj
+        ASSEMBLY_NAME: Argus.Workers.AssetStorage
+
+  http-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj
+        ASSEMBLY_NAME: Argus.Workers.Http
+
 volumes:
   postgres-data:
   redis-data:

@@ -42,7 +42,8 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> _processedAssets = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<Guid> _processedOrder = new();
 
-    private static readonly string[] SubscribedEventTypes = ["AssetDiscovered", "AssetConfirmed", "WorkerProcessRequested"];
+    private static readonly string[] DefaultEventTypes = ["AssetDiscovered", "AssetConfirmed", "WorkerProcessRequested"];
+    private readonly string[] _subscribedEventTypes;
 
     public AssetEventWorkerConsumerService(
         TaskNotificationChannel channel,
@@ -57,6 +58,11 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
         _exchangeName = string.IsNullOrWhiteSpace(_options.EventExchangeName)
             ? "argus.integration.events"
             : _options.EventExchangeName;
+        // A worker may declare exactly which integration-event types it consumes (e.g. the storage
+        // worker => ["AssetProduced"]); otherwise it gets the default recon lifecycle set.
+        _subscribedEventTypes = _capability.SubscribedEventTypes is { Count: > 0 } declared
+            ? declared.ToArray()
+            : DefaultEventTypes;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -78,7 +84,7 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
             await _rabbitChannel.ExchangeDeclareAsync(_exchangeName, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
             // One durable queue per worker-type + event-type. Bound by routing key == event type.
-            foreach (var eventType in SubscribedEventTypes)
+            foreach (var eventType in _subscribedEventTypes)
             {
                 var queueName = $"worker.{_capability.WorkerType}.{eventType}";
                 await _rabbitChannel.QueueDeclareAsync(queueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: stoppingToken);
@@ -100,7 +106,7 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
                 }
             };
 
-            foreach (var eventType in SubscribedEventTypes)
+            foreach (var eventType in _subscribedEventTypes)
             {
                 var queueName = $"worker.{_capability.WorkerType}.{eventType}";
                 await _rabbitChannel.BasicConsumeAsync(queue: queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
@@ -140,6 +146,28 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
         // PascalCase-on-the-wire payload binds correctly regardless of casing.
         var envelope = JsonSerializer.Deserialize<IntegrationEventEnvelope<JsonElement>>(json, _jsonOptions);
         if (envelope is null) return;
+
+        // AssetProduced is consumed only by the storage worker (the sole writer). Hand it the full
+        // payload so it can persist + relate; no asset-type filter or per-asset dedup applies here
+        // (idempotency comes from asset-service's keyed upsert).
+        if (string.Equals(eventType, nameof(Argus.Contracts.Events.AssetProduced), StringComparison.OrdinalIgnoreCase))
+        {
+            var produced = envelope.Payload.Deserialize<AssetProduced>(_jsonOptions);
+            if (produced is null || string.IsNullOrEmpty(produced.AssetType) || string.IsNullOrEmpty(produced.Value))
+                return;
+
+            var storeTask = BuildTask(
+                programId: produced.ProgramId,
+                scopeId: produced.ScopeId,
+                inputAssetId: produced.InputAssetId,
+                assetType: produced.AssetType,
+                payloadJson: JsonSerializer.Serialize(produced, _jsonOptions));
+
+            await _channel.PublishAsync(new TaskNotification(storeTask, CancellationTokenSource.CreateLinkedTokenSource(ct)), ct);
+            _logger.LogInformation("Worker {WorkerType}: accepted AssetProduced {AssetType} ({Value}) from {Source}",
+                _capability.WorkerType, produced.AssetType, produced.Value, produced.SourceWorkerType);
+            return;
+        }
 
         Guid assetId, programId;
         string assetType, value;
@@ -193,12 +221,20 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
             programId
         });
 
-        var task = new ReconTaskDto(
+        var task = BuildTask(programId, null, assetId, assetType, payloadJson);
+        await _channel.PublishAsync(new TaskNotification(task, CancellationTokenSource.CreateLinkedTokenSource(ct)), ct);
+
+        _logger.LogInformation("Worker {WorkerType}: accepted {EventType} for {AssetType} asset {AssetId} ({Value})",
+            _capability.WorkerType, eventType, assetType, assetId, value);
+    }
+
+    private ReconTaskDto BuildTask(Guid programId, Guid? scopeId, Guid? inputAssetId, string assetType, string payloadJson) =>
+        new(
             TaskId: Guid.NewGuid(),
             TaskType: _capability.WorkerType,
             ProgramId: programId,
-            ScopeId: null,
-            InputAssetId: assetId,
+            ScopeId: scopeId,
+            InputAssetId: inputAssetId,
             InputPayloadJson: payloadJson,
             WorkerCapability: _capability.WorkerType,
             RequiredAssetType: assetType,
@@ -218,13 +254,6 @@ internal sealed class AssetEventWorkerConsumerService : BackgroundService, IAsyn
             DedupeHash: null,
             ScopeSnapshotJson: null,
             Priority: WorkerPriority.Normal);
-
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        await _channel.PublishAsync(new TaskNotification(task, cts), ct);
-
-        _logger.LogInformation("Worker {WorkerType}: accepted {EventType} for {AssetType} asset {AssetId} ({Value})",
-            _capability.WorkerType, eventType, assetType, assetId, value);
-    }
 
     public async ValueTask DisposeAsync()
     {

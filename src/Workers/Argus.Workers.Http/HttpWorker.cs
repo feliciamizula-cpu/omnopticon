@@ -1,177 +1,136 @@
-using Argus.Contracts.Assets;
-using Argus.Contracts.Events;
-using Argus.Contracts.Workers;
-using Argus.BuildingBlocks.RateLimiting;
-using Argus.BuildingBlocks.WorkerDistribution;
-using Microsoft.Extensions.Logging;
-using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using Argus.BuildingBlocks.Workers;
+using Argus.Contracts.Tasks;
+using Argus.Contracts.Workers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Argus.Workers.Http;
 
-public sealed class HttpWorker : IEphemeralWorker
+/// <summary>
+/// Fetches a host/URL over HTTP(S), confirms reachability, and produces Url + HttpResponse assets.
+/// Runs on the recon worker framework: consumes asset events, emits AssetProduced (host persists via
+/// the storage worker), and confirms its input asset.
+/// </summary>
+public sealed class HttpWorker : IReconWorker
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly TokenBucketRateLimiter _rateLimiter;
-    private readonly RoundRobinWorkerDistributor _distributor;
+    private readonly Uri _assetServiceBaseAddress;
     private readonly ILogger<HttpWorker> _logger;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public HttpWorker(
         IHttpClientFactory httpClientFactory,
-        TokenBucketRateLimiter rateLimiter,
-        RoundRobinWorkerDistributor distributor,
+        IOptions<ArgusWorkerOptions> options,
         ILogger<HttpWorker> logger)
     {
         _httpClientFactory = httpClientFactory;
-        _rateLimiter = rateLimiter;
-        _distributor = distributor;
+        _assetServiceBaseAddress = options.Value.AssetServiceBaseAddress;
         _logger = logger;
     }
 
-    public EphemeralWorkerDescriptor Descriptor { get; } = new(
+    public WorkerCapabilityDescriptor Capability { get; } = new(
         WorkerType: "HttpWorker",
-        SubscribedEvents: ["AssetDiscovered", "AssetCreated"],
         SubscribedAssetTypes: ["Subdomain", "Ip", "Url"],
         ProducedAssetTypes: ["Url", "HttpResponse"],
         RequiresHttp: true,
-        IsSystemWorker: true);
+        SupportsCheckpoint: false,
+        MaxConcurrency: 20);
 
-    public async Task<EphemeralWorkerResult> ProcessAsync(
-        EphemeralWorkerContext context,
+    public async Task<WorkerProcessResult> ProcessAsync(
+        ReconTaskDto task,
+        WorkerExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var asset = context.Asset;
-        var host = ExtractHost(asset);
-
+        var value = WorkerHelpers.GetString(task.InputPayloadJson, "value")
+                    ?? WorkerHelpers.GetString(task.InputPayloadJson, "url");
+        var host = ExtractHost(value, task.RequiredAssetType);
         if (string.IsNullOrEmpty(host))
-        {
-            return new EphemeralWorkerResult(
-                Success: false,
-                ProducedAssets: [],
-                PublishedEvents: [],
-                Error: "Could not extract host from asset");
-        }
+            return WorkerProcessResult.Empty("Could not extract host.");
 
-        var workerId = _distributor.GetNextWorker(host, Descriptor.WorkerType);
-        _logger.LogInformation("HttpWorker {WorkerId} processing {AssetType}:{Value}", workerId, asset.Type, asset.Value);
-
-        var bucketKey = $"http:{host.ToLowerInvariant()}";
-        var allowed = await _rateLimiter.TryConsumeAsync(bucketKey);
-
+        // Rate-limit per host/registered-domain via the shared rate-limit service.
+        var allowed = await context.RequestRateLimitTokenAsync(new RateLimitRequest(
+            task.ProgramId, task.ScopeId, host, WorkerHelpers.GetRegisteredDomain(host), null, Capability.WorkerType));
         if (!allowed)
-        {
-            _logger.LogDebug("HttpWorker {WorkerId} rate limited for {Host}", workerId, host);
-            return new EphemeralWorkerResult(
-                Success: false,
-                ProducedAssets: [],
-                PublishedEvents: [],
-                Error: $"Rate limited for {host}");
-        }
+            return new WorkerProcessResult(true, JsonSerializer.Serialize(new { host, delayed = true }), []);
 
-        var producedAssets = new List<WorkerProducedAsset>();
-        var publishedEvents = new List<PublishedEvent>();
+        var produced = new List<WorkerProducedAsset>();
+        var confirmed = false;
 
-        var schemes = new[] { "https", "http" };
-        bool confirmed = false;
-
-        foreach (var scheme in schemes)
+        foreach (var scheme in new[] { "https", "http" })
         {
             var probeUrl = $"{scheme}://{host}/";
-
             try
             {
+                await context.ReportProgressAsync(40, $"Requesting {probeUrl}", null);
                 var client = _httpClientFactory.CreateClient("http-worker");
                 client.Timeout = TimeSpan.FromSeconds(15);
-
                 using var request = new HttpRequestMessage(HttpMethod.Get, probeUrl);
-                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; ServiceHealthCheck/1.0)");
+                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; ArgusHttp/1.0)");
 
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-                var statusCode = (int)response.StatusCode;
+                var status = (int)response.StatusCode;
                 var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
 
-                var urlAsset = new WorkerProducedAsset(
+                produced.Add(new WorkerProducedAsset(
                     AssetType: "Url",
                     Value: probeUrl,
-                    Subtype: null,
                     Metadata: new Dictionary<string, string>
                     {
-                        ["http.status_code"] = statusCode.ToString(),
+                        ["http.status_code"] = status.ToString(),
                         ["http.content_type"] = contentType,
                         ["url.scheme"] = scheme,
                         ["confirmed"] = "true"
                     },
-                    Tags: ["http", "alive", scheme]);
+                    Tags: ["http", "alive", scheme]));
 
-                producedAssets.Add(urlAsset);
-
-                var responseAsset = new WorkerProducedAsset(
+                produced.Add(new WorkerProducedAsset(
                     AssetType: "HttpResponse",
-                    Value: $"{probeUrl} {statusCode} {contentType}",
+                    Value: $"{probeUrl} {status} {contentType}",
                     Subtype: contentType,
                     Metadata: new Dictionary<string, string>
                     {
-                        ["status_code"] = statusCode.ToString(),
+                        ["status_code"] = status.ToString(),
                         ["content_type"] = contentType,
                         ["content_length"] = (response.Content.Headers.ContentLength ?? 0).ToString(),
                         ["response.scheme"] = scheme
                     },
-                    Tags: ["response", scheme]);
-
-                producedAssets.Add(responseAsset);
-
-                var confirmedEvent = new AssetConfirmed(
-                    AssetId: asset.AssetId,
-                    ProgramId: asset.ProgramId,
-                    AssetType: asset.Type.ToString(),
-                    Value: asset.Value,
-                    ConfirmedByTaskId: null);
-
-                publishedEvents.Add(new PublishedEvent(
-                    EventType: nameof(AssetConfirmed),
-                    Payload: confirmedEvent));
+                    Tags: ["response", scheme]));
 
                 confirmed = true;
-                _logger.LogInformation("HttpWorker {WorkerId} confirmed {Host} via {Scheme}", workerId, host, scheme);
+                _logger.LogInformation("HttpWorker confirmed {Host} via {Scheme} ({Status})", host, scheme, status);
 
-                if (scheme == "https" && statusCode < 400)
-                {
-                    break;
-                }
+                if (scheme == "https" && status < 400) break;
             }
-            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "HttpWorker {WorkerId} failed to probe {Scheme}://{Host}", workerId, scheme, host);
+                _logger.LogDebug(ex, "HttpWorker failed to probe {Scheme}://{Host}", scheme, host);
             }
         }
 
-        if (!confirmed)
+        // Confirm the input asset is reachable so downstream (confirmed) workers proceed.
+        if (confirmed && task.InputAssetId is { } inputId && inputId != Guid.Empty)
         {
-            return new EphemeralWorkerResult(
-                Success: false,
-                ProducedAssets: producedAssets,
-                PublishedEvents: publishedEvents,
-                Error: $"Could not confirm {host} via HTTP/HTTPS");
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                client.BaseAddress = _assetServiceBaseAddress;
+                using var resp = await client.PostAsJsonAsync($"/assets/{inputId}/confirm", new { }, JsonOptions, cancellationToken);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "HttpWorker confirm failed for {AssetId}", inputId); }
         }
 
-        return new EphemeralWorkerResult(
-            Success: true,
-            ProducedAssets: producedAssets,
-            PublishedEvents: publishedEvents);
+        await context.ReportProgressAsync(100, confirmed ? $"Confirmed {host}" : $"Unreachable {host}", null);
+        return new WorkerProcessResult(!confirmed, JsonSerializer.Serialize(new { host, confirmed, produced = produced.Count }), produced);
     }
 
-    private static string? ExtractHost(AssetDto asset)
+    private static string? ExtractHost(string? value, string? assetType)
     {
-        return asset.Type switch
-        {
-            AssetType.Subdomain or AssetType.Domain => asset.Value,
-            AssetType.Ip => asset.Value,
-            AssetType.Url => Uri.TryCreate(asset.Value, UriKind.Absolute, out var uri) ? uri.Host : null,
-            _ => null
-        };
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (string.Equals(assetType, "Url", StringComparison.OrdinalIgnoreCase) || value.Contains("://"))
+            return Uri.TryCreate(value, UriKind.Absolute, out var uri) ? uri.Host : null;
+        return value; // Subdomain / Ip / Domain are already hosts
     }
 }
