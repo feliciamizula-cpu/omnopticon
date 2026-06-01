@@ -41,7 +41,7 @@ internal sealed class Sublist3rWorker : IReconWorker
             return WorkerProcessResult.Empty(JsonSerializer.Serialize(new { error = "Invalid domain in input payload", domain }));
         }
 
-        var sublist3rPath = Environment.GetEnvironmentVariable("SUBLIST3R_PATH") ?? "sublist3r.py";
+        var sublist3rPath = Environment.GetEnvironmentVariable("SUBLIST3R_PATH") ?? "sublist3r";
         var timeoutMinutes = int.TryParse(Environment.GetEnvironmentVariable("SUBLIST3R_TIMEOUT_MINUTES"), out var parsedTimeout)
             ? parsedTimeout
             : (int)DefaultTimeout.TotalMinutes;
