@@ -188,6 +188,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadProgramsAsync();
+        await LoadAssetActionsAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -218,12 +219,91 @@
 
     private async Task OnRealtimeChangedAsync(DevelopmentDataChangedEvent evt)
     {
-        if (!AssetRefreshAreas.Contains(evt.Area)) return;
+        if (evt.Area != "assets") return;
+
+        if (evt.Delta is not null)
+        {
+            await ApplyAssetDeltaAsync(evt.Delta);
+        }
+        else if (evt.Reason.Equals("changed", StringComparison.OrdinalIgnoreCase))
+        {
+            await ThrottleReloadAsync();
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ApplyAssetDeltaAsync(AssetDelta delta)
+    {
+        // Only reflect deltas for the program currently in view (or when viewing all assets).
+        if (!_showingAllAssets && _selectedProgram is not null
+            && delta.ProgramId != Guid.Empty && delta.ProgramId != _selectedProgram.ProgramId)
+            return;
+
+        var existing = _assets.FirstOrDefault(a => a.AssetId == delta.AssetId);
+
+        switch (delta.Action.ToLowerInvariant())
+        {
+            case "created":
+            case "discovered":
+            case "confirmed":
+                if (existing is null)
+                {
+                    var newAsset = new AssetItem(
+                        delta.AssetId,
+                        delta.Type,
+                        delta.Value,
+                        "Active",
+                        delta.RiskScore,
+                        delta.FirstSeenAt,
+                        delta.LastSeenAt);
+                    _assets.Insert(0, newAsset);
+                    AddLog($"New asset: {delta.Value}");
+                }
+                break;
+
+            case "updated":
+                if (existing is not null)
+                {
+                    var index = _assets.IndexOf(existing);
+                    var updated = existing with
+                    {
+                        Type = string.IsNullOrEmpty(delta.Type) ? existing.Type : delta.Type,
+                        Value = string.IsNullOrEmpty(delta.Value) ? existing.Value : delta.Value,
+                        RiskScore = delta.RiskScore ?? existing.RiskScore,
+                        FirstSeenAt = delta.FirstSeenAt ?? existing.FirstSeenAt,
+                        LastSeenAt = delta.LastSeenAt ?? existing.LastSeenAt
+                    };
+                    _assets[index] = updated;
+                }
+                break;
+
+            case "archived":
+            case "deleted":
+                if (existing is not null)
+                {
+                    _assets.Remove(existing);
+                    AddLog($"Asset removed: {existing.Value}");
+                }
+                break;
+        }
+    }
+
+    private DateTime _lastReloadAt = DateTime.MinValue;
+    private static readonly TimeSpan ReloadCooldown = TimeSpan.FromSeconds(2);
+
+    private async Task ThrottleReloadAsync()
+    {
+        if (DateTime.UtcNow - _lastReloadAt < ReloadCooldown)
+        {
+            return;
+        }
+
+        _lastReloadAt = DateTime.UtcNow;
+
         if (_selectedProgram is not null && !_showingAllAssets)
             await LoadAssetsAsync();
         else
             await LoadAllAssetsAsync();
-        await InvokeAsync(StateHasChanged);
     }
 
     // ── Context menu builders ─────────────────────────────────────────────────────
@@ -248,16 +328,54 @@
             new("Send to Request Tool", () => OpenRequestTool(a.AssetId)),
             new ArgusMenuItem { IsSeparator = true },
         };
-        if (t.Contains("domain"))
+        // Data-driven, per-asset-type actions loaded from asset-service (configurable, stored in Postgres).
+        var actions = _assetActions
+            .Where(x => string.Equals(x.AssetType, a.Type, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.SortOrder)
+            .ToList();
+        if (actions.Count > 0)
         {
-            items.Add(new("Enumerate Subdomains", () => RunAssetActionAsync("enum-sub", a)));
-        }
-        if (t.Contains("domain") || t.Contains("subdomain") || t.Contains("url"))
-        {
-            items.Add(new("Spider (HTML)",     () => RunAssetActionAsync("spider",    a)));
-            items.Add(new("Spider (Headless)", () => RunAssetActionAsync("spider-hl", a)));
+            items.Add(new ArgusMenuItem { IsSeparator = true });
+            foreach (var act in actions)
+                items.Add(new(act.Label, () => EnqueueActionAsync(a, act.TaskType, act.WorkerCapability, act.Label)));
         }
         return items;
+    }
+
+    sealed record AssetActionItem(string AssetType, string Label, string TaskType, string WorkerCapability, int SortOrder);
+    List<AssetActionItem> _assetActions = new();
+
+    async Task LoadAssetActionsAsync()
+    {
+        try
+        {
+            _assetActions = await Http.GetFromJsonAsync<List<AssetActionItem>>("/ui/asset-type-actions") ?? new();
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Failed to load asset actions: {ex.Message}", error: true);
+        }
+    }
+
+    async Task EnqueueActionAsync(AssetItem asset, string taskType, string workerCapability, string label)
+    {
+        if (_selectedProgram?.ProgramId is not { } programId) return;
+        var payload = new JsonObject
+        {
+            ["assetIds"]         = new JsonArray(JsonValue.Create(asset.AssetId)),
+            ["taskType"]         = taskType,
+            ["workerCapability"] = workerCapability,
+            ["programId"]        = programId,
+        };
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/ui/assets/bulk/enqueue", payload);
+            AddLog(resp.IsSuccessStatusCode ? $"Queued: {label}" : $"Enqueue failed ({(int)resp.StatusCode})", error: !resp.IsSuccessStatusCode);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Enqueue error: {ex.Message}", error: true);
+        }
     }
 
     // ── Data loading ─────────────────────────────────────────────────────────────

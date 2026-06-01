@@ -15,16 +15,6 @@
 <PageHeader Title="Workers"
             Subtitle="Monitor worker health, current load, and scaling targets." />
 
-<div class="worker-summary-grid">
-    <DevStat Label="Worker Types" Value="@(_summary?.WorkerTypes.ToString() ?? "—")" />
-    <DevStat Label="Online Workers" Value="@(_summary?.OnlineWorkers.ToString() ?? "—")" />
-    <DevStat Label="Desired Replicas" Value="@(_summary?.DesiredReplicas.ToString() ?? "—")" />
-    <DevStat Label="Running Tasks" Value="@(_summary?.RunningTasks.ToString() ?? "—")" />
-    <DevStat Label="Full Saturation" Value="@(_summary?.SaturatedWorkerTypes.ToString() ?? "—")" />
-    <DevStat Label="Stale Workers" Value="@(_summary?.StaleWorkerTypes.ToString() ?? "—")" />
-    <DevStat Label="Paused" Value="@(_summary?.PausedWorkerTypes.ToString() ?? "—")" />
-</div>
-
 <div class="argus-toolbar">
     <MudTextField @bind-Value="_filter" Placeholder="Filter workers..." Variant="Variant.Outlined" Clearable="true" />
 
