@@ -176,7 +176,10 @@ app.MapDelete("/ui/programs/{programId:guid}/scopes/{scopeId:guid}", async (
 
 app.MapGet("/ui/ops/assets", async (
     Guid? programId,
-    int? take,
+    string? type,
+    string? status,
+    string? search,
+    string? tag,
     IHttpClientFactory httpClientFactory,
     ILoggerFactory loggerFactory,
     CancellationToken cancellationToken) =>
@@ -184,16 +187,46 @@ app.MapGet("/ui/ops/assets", async (
     var logger = loggerFactory.CreateLogger("Argus.Web.OpsAssets");
     var gateway = new ArgusUiGateway(httpClientFactory, logger);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
-    var pageSize = Math.Clamp(take ?? 500, 1, 1000);
-    var path = $"/assets?pageSize={pageSize}";
-    if (programId.HasValue) path += $"&programId={programId}";
 
     // Use the throwing variant so a downstream failure surfaces as a real 502 the grid can show,
     // instead of a fabricated empty result that silently masks an asset-service outage.
     try
     {
-        var result = await gateway.GetJsonOrThrowAsync(endpoints.Asset, path, cancellationToken);
-        return Results.Json(result ?? new JsonObject { ["items"] = new JsonArray(), ["totalCount"] = 0 });
+        var items = new JsonArray();
+        var page = 1;
+        const int pageSize = 500;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var path = AssetProxyHelpers.BuildAssetsPath(page, pageSize, programId, type, status, search, tag);
+            var result = await gateway.GetJsonOrThrowAsync(endpoints.Asset, path, cancellationToken);
+            var pageItems = AssetProxyHelpers.ExtractItems(result);
+
+            if (pageItems.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var item in pageItems)
+            {
+                items.Add(item?.DeepClone());
+            }
+
+            if (pageItems.Count < pageSize)
+            {
+                break;
+            }
+
+            page++;
+        }
+
+        return Results.Json(new JsonObject
+        {
+            ["items"] = items,
+            ["page"] = 1,
+            ["pageSize"] = items.Count,
+            ["totalCount"] = items.Count
+        });
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
@@ -646,6 +679,49 @@ app.MapPost("/ui/asset-change", async (JsonObject payload, DevelopmentRealtimeNo
     await notifier.NotifyAssetDeltaAsync(delta, ct);
     logger.LogDebug("Asset delta broadcast: {Action} {AssetId}", action, assetId);
     return Results.Ok();
+});
+
+app.MapPost("/ui/processing/toggle", async (JsonObject payload, IHttpClientFactory hcf, IConfiguration configuration, ILogger<Program> logger, CancellationToken ct) =>
+{
+    var enabled = payload["enabled"]?.GetValue<bool>() ?? true;
+    var endpoints = ArgusServiceEndpoints.From(configuration);
+    var client = hcf.CreateClient();
+    client.BaseAddress = new Uri(endpoints.Realtime);
+
+    try
+    {
+        var endpoint = enabled ? "/worker-types/pause-all" : "/worker-types/resume-all";
+        using var resp = await client.PostAsync(endpoint, null, ct);
+        if (resp.IsSuccessStatusCode)
+        {
+            logger.LogInformation("Processing {State} via RealtimeService", enabled ? "paused" : "resumed");
+            return Results.Ok(new { enabled });
+        }
+        logger.LogWarning("Failed to toggle processing: {Status}", resp.StatusCode);
+        return Results.StatusCode((int)resp.StatusCode);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error toggling processing");
+        return Results.Problem(ex.Message);
+    }
+});
+
+app.MapGet("/ui/processing/state", async (IHttpClientFactory hcf, IConfiguration configuration, ILogger<Program> logger, CancellationToken ct) =>
+{
+    try
+    {
+        var endpoints = ArgusServiceEndpoints.From(configuration);
+        var client = hcf.CreateClient();
+        client.BaseAddress = new Uri(endpoints.Realtime);
+        using var resp = await client.GetAsync("/worker-types/processing-state", ct);
+        if (resp.IsSuccessStatusCode)
+        {
+            return Results.Ok(await resp.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct));
+        }
+    }
+    catch { }
+    return Results.Ok(new { paused = false });
 });
 
 app.MapStaticAssets();
@@ -1533,6 +1609,68 @@ internal static class DevelopmentEnvironmentApi
 
     private static string StartupScript() =>
         "#!/usr/bin/env bash\nset -euo pipefail\napt-get update\napt-get install -y git docker.io docker-compose-plugin\nsystemctl enable --now docker\nmkdir -p /opt/argus\n";
+}
+
+internal static class AssetProxyHelpers
+{
+    public static string BuildAssetsPath(
+        int page,
+        int pageSize,
+        Guid? programId,
+        string? type,
+        string? status,
+        string? search,
+        string? tag)
+    {
+        var query = new List<string>
+        {
+            $"page={page}",
+            $"pageSize={pageSize}"
+        };
+
+        if (programId.HasValue) query.Add($"programId={programId.Value}");
+        AddQuery(query, "type", type);
+        AddQuery(query, "status", status);
+        AddQuery(query, "search", search);
+        AddQuery(query, "tag", tag);
+
+        return "/assets?" + string.Join('&', query);
+    }
+
+    private static void AddQuery(List<string> query, string name, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            query.Add($"{name}={WebUtility.UrlEncode(value)}");
+        }
+    }
+
+    public static JsonArray ExtractItems(JsonNode? result)
+    {
+        if (result is JsonArray array)
+        {
+            return array;
+        }
+
+        if (result is JsonObject obj && obj["items"] is JsonArray items)
+        {
+            return items;
+        }
+
+        return [];
+    }
+
+    public static int? ReadInt(JsonNode? node)
+    {
+        try
+        {
+            return node?.GetValue<int>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 internal sealed record DevelopmentEnvironmentSettings(

@@ -13,6 +13,47 @@
 
 <PageTitle>Operations</PageTitle>
 
+<div class="ops-toolbar">
+    <MudButton Variant="Variant.Filled"
+               Color="@(_processingEnabled ? Color.Error : Color.Success)"
+               Size="Size.Medium"
+               OnClick="ToggleProcessing"
+               aria-label="@(_processingEnabled ? "Stop Processing" : "Start Processing")">
+        <MudIcon Icon="@(_processingEnabled ? Icons.Material.Filled.Stop : Icons.Material.Filled.PlayArrow)" Class="mr-2" />
+        @(_processingEnabled ? "Stop" : "Start")
+    </MudButton>
+    @if (_processingToggling)
+    {
+        <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="ml-2" />
+    }
+</div>
+
+@* ── Stats summary bar ── *@
+<div class="ops-stats-bar">
+    <div class="ops-stat-item">
+        <span class="ops-stat-label">Total Assets:</span>
+        <span class="ops-stat-value">@_assetTotalCount?.ToString("N0") ?? "—"</span>
+    </div>
+    <div class="ops-stat-divider"></div>
+    <div class="ops-stat-item">
+        <span class="ops-stat-label">Technologies:</span>
+        <span class="ops-stat-value">@_technologies.Count</span>
+    </div>
+    <div class="ops-stat-divider"></div>
+    <div class="ops-stat-item">
+        <span class="ops-stat-label">Programs:</span>
+        <span class="ops-stat-value">@_programs.Count</span>
+    </div>
+    @if (_topAssetTypes.Any())
+    {
+        <div class="ops-stat-divider"></div>
+        <div class="ops-stat-item">
+            <span class="ops-stat-label">Top Types:</span>
+            <span class="ops-stat-value">@string.Join(", ", _topAssetTypes.Select(kv => $"{kv.Key} ({kv.Value})"))</span>
+        </div>
+    }
+</div>
+
 <div class="ops-layout">
 
     @* ── Programs panel ── *@
@@ -47,7 +88,7 @@
         <div class="ops-panel-header">
             <div class="ops-assets-header-left">
                 <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Assets</MudText>
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ops-count-chip">@_assets.Count</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ops-count-chip">@AssetCountLabel</MudChip>
                 @if (_realtimeConnected)
                 {
                     <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled" Class="ops-live-chip">LIVE</MudChip>
@@ -78,8 +119,31 @@
         {
             <MudAlert Severity="Severity.Error" Dense="true" Class="ma-2">@_assetError</MudAlert>
         }
+
+        @* Search toolbar for assets *@
+        <div class="ops-search-bar">
+            <MudTextField @bind-Value="_assetSearchText"
+                          Placeholder="Search assets..."
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          DebounceInterval="300"
+                          Class="ops-search-input" />
+            <MudTooltip Text="Use regex">
+                <MudSwitch @bind-Value="_assetSearchRegex"
+                           Color="Color.Primary"
+                           Label="Regex" />
+            </MudTooltip>
+            @if (_assetSearchText.Length > 0)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2 align-self-center">
+                    @FilteredAssets.Count().ToString("N0") of @_assets.Count.ToString("N0")
+                </MudText>
+            }
+        </div>
+
         <ArgusGrid TItem="AssetItem"
-                   Items="_assets"
+                   Items="@FilteredAssets"
                    SelectedItem="_selectedAsset"
                    OnRowClick="SelectAsset"
                    ContextMenuItems="GetAssetMenuItems"
@@ -88,8 +152,8 @@
                    Height="100%"
                    Loading="_loadingAssets"
                    EmptyMessage="@(_showingAllAssets ? "No assets found" : "Select a program to view assets")">
-            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Type"   Title="Type" />
-<TemplateColumn T="AssetItem" Title="Value" Sortable="true">
+<PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Type" Title="Type" Sortable="true" />
+            <TemplateColumn T="AssetItem" Title="Value" Sortable="true">
                 <CellTemplate>
                     @{
                         var value = context.Item.Value;
@@ -104,14 +168,33 @@
                     }
                 </CellTemplate>
             </TemplateColumn>
-            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Status" Title="Status" />
+            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Status" Title="Status" Sortable="true" />
             <TemplateColumn T="AssetItem" Title="Risk" Sortable="true">
                 <CellTemplate>@(context.Item.RiskScore?.ToString("F1") ?? "—")</CellTemplate>
             </TemplateColumn>
-            <TemplateColumn T="AssetItem" Title="First Seen">
+            <TemplateColumn T="AssetItem" Title="Size" Sortable="true">
+                <CellTemplate>
+                    @{
+                        var size = context.Item.SizeBytes;
+                        <span>@(size.HasValue ? FormatBytes(size.Value) : "—")</span>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="AssetItem" Title="Response" Sortable="true">
+                <CellTemplate>
+                    @{
+                        var ms = context.Item.ResponseTimeMs;
+                        <span>@(ms.HasValue ? $"{ms.Value}ms" : "—")</span>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="AssetItem" Title="Notes">
+                <CellTemplate>@(context.Item.Notes ?? "—")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="AssetItem" Title="First Seen" Sortable="true">
                 <CellTemplate>@FmtAgo(context.Item.FirstSeenAt)</CellTemplate>
             </TemplateColumn>
-            <TemplateColumn T="AssetItem" Title="Last Seen">
+            <TemplateColumn T="AssetItem" Title="Last Seen" Sortable="true">
                 <CellTemplate>@FmtAgo(context.Item.LastSeenAt)</CellTemplate>
             </TemplateColumn>
             <TemplateColumn T="AssetItem" Title="" Style="width: 50px;">
@@ -179,7 +262,9 @@
 
     sealed record ProgramItem(Guid ProgramId, string Name, string Domain, string Source, DateTimeOffset CreatedAt);
     sealed record AssetItem(Guid AssetId, string Type, string Value, string Status,
-        double? RiskScore, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt);
+        double? RiskScore, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt,
+        long? SizeBytes, int? ResponseTimeMs, string? Notes);
+    sealed record AssetResponse(List<JsonElement> Items, int TotalCount);
     sealed record TechnologyItem(Guid AssetId, string Name, string Category, string Target,
         double Confidence, DateTimeOffset DiscoveredAt);
     sealed record LogEntry(string Message, bool IsError, DateTimeOffset When = default)
@@ -198,13 +283,15 @@
     static readonly HashSet<string> AssetRefreshAreas =
         new(StringComparer.OrdinalIgnoreCase) { "assets", "agent-tasks", "tasks" };
 
-    // ── State ────────────────────────────────────────────────────────────────────
+    // ── State ───────────────────────────────────────────────────────────────────
 
     List<ProgramItem> _programs     = [];
     List<AssetItem>   _assets       = [];
     List<TechnologyItem> _technologies = [];
     List<LogEntry>    _log          = [];
     HashSet<Guid>     _flashingIds  = [];
+
+    Dictionary<string, int> _topAssetTypes = [];
 
     ProgramItem? _selectedProgram;
     AssetItem?   _selectedAsset;
@@ -214,6 +301,51 @@
     bool         _loadingTechnologies;
     bool         _showingAllAssets;
     string?      _assetError;
+    int?         _assetTotalCount;
+
+    bool         _processingEnabled = true;
+    bool         _processingToggling;
+
+    string AssetCountLabel => (_assetTotalCount ?? _assets.Count).ToString("N0");
+
+    string _assetSearchText = "";
+    bool   _assetSearchRegex;
+
+    IEnumerable<AssetItem> FilteredAssets
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_assetSearchText))
+                return _assets;
+
+            try
+            {
+                if (_assetSearchRegex)
+                {
+                    var regex = new System.Text.RegularExpressions.Regex(
+                        _assetSearchText,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+                        TimeSpan.FromMilliseconds(500));
+                    return _assets.Where(a =>
+                        regex.IsMatch(a.Value) ||
+                        regex.IsMatch(a.Type) ||
+                        (a.Notes is not null && regex.IsMatch(a.Notes)));
+                }
+                else
+                {
+                    var searchLower = _assetSearchText.ToLowerInvariant();
+                    return _assets.Where(a =>
+                        a.Value.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ||
+                        a.Type.Contains(searchLower, StringComparison.OrdinalIgnoreCase) ||
+                        (a.Notes is not null && a.Notes.Contains(searchLower, StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+            catch (System.Text.RegularExpressions.RegexParseException)
+            {
+                return _assets;
+            }
+        }
+    }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -221,6 +353,21 @@
     {
         await LoadProgramsAsync();
         await LoadAssetActionsAsync();
+        await LoadProcessingStateAsync();
+    }
+
+    async Task LoadProcessingStateAsync()
+    {
+        try
+        {
+            using var resp = await Http.GetAsync("/ui/processing/state");
+            if (resp.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                _processingEnabled = doc.RootElement.TryGetProperty("enabled", out var e) && e.GetBoolean();
+            }
+        }
+        catch { }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -295,8 +442,12 @@
                         "Active",
                         delta.RiskScore,
                         delta.FirstSeenAt,
-                        delta.LastSeenAt);
+                        delta.LastSeenAt,
+                        null,
+                        null,
+                        null);
                     _assets.Insert(0, newAsset);
+                    _assetTotalCount = (_assetTotalCount ?? _assets.Count - 1) + 1;
                     AddLog($"New asset: {delta.Value}");
                 }
                 break;
@@ -322,6 +473,7 @@
                 if (existing is not null)
                 {
                     _assets.Remove(existing);
+                    _assetTotalCount = Math.Max(0, (_assetTotalCount ?? _assets.Count + 1) - 1);
                     AddLog($"Asset removed: {existing.Value}");
                 }
                 break;
@@ -420,6 +572,36 @@
         }
     }
 
+    async Task ToggleProcessing()
+    {
+        _processingToggling = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var newState = !_processingEnabled;
+            using var resp = await Http.PostAsJsonAsync("/ui/processing/toggle", new { enabled = newState });
+            if (resp.IsSuccessStatusCode)
+            {
+                _processingEnabled = newState;
+                AddLog(newState ? "Processing started" : "Processing stopped");
+            }
+            else
+            {
+                AddLog($"Failed to toggle processing: {resp.StatusCode}", error: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Error toggling processing: {ex.Message}", error: true);
+        }
+        finally
+        {
+            _processingToggling = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     // ── Data loading ─────────────────────────────────────────────────────────────
 
     async Task LoadProgramsAsync()
@@ -479,25 +661,25 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            using var resp = await Http.GetAsync("/ui/ops/assets?take=500");
+            using var resp = await Http.GetAsync("/ui/ops/assets");
             if (!resp.IsSuccessStatusCode)
             {
                 _assetError = $"Asset service unavailable ({(int)resp.StatusCode}). Retry shortly.";
                 AddLog(_assetError, error: true);
                 return;
             }
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            var root = doc.RootElement;
-            var arr = root.ValueKind == JsonValueKind.Array
-                ? root.EnumerateArray().ToList()
-                : root.TryGetProperty("items", out var items)
-                    ? items.EnumerateArray().ToList()
-                    : [];
-
             var prev = _assets.Select(a => a.AssetId).ToHashSet();
-            _assets = arr.Select(ParseAsset)
+            var response = await ReadAssetResponseAsync(resp);
+            _assets = response.Items.Select(ParseAsset)
                 .Where(a => a is not null && !string.Equals(a!.Status, "Archived", StringComparison.OrdinalIgnoreCase))
                 .Cast<AssetItem>().ToList();
+            _assetTotalCount = response.TotalCount;
+
+            _topAssetTypes = _assets
+                .GroupBy(a => a.Type)
+                .OrderByDescending(g => g.Count())
+                .Take(5)
+                .ToDictionary(g => g.Key, g => g.Count());
 
             var newIds = _assets.Select(a => a.AssetId).ToHashSet();
             newIds.ExceptWith(prev);
@@ -533,25 +715,19 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            using var resp = await Http.GetAsync($"/ui/ops/assets?programId={programId}&take=500");
+            using var resp = await Http.GetAsync($"/ui/ops/assets?programId={programId}");
             if (!resp.IsSuccessStatusCode)
             {
                 _assetError = $"Asset service unavailable ({(int)resp.StatusCode}). Retry shortly.";
                 AddLog(_assetError, error: true);
                 return;
             }
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            var root = doc.RootElement;
-            var arr = root.ValueKind == JsonValueKind.Array
-                ? root.EnumerateArray().ToList()
-                : root.TryGetProperty("items", out var items)
-                    ? items.EnumerateArray().ToList()
-                    : [];
-
             var prev = _assets.Select(a => a.AssetId).ToHashSet();
-            _assets = arr.Select(ParseAsset)
+            var response = await ReadAssetResponseAsync(resp);
+            _assets = response.Items.Select(ParseAsset)
                 .Where(a => a is not null && !string.Equals(a!.Status, "Archived", StringComparison.OrdinalIgnoreCase))
                 .Cast<AssetItem>().ToList();
+            _assetTotalCount = _assets.Count;
 
             var newIds = _assets.Select(a => a.AssetId).ToHashSet();
             newIds.ExceptWith(prev);
@@ -588,7 +764,29 @@
             Status:      e.TryGetProperty("status",      out var s)  ? s.GetString()  ?? "" : "",
             RiskScore:   e.TryGetProperty("riskScore",   out var rs) && rs.ValueKind != JsonValueKind.Null ? rs.GetDouble() : null,
             FirstSeenAt: e.TryGetProperty("firstSeenAt", out var fs) && fs.ValueKind != JsonValueKind.Null ? fs.GetDateTimeOffset() : null,
-            LastSeenAt:  e.TryGetProperty("lastSeenAt",  out var ls) && ls.ValueKind != JsonValueKind.Null ? ls.GetDateTimeOffset() : null);
+            LastSeenAt:  e.TryGetProperty("lastSeenAt",  out var ls) && ls.ValueKind != JsonValueKind.Null ? ls.GetDateTimeOffset() : null,
+            SizeBytes:   e.TryGetProperty("sizeBytes",   out var sb) && sb.ValueKind != JsonValueKind.Null ? sb.GetInt64() : null,
+            ResponseTimeMs: e.TryGetProperty("responseTimeMs", out var rt) && rt.ValueKind != JsonValueKind.Null ? rt.GetInt32() : null,
+            Notes:       e.TryGetProperty("notes",       out var n)  ? n.GetString()  ?? "" : "");
+    }
+
+    async Task<AssetResponse> ReadAssetResponseAsync(HttpResponseMessage response)
+    {
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        var items = root.ValueKind == JsonValueKind.Array
+            ? root.EnumerateArray().ToList()
+            : root.TryGetProperty("items", out var itemArray)
+                ? itemArray.EnumerateArray().ToList()
+                : [];
+
+        var totalCount = root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("totalCount", out var total)
+            && total.ValueKind == JsonValueKind.Number
+            ? total.GetInt32()
+            : items.Count;
+
+        return new AssetResponse(items, totalCount);
     }
 
     static TechnologyItem? ParseTechnology(JsonElement e)
@@ -612,7 +810,7 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            using var resp = await Http.GetAsync("/ui/ops/assets?type=Technology&take=500");
+            using var resp = await Http.GetAsync("/ui/ops/assets?type=Technology");
             if (!resp.IsSuccessStatusCode)
             {
                 AddLog($"Technology load failed: {(int)resp.StatusCode}", error: true);
@@ -650,6 +848,7 @@
     {
         _selectedProgram = p;
         _assets.Clear();
+        _assetTotalCount = null;
         await LoadAssetsAsync();
     }
 
@@ -661,6 +860,7 @@
     {
         _selectedProgram = null;
         _assets.Clear();
+        _assetTotalCount = null;
         _ = LoadAllAssetsAsync();
     }
 
@@ -855,5 +1055,15 @@
         if (ago.TotalHours   < 1) return $"{(int)ago.TotalMinutes}m ago";
         if (ago.TotalDays    < 1) return $"{(int)ago.TotalHours}h ago";
         return $"{(int)ago.TotalDays}d ago";
+    }
+
+    static string FormatBytes(long bytes)
+    {
+        string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
+        int i;
+        double dblBytes = bytes;
+        for (i = 0; i < suffixes.Length - 1 && dblBytes >= 1024; i++)
+            dblBytes /= 1024;
+        return $"{dblBytes:F1} {suffixes[i]}";
     }
 }

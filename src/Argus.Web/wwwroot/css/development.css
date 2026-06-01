@@ -2562,6 +2562,63 @@ textarea.dev-input {
 }
 
 /* ── Operations page ──────────────────────────────────────────── */
+.ops-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--line-1);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.ops-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-2);
+  flex-wrap: wrap;
+}
+
+.ops-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.ops-stat-label {
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ops-stat-value {
+  color: var(--fg-1);
+  font-weight: 600;
+}
+
+.ops-stat-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--line-2);
+}
+
+.ops-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-2);
+}
+
+.ops-search-input {
+  max-width: 320px;
+}
+
 .ops-layout {
   display: grid;
   /* 4 columns: Programs | Assets | Technologies | Activity */
@@ -2578,6 +2635,9 @@ textarea.dev-input {
   flex-direction: column !important;
   overflow: hidden !important;
   border-radius: 0 !important;
+  border: 1px solid var(--line-2) !important;
+  margin: 4px !important;
+  background: var(--bg-1) !important;
 }
 
 .ops-panel-wide {
@@ -2591,6 +2651,20 @@ textarea.dev-input {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  margin: 8px;
+}
+
+/* Hide horizontal scrollbar, always show vertical */
+.ops-panel .argus-grid-wrap .mud-datagrid-table-container {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+/* Prevent scrolling past last row in virtualized grids */
+.ops-panel .argus-grid-wrap .mud-datagrid-table-container::-webkit-scrollbar {
+  thumb: {
+    background: var(--line-3) !important;
+  }
 }
 
 .asset-link {

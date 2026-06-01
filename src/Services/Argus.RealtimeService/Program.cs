@@ -430,6 +430,79 @@ app.MapPost("/worker-types/{workerType}/resume",
         return Results.Ok(result);
     });
 
+var _processingPaused = false;
+app.MapGet("/worker-types/processing-state", () => Results.Ok(new { paused = _processingPaused }));
+
+app.MapPost("/worker-types/pause-all", async (
+    IWorkerTypeCatalog catalog,
+    IWorkerScaleSettingsService settings,
+    IWorkerScaleCommandService commands,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    _processingPaused = true;
+    var results = new List<object>();
+    foreach (var workerType in catalog.GetAll())
+    {
+        try
+        {
+            var current = await settings.GetOrCreateAsync(workerType.WorkerType, ct);
+            if (current.MinReplicas > 0) continue;
+
+            await settings.UpdateAsync(workerType.WorkerType, new UpdateWorkerScaleSettingsRequest(
+                DesiredReplicas: 0,
+                MinReplicas: current.MinReplicas,
+                MaxReplicas: current.MaxReplicas,
+                IsPaused: true,
+                DeploymentName: current.DeploymentName,
+                Namespace: current.Namespace), http.User?.Identity?.Name, ct);
+
+            var result = await commands.ScaleAsync(workerType.WorkerType, 0, "PauseAll", null, http.User?.Identity?.Name, ct);
+            results.Add(new { workerType = workerType.WorkerType, success = true, result });
+        }
+        catch (Exception ex)
+        {
+            results.Add(new { workerType = workerType.WorkerType, success = false, error = ex.Message });
+        }
+    }
+    return Results.Ok(results);
+});
+
+app.MapPost("/worker-types/resume-all", async (
+    IWorkerTypeCatalog catalog,
+    IWorkerScaleSettingsService settings,
+    IWorkerScaleCommandService commands,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    _processingPaused = false;
+    var results = new List<object>();
+    foreach (var workerType in catalog.GetAll())
+    {
+        try
+        {
+            var current = await settings.GetOrCreateAsync(workerType.WorkerType, ct);
+            var target = current.DesiredReplicas <= 0 ? Math.Max(1, current.MinReplicas > 0 ? current.MinReplicas : 1) : current.DesiredReplicas;
+
+            await settings.UpdateAsync(workerType.WorkerType, new UpdateWorkerScaleSettingsRequest(
+                DesiredReplicas: target,
+                MinReplicas: current.MinReplicas,
+                MaxReplicas: current.MaxReplicas,
+                IsPaused: false,
+                DeploymentName: current.DeploymentName,
+                Namespace: current.Namespace), http.User?.Identity?.Name, ct);
+
+            var result = await commands.ScaleAsync(workerType.WorkerType, target, "ResumeAll", null, http.User?.Identity?.Name, ct);
+            results.Add(new { workerType = workerType.WorkerType, success = true, result });
+        }
+        catch (Exception ex)
+        {
+            results.Add(new { workerType = workerType.WorkerType, success = false, error = ex.Message });
+        }
+    }
+    return Results.Ok(results);
+});
+
 app.MapGet("/worker-scale-commands", 
     async (int? take, IWorkerScaleCommandService service, CancellationToken ct) =>
         Results.Ok(await service.GetRecentCommandsAsync(Math.Clamp(take ?? 100, 1, 500), ct)));
