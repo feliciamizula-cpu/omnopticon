@@ -14,7 +14,7 @@ namespace Argus.RequestToolService.Services;
 
 public interface IHttpReplayExecutor
 {
-    Task<HttpExchangeDetailDto> ExecuteAsync(Guid sessionId, Guid programId, SendHttpRequestToolRequest request, CancellationToken ct);
+    Task<HttpExchangeDetailDto> ExecuteAsync(Guid sessionId, Guid programId, SendHttpRequestToolRequest request, CancellationToken ct, RequestToolExchangeOrigin? originOverride = null);
 }
 
 public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
@@ -59,18 +59,18 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
         _logger = logger;
     }
 
-    public async Task<HttpExchangeDetailDto> ExecuteAsync(Guid sessionId, Guid programId, SendHttpRequestToolRequest request, CancellationToken ct)
+    public async Task<HttpExchangeDetailDto> ExecuteAsync(Guid sessionId, Guid programId, SendHttpRequestToolRequest request, CancellationToken ct, RequestToolExchangeOrigin? originOverride = null)
     {
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
             (uri.Scheme != "http" && uri.Scheme != "https"))
         {
-            return await CreateExchangeAsync(sessionId, programId, request, "Only absolute HTTP and HTTPS URLs are supported", ct);
+            return await CreateExchangeAsync(sessionId, programId, request, "Only absolute HTTP and HTTPS URLs are supported", ct, originOverride);
         }
 
         var ssrfCheck = CheckSsrf(uri);
         if (!ssrfCheck.IsAllowed)
         {
-            return await CreateExchangeAsync(sessionId, programId, request, ssrfCheck.Reason!, ct);
+            return await CreateExchangeAsync(sessionId, programId, request, ssrfCheck.Reason!, ct, originOverride);
         }
 
         var scopeStatus = RequestToolScopeStatus.Unknown;
@@ -80,7 +80,7 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
 
         if (!rateLimitResult.IsAllowed)
         {
-            var rateLimitedExchange = await CreateExchangeAsync(sessionId, programId, request, null, ct);
+            var rateLimitedExchange = await CreateExchangeAsync(sessionId, programId, request, null, ct, originOverride);
             await _auditService.AuditAsync(new InsertAuditCommand(
                 rateLimitedExchange.ExchangeId, sessionId, null, programId, null,
                 "RequestRateLimited", uri.ToString(), request.Method, scopeStatus.ToString(),
@@ -94,7 +94,7 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
 
         try
         {
-            var result = await SendHttpRequestAsync(uri, request, ct);
+            var result = await SendHttpRequestAsync(uri, sessionId, programId, request, originOverride, ct);
             stopwatch.Stop();
 
             await _auditService.AuditAsync(new InsertAuditCommand(
@@ -109,7 +109,7 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
             stopwatch.Stop();
             _logger.LogError(ex, "Request failed for {Url}", uri);
 
-            var failedExchange = await CreateExchangeAsync(sessionId, programId, request, ex.Message, ct);
+            var failedExchange = await CreateExchangeAsync(sessionId, programId, request, ex.Message, ct, originOverride);
 
             await _auditService.AuditAsync(new InsertAuditCommand(
                 failedExchange.ExchangeId, sessionId, null, programId, null,
@@ -125,7 +125,8 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
         Guid programId,
         SendHttpRequestToolRequest request,
         string? errorMessage,
-        CancellationToken ct)
+        CancellationToken ct,
+        RequestToolExchangeOrigin? originOverride = null)
     {
         var parsedUri = Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ? uri : null;
 
@@ -138,7 +139,7 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
             AssetId: Guid.Empty,
             ProgramId: programId,
             ParentExchangeId: request.ParentExchangeId,
-            Origin: request.ParentExchangeId.HasValue ? RequestToolExchangeOrigin.UserReplay : RequestToolExchangeOrigin.Synthetic,
+            Origin: originOverride ?? (request.ParentExchangeId.HasValue ? RequestToolExchangeOrigin.UserReplay : RequestToolExchangeOrigin.Synthetic),
             Outcome: outcome,
             TabTitle: request.TabTitle ?? $"{request.Method} {parsedUri?.Host ?? "Request"}",
             RequestMethod: request.Method,
@@ -184,7 +185,10 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
 
     private async Task<HttpExchangeDetailDto> SendHttpRequestAsync(
         Uri uri,
+        Guid sessionId,
+        Guid programId,
         SendHttpRequestToolRequest request,
+        RequestToolExchangeOrigin? originOverride,
         CancellationToken ct)
     {
         var client = _httpClientFactory.CreateClient("request-tool-replay");
@@ -253,7 +257,28 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
             responseBodySha256 = ComputeSha256(bodyBytes);
         }
 
-        var exchange = await CreateExchangeAsync(Guid.Empty, Guid.Empty, request, null, ct);
+        var exchange = await CreateExchangeAsync(sessionId, programId, request, null, ct, originOverride);
+
+        // Persist the captured response onto the inserted row, otherwise it only lives on the returned DTO
+        // and is lost when the session is reloaded from the DB (the original/sent response would show blank).
+        var completedAt = DateTimeOffset.UtcNow;
+        await _repository.UpdateExchangeAsync(new UpdateExchangeCommand(
+            ExchangeId: exchange.ExchangeId,
+            Outcome: RequestToolExchangeOutcome.Completed,
+            ResponseStatusCode: (int)response.StatusCode,
+            ResponseReasonPhrase: response.ReasonPhrase,
+            ResponseHeaders: responseHeaders,
+            ResponseCookies: responseCookies,
+            ResponseBody: responseBody,
+            ResponseBodyArtifactId: responseBodyArtifactId,
+            ResponseBodySha256: responseBodySha256,
+            ResponseBodySizeBytes: responseBodySizeBytes,
+            ResponseContentType: responseContentType,
+            DurationMs: 0,
+            RedirectChain: [],
+            TlsInfoJson: null,
+            NetworkError: null,
+            CompletedAt: completedAt), ct);
 
         return exchange with
         {
@@ -269,7 +294,7 @@ public sealed partial class HttpReplayExecutor : IHttpReplayExecutor
             ResponseBodySizeBytes = responseBodySizeBytes,
             ResponseContentType = responseContentType,
             DurationMs = 0,
-            CompletedAt = DateTimeOffset.UtcNow
+            CompletedAt = completedAt
         };
     }
 

@@ -296,8 +296,12 @@
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<HttpExchangeDetailDto>();
-                _response = result;
+                // Reload so the new exchange shows up as its own tab, then focus that tab.
                 await LoadSession();
+                if (result is not null)
+                {
+                    await SelectExchange(result.ExchangeId);
+                }
             }
         }
         catch { }
