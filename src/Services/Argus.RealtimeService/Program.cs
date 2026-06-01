@@ -104,7 +104,12 @@ await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var webhookDbContext = scope.ServiceProvider.GetRequiredService<WebhookDbContext>();
-    await webhookDbContext.Database.EnsureCreatedAsync();
+    // On the shared Postgres argusdb, EnsureCreatedAsync no-ops (db already exists), so this context's
+    // tables (WebhookConfigs, ...) never get created. Use the schema initializer that targets a context.
+    if (webhookDbContext.Database.IsNpgsql())
+        await webhookDbContext.EnsureRelationalSchemaCreatedAsync();
+    else
+        await webhookDbContext.Database.EnsureCreatedAsync();
 }
 
 var store = app.Services.GetRequiredService<RealtimeStore>();

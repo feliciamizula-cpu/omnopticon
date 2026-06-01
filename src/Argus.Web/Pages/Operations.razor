@@ -7,6 +7,7 @@
 @inject HttpClient Http
 @inject ILogger<Operations> Logger
 @inject IDialogService DialogService
+@inject NavigationManager Navigation
 @inject DevelopmentRealtimeClient Realtime
 @implements IAsyncDisposable
 
@@ -84,10 +85,25 @@
                    ContextMenuItems="GetAssetMenuItems"
                    RowClassFunc="@((a, _) => RowClassFn(a))"
                    Virtualize="true"
+                   Height="calc(100vh - 200px)"
                    Loading="_loadingAssets"
                    EmptyMessage="@(_showingAllAssets ? "No assets found" : "Select a program to view assets")">
             <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Type"   Title="Type" />
-            <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Value"  Title="Value" />
+<TemplateColumn T="AssetItem" Title="Value" Sortable="true">
+                <CellTemplate>
+                    @{
+                        var value = context.Item.Value;
+                        if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+                        {
+                            <a href="@uri.AbsoluteUri" target="_blank" class="asset-link" @onclick:stopPropagation>@value</a>
+                        }
+                        else
+                        {
+                            @value
+                        }
+                    }
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Status" Title="Status" />
             <TemplateColumn T="AssetItem" Title="Risk" Sortable="true">
                 <CellTemplate>@(context.Item.RiskScore?.ToString("F1") ?? "—")</CellTemplate>
@@ -97,6 +113,14 @@
             </TemplateColumn>
             <TemplateColumn T="AssetItem" Title="Last Seen">
                 <CellTemplate>@FmtAgo(context.Item.LastSeenAt)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="AssetItem" Title="" Style="width: 50px;">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                   Size="Size.Small"
+                                   aria-label="View Request/Response"
+                                   OnClick="@(() => _ = OpenRequestTool(context.Item.AssetId))" />
+                </CellTemplate>
             </TemplateColumn>
         </ArgusGrid>
     </MudPaper>
@@ -220,6 +244,8 @@
         {
             new("Edit Asset", () => EditAssetAsync(a)),
             new("Delete Asset", () => DeleteAssetAsync(a)),
+            new ArgusMenuItem { IsSeparator = true },
+            new("Send to Request Tool", () => OpenRequestTool(a.AssetId)),
             new ArgusMenuItem { IsSeparator = true },
         };
         if (t.Contains("domain"))
@@ -479,16 +505,18 @@
 
     // ── Asset actions ─────────────────────────────────────────────────────────────
 
+    async Task OpenRequestTool(Guid assetId)
+    {
+        Navigation.NavigateTo($"/request-tool/{assetId}");
+        await Task.CompletedTask;
+    }
+
     async Task DeleteAssetAsync(AssetItem a)
     {
         try
         {
-            var body = new JsonObject
-            {
-                ["assetIds"] = new JsonArray(JsonValue.Create(a.AssetId)),
-                ["action"]   = "archive"
-            };
-            using var resp = await Http.PostAsJsonAsync("/ui/assets/bulk", body);
+            var request = new { assetIds = new[] { a.AssetId }, action = "archive" };
+            using var resp = await Http.PostAsJsonAsync("/ui/assets/bulk", request);
             if (resp.IsSuccessStatusCode)
             {
                 _assets.RemoveAll(x => x.AssetId == a.AssetId);
@@ -497,7 +525,8 @@
             }
             else
             {
-                AddLog($"Failed to archive asset ({(int)resp.StatusCode})", error: true);
+                var errorBody = await resp.Content.ReadAsStringAsync();
+                AddLog($"Failed to archive asset ({(int)resp.StatusCode}): {errorBody}", error: true);
             }
         }
         catch (Exception ex)
