@@ -46,6 +46,14 @@ internal sealed class HtmlDomSpiderWorker : IReconWorker
     {
         var url = WorkerHelpers.GetString(task.InputPayloadJson, "url") ??
                   WorkerHelpers.GetString(task.InputPayloadJson, "htmlUrl");
+        // A bare host (Domain/Subdomain asset, e.g. "att.com") isn't an absolute URL. Normalize it to
+        // https://host/ so domains/subdomains can be spidered directly, not just full Url assets.
+        if (!string.IsNullOrWhiteSpace(url) &&
+            !url.Contains("://", StringComparison.Ordinal) &&
+            !Uri.TryCreate(url, UriKind.Absolute, out _))
+        {
+            url = $"https://{url.TrimEnd('/')}/";
+        }
         var artifactKey = WorkerHelpers.GetString(task.InputPayloadJson, "artifactKey");
         var depth = WorkerHelpers.GetInt(task.InputPayloadJson, "depth") ?? 0;
 

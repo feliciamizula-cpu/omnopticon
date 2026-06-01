@@ -63,7 +63,28 @@ public sealed class RabbitMqConsumerService<TDbContext> : BackgroundService, IAs
             await _channel.ExchangeDeclareAsync(DeadLetterExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: stoppingToken);
             await _channel.ExchangeDeclareAsync(RetryExchange, ExchangeType.Direct, durable: true, autoDelete: false, cancellationToken: stoppingToken);
 
-            var eventTypes = EventTypeToTypes.Keys.ToArray();
+            // Subscribe ONLY to event types this service actually has a registered handler for.
+            // Binding queues for every event type (incl. ones with no handler, e.g. rate-limit
+            // notifications) fans every such event out to every service, where it is fetched, inbox-
+            // checked against the DB, then discarded — wasteful at best, and under load it triggers
+            // failure -> retry -> dead-letter-to-main-exchange -> re-fan-out amplification.
+            string[] eventTypes;
+            using (var probeScope = _scopeFactory.CreateScope())
+            {
+                eventTypes = EventTypeToTypes
+                    .Where(kv => probeScope.ServiceProvider.GetService(kv.Value.handlerType) is not null)
+                    .Select(kv => kv.Key)
+                    .ToArray();
+            }
+
+            if (eventTypes.Length == 0)
+            {
+                _logger.LogInformation("Consumer {ConsumerName} has no registered event handlers; not binding any queues.", _consumerName);
+                return;
+            }
+
+            _logger.LogInformation("Consumer {ConsumerName} subscribing to {Count} handled event type(s): [{Types}]",
+                _consumerName, eventTypes.Length, string.Join(", ", eventTypes));
 
             foreach (var eventType in eventTypes)
             {

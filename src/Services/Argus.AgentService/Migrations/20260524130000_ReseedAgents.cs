@@ -10,6 +10,8 @@ namespace Argus.AgentService.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("DELETE FROM \"AgentSchedules\";");
+            migrationBuilder.Sql("DELETE FROM \"Todos\";");
             migrationBuilder.Sql("DELETE FROM \"Agents\";");
         }
 

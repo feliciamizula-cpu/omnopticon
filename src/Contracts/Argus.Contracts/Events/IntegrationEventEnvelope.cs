@@ -45,6 +45,22 @@ public sealed record FindingCandidateCreated(Guid AssetId, Guid ProgramId, strin
 public sealed record AssetConfirmed(Guid AssetId, Guid ProgramId, string AssetType, string Value, Guid? ConfirmedByTaskId);
 public sealed record AssetUpdated(Guid AssetId, Guid ProgramId, string AssetType, string Value);
 public sealed record AssetRelationshipDiscovered(Guid FromAssetId, Guid ToAssetId, string EdgeType);
+// Manual re-trigger: ask a specific worker type to (re)process an existing asset. Fully event-driven, no tasks.
+public sealed record WorkerProcessRequested(Guid AssetId, Guid ProgramId, string AssetType, string Value, string TargetWorkerType);
+// A recon worker found an asset but did NOT persist it. The storage worker is the sole consumer and
+// sole writer to asset-service; it persists and then asset-service emits AssetDiscovered as usual.
+public sealed record AssetProduced(
+    Guid ProgramId,
+    Guid? ScopeId,
+    Guid? InputAssetId,
+    string AssetType,
+    string Value,
+    string? Subtype,
+    decimal? Confidence,
+    IReadOnlyDictionary<string, string>? Metadata,
+    IReadOnlyCollection<string>? Tags,
+    string SourceWorkerType,
+    string SourceTaskId);
 public sealed record TaskRequested(Guid TaskId, string TaskType, Guid ProgramId, Guid? InputAssetId);
 public sealed record TaskLeased(Guid TaskId, string WorkerId, DateTimeOffset LeaseExpiresAt);
 public sealed record TaskStarted(Guid TaskId, string WorkerId, DateTimeOffset StartedAt);

@@ -310,10 +310,12 @@ public sealed class InMemoryAssetStore : IAssetStore
         return Task.FromResult(updated);
     }
 
-    public Task<AssetDto> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken)
+    public Task<AssetVerificationResult> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken)
     {
         if (!_assets.TryGetValue(assetId, out var asset))
             throw new InvalidOperationException("Asset not found.");
+
+        var changed = asset.VerificationStatus != status;
 
         var updated = asset with
         {
@@ -325,7 +327,7 @@ public sealed class InMemoryAssetStore : IAssetStore
             LastScannedAt = status == VerificationStatus.Verified ? DateTimeOffset.UtcNow : asset.LastScannedAt
         };
         _assets[assetId] = updated;
-        return Task.FromResult(updated);
+        return Task.FromResult(new AssetVerificationResult(updated, changed));
     }
 
     public Task<AssetDto> MarkLastScannedAsync(Guid assetId, CancellationToken cancellationToken)

@@ -1461,6 +1461,256 @@ textarea.dev-input {
   }
 }
 
+.agent-dashboard-page .agent-dashboard-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  background: var(--bg-0);
+}
+
+.agent-dashboard-page .agent-dashboard-main,
+.agent-dashboard-page .agent-dashboard-side {
+  min-height: 0;
+  overflow: auto;
+}
+
+.agent-dashboard-page .agent-dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.agent-dashboard-page .agent-dashboard-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-left: 1px solid var(--line-1);
+  background: var(--bg-1);
+}
+
+.agent-dashboard-page .ad-panel {
+  min-width: 0;
+  border: 1px solid var(--line-1);
+  background: var(--bg-1);
+}
+
+.agent-dashboard-page .ad-panel-head {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-1);
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+}
+
+.agent-dashboard-page .ad-panel-head .mono-label {
+  margin-bottom: 2px;
+}
+
+.agent-dashboard-page .ad-panel-title {
+  color: var(--fg-0);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-dashboard-page .ad-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1px;
+  background: var(--line-1);
+}
+
+.agent-dashboard-page .ad-agent-card {
+  min-width: 0;
+  padding: 10px;
+  background: var(--bg-1);
+  border-left: 2px solid var(--line-2);
+  cursor: pointer;
+}
+
+.agent-dashboard-page .ad-agent-card:hover {
+  background: var(--bg-2);
+}
+
+.agent-dashboard-page .ad-agent-card.selected {
+  background: var(--bg-3);
+  border-left-color: var(--accent);
+}
+
+.agent-dashboard-page .ad-card-actions {
+  padding: 8px 0 0;
+}
+
+.agent-dashboard-page .ad-bottom-grid {
+  min-height: 330px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+  gap: 10px;
+}
+
+.agent-dashboard-page .ad-table-wrap {
+  max-height: 390px;
+}
+
+.agent-dashboard-page .ad-task-title {
+  overflow: hidden;
+  color: var(--fg-0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-dashboard-page .ad-task-id {
+  margin-top: 2px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.agent-dashboard-page .ad-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.agent-dashboard-page .ad-run-table {
+  table-layout: fixed;
+}
+
+.agent-dashboard-page .ad-run-table td,
+.agent-dashboard-page .ad-run-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-dashboard-page .ad-compact-empty {
+  min-height: 120px;
+}
+
+.agent-dashboard-page .ad-task-composer,
+.agent-dashboard-page .ad-config-panel {
+  flex-shrink: 0;
+}
+
+.agent-dashboard-page .ad-form-stack {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.agent-dashboard-page .ad-inline-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.agent-dashboard-page .ad-cap-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  max-height: 118px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line-1);
+  background: var(--bg-0);
+}
+
+.agent-dashboard-page .ad-file-input {
+  padding-top: 4px;
+}
+
+.agent-dashboard-page .ad-file-list {
+  margin-top: 6px;
+  border: 1px solid var(--line-1);
+  background: var(--bg-0);
+}
+
+.agent-dashboard-page .ad-file-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line-0);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.agent-dashboard-page .ad-file-row:last-child {
+  border-bottom: 0;
+}
+
+.agent-dashboard-page .ad-side-actions {
+  padding: 0;
+}
+
+.agent-dashboard-page .ad-config-list {
+  max-height: 180px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.agent-dashboard-page .ad-config-row {
+  width: 100%;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line-0);
+  background: transparent;
+  color: var(--fg-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-dashboard-page .ad-config-row:hover,
+.agent-dashboard-page .ad-config-row.active {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+.agent-dashboard-page .ad-config-row .name,
+.agent-dashboard-page .ad-config-row .meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-dashboard-page .ad-config-row .name {
+  font-size: 11px;
+}
+
+.agent-dashboard-page .ad-config-row .meta {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
+.agent-dashboard-page .ad-config-form {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+@media (max-width: 1280px) {
+  .agent-dashboard-page .agent-dashboard-layout,
+  .agent-dashboard-page .ad-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-dashboard-page .agent-dashboard-side {
+    border-left: 0;
+    border-top: 1px solid var(--line-1);
+  }
+}
+
 /* Provider usage redesign: usage-window focused V1 status grid */
 .provider-usage-page {
   --pu-bg: #0c1014;

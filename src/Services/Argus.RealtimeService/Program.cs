@@ -17,12 +17,20 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 
-var dbPath = builder.Configuration.GetConnectionString("realtimedb")
-    ?? builder.Configuration.GetConnectionString("sqlite")
-    ?? "realtime.db";
+var realtimeDbConnStr = builder.Configuration.GetConnectionString("realtimedb")
+    ?? builder.Configuration.GetConnectionString("argusdb");
+var sqliteDbPath = builder.Configuration.GetConnectionString("sqlite") ?? "realtime.db";
 
-builder.Services.AddDbContextFactory<RealtimeDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+if (!string.IsNullOrWhiteSpace(realtimeDbConnStr) && realtimeDbConnStr.StartsWith("Host=", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddDbContextFactory<RealtimeDbContext>(options =>
+        options.UseNpgsql(realtimeDbConnStr));
+}
+else
+{
+    builder.Services.AddDbContextFactory<RealtimeDbContext>(options =>
+        options.UseSqlite($"Data Source={sqliteDbPath}"));
+}
 
 var webhookDbConnStr = builder.Configuration.GetConnectionString("argusdb");
 if (!string.IsNullOrWhiteSpace(webhookDbConnStr))
@@ -33,7 +41,7 @@ if (!string.IsNullOrWhiteSpace(webhookDbConnStr))
 else
 {
     builder.Services.AddDbContext<WebhookDbContext>(options =>
-        options.UseSqlite($"Data Source={dbPath}"));
+        options.UseSqlite($"Data Source={sqliteDbPath}"));
 }
 
 builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
@@ -83,7 +91,14 @@ var app = builder.Build();
 var dbContextFactory = app.Services.GetRequiredService<IDbContextFactory<RealtimeDbContext>>();
 await using (var dbContext = await dbContextFactory.CreateDbContextAsync())
 {
-    await dbContext.Database.EnsureCreatedAsync();
+    if (dbContext.Database.IsNpgsql())
+    {
+        await dbContext.EnsureRelationalSchemaCreatedAsync();
+    }
+    else
+    {
+        await dbContext.Database.EnsureCreatedAsync();
+    }
 }
 
 await using (var scope = app.Services.CreateAsyncScope())

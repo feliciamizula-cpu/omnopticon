@@ -310,10 +310,14 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         return asset.ToDto();
     }
 
-    public async Task<AssetDto> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken)
+    public async Task<AssetVerificationResult> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken)
     {
         var asset = await dbContext.Assets.FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
             ?? throw new InvalidOperationException("Asset not found.");
+
+        // Only a genuine transition should drive downstream events; re-confirming an already-verified
+        // asset must be a no-op or it creates an AssetConfirmed processing loop.
+        var changed = asset.VerificationStatus != status;
 
         asset.VerificationStatus = status;
         asset.LifecycleStatus = status == VerificationStatus.Verified
@@ -326,7 +330,7 @@ public sealed class EfAssetStore(AssetDbContext dbContext, AssetSearchService se
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
-        return asset.ToDto();
+        return new AssetVerificationResult(asset.ToDto(), changed);
     }
 
     public async Task<AssetDto> MarkLastScannedAsync(Guid assetId, CancellationToken cancellationToken)

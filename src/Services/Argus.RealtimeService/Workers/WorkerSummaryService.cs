@@ -50,7 +50,7 @@ public sealed class WorkerSummaryService : IWorkerSummaryService
         {
             var definition = _workerTypeCatalog.Find(workerType);
             var typeWorkers = workerRecords
-                .Where(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase))
+                .Where(x => x.WorkerType == workerType)
                 .ToList();
 
             var scale = await GetOrCreateScaleSettingsAsync(db, workerType, definition, ct);
@@ -68,7 +68,7 @@ public sealed class WorkerSummaryService : IWorkerSummaryService
             var utilization = maxConcurrency <= 0 ? 0 : (runningTasks / (double)maxConcurrency) * 100;
 
             var lastCommand = recentCommands.FirstOrDefault(x => 
-                string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase));
+                x.WorkerType == workerType);
 
             rows.Add(new WorkerTypeSummaryDto(
                 WorkerType: workerType,
@@ -116,14 +116,14 @@ public sealed class WorkerSummaryService : IWorkerSummaryService
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var workerRecords = await db.Workers
-            .Where(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.WorkerType == workerType)
             .ToListAsync(ct);
 
         var settings = await db.WorkerScaleSettings
-            .FirstOrDefaultAsync(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase), ct);
+            .FirstOrDefaultAsync(x => x.WorkerType == workerType, ct);
 
         var recentCommands = await db.WorkerScaleCommands
-            .Where(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.WorkerType == workerType)
             .OrderByDescending(x => x.RequestedAt)
             .FirstOrDefaultAsync(ct);
 
@@ -180,7 +180,7 @@ public sealed class WorkerSummaryService : IWorkerSummaryService
         var capabilities = await db.WorkerCapabilities.ToListAsync(ct);
 
         var workers = await db.Workers
-            .Where(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.WorkerType == workerType)
             .ToListAsync(ct);
 
         return workers.Select(w => 
@@ -241,7 +241,7 @@ public sealed class WorkerSummaryService : IWorkerSummaryService
         CancellationToken ct)
     {
         var settings = await db.WorkerScaleSettings
-            .FirstOrDefaultAsync(x => string.Equals(x.WorkerType, workerType, StringComparison.OrdinalIgnoreCase), ct);
+            .FirstOrDefaultAsync(x => x.WorkerType == workerType, ct);
 
         if (settings != null)
             return settings;

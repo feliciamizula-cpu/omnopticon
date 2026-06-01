@@ -1,25 +1,11 @@
-using Argus.BuildingBlocks.EventDrivenWorkers;
+using Argus.BuildingBlocks.Workers;
 using Argus.ServiceDefaults;
 using Argus.Workers.AssetStorage;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
-builder.Services.AddHttpClient();
+builder.AddArgusWorker<AssetStorageWorker>();
 
-builder.Services.AddEphemeralWorkerRegistry();
-builder.Services.AddEphemeralWorkerDispatcher(maxConcurrency: 50);
-
-builder.AddEphemeralWorker<AssetStorageWorker>();
-
-var app = builder.Build();
-
-using (var scope = app.Services.CreateScope())
-{
-    var registry = scope.ServiceProvider.GetRequiredService<EphemeralWorkerRegistry>();
-    registry.Register<AssetStorageWorker>();
-}
-
-await app.RunAsync();
+await builder.Build().RunAsync();

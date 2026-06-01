@@ -13,12 +13,19 @@ builder.AddServiceDefaults();
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.ProxyRegistryService");
 builder.Services.AddProblemDetails();
 
-var dbPath = builder.Configuration.GetConnectionString("proxydb")
-    ?? builder.Configuration.GetConnectionString("sqlite")
-    ?? "proxy-registry.db";
+var proxyDbConnStr = builder.Configuration.GetConnectionString("proxydb")
+    ?? builder.Configuration.GetConnectionString("argusdb");
+var sqliteDbPath = builder.Configuration.GetConnectionString("sqlite") ?? "proxy-registry.db";
+var usePostgres = !string.IsNullOrWhiteSpace(proxyDbConnStr)
+    && proxyDbConnStr.StartsWith("Host=", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddDbContext<ProxyRegistryDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+{
+    if (usePostgres)
+        options.UseNpgsql(proxyDbConnStr);
+    else
+        options.UseSqlite($"Data Source={sqliteDbPath}");
+});
 
 builder.Services.AddSingleton<ProxyRegistry>();
 
@@ -27,7 +34,10 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ProxyRegistryDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
+    if (dbContext.Database.IsNpgsql())
+        await dbContext.EnsureRelationalSchemaCreatedAsync();
+    else
+        await dbContext.Database.EnsureCreatedAsync();
 
     var registry = scope.ServiceProvider.GetRequiredService<ProxyRegistry>();
     await registry.LoadFromDatabaseAsync(dbContext);

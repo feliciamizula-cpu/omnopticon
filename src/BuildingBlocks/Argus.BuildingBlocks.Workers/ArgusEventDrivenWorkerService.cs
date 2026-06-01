@@ -28,6 +28,7 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly ConcurrentDictionary<Guid, string?> _taskCheckpoints = new();
     private readonly ConcurrentDictionary<Guid, Task> _runningTasks = new();
+    private readonly WorkerEventPublisher _eventPublisher;
 
     public ArgusEventDrivenWorkerService(
         IReconWorker worker,
@@ -48,6 +49,8 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         {
             Converters = { new JsonStringEnumConverter() }
         };
+        var exchange = string.IsNullOrWhiteSpace(_options.EventExchangeName) ? "argus.integration.events" : _options.EventExchangeName;
+        _eventPublisher = new WorkerEventPublisher(_options.EventBusConnectionString, exchange, _worker.Capability.WorkerType, _logger);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -56,6 +59,10 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             _worker.Capability.WorkerType, _worker.Capability.MaxConcurrency);
 
         await RegisterWorkerAsync(stoppingToken);
+
+        // Continuous heartbeat for the worker's whole lifetime, so idle workers stay "online".
+        // (Previously heartbeats only fired while a task was processing, so idle workers went stale.)
+        var heartbeatLoop = StartHeartbeatTimerAsync(stoppingToken);
 
         try
         {
@@ -136,6 +143,8 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         catch (OperationCanceledException)
         {
         }
+
+        await _eventPublisher.DisposeAsync();
     }
 
     private async Task FailRemainingTasksWithCheckpointAsync(CancellationToken cancellationToken)
@@ -226,8 +235,9 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
             _logger.LogDebug("Task {TaskId} fetched and validated scope snapshot {SnapshotId}", task.TaskId, snapshot.SnapshotId);
         }
 
+        // Scoped CTS for this task's progress/rate-limit/backpressure callbacks. Heartbeats are now
+        // driven by the worker-lifetime loop in ExecuteAsync, so no per-task heartbeat is started here.
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var heartbeatTask = StartHeartbeatTimerAsync(heartbeatCts.Token);
 
         var context = new WorkerExecutionContext(
             _options.WorkerId,
@@ -249,16 +259,29 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
                 await Task.Delay(result.RetryAfter.Value, heartbeatCts.Token);
             }
 
+            // Single-writer model: recon workers do NOT write to asset-service. They emit AssetProduced
+            // for each in-scope asset; the storage worker is the sole consumer and the sole writer.
             foreach (var asset in result.ProducedAssets)
             {
                 if (await IsProducedAssetInScopeAsync(task, asset, heartbeatCts.Token))
                 {
-                    var createdAsset = await PublishAssetAsync(task, asset, heartbeatCts.Token);
-                    if (createdAsset is not null)
-                    {
-                        await CreateRelationshipAsync(task, createdAsset, asset.AssetType, heartbeatCts.Token);
-                        _metrics.RecordAssetProduced(task.ProgramId, _worker.Capability.WorkerType, asset.AssetType);
-                    }
+                    await _eventPublisher.PublishAsync(
+                        new AssetProduced(
+                            task.ProgramId,
+                            task.ScopeId,
+                            task.InputAssetId,
+                            asset.AssetType,
+                            asset.Value,
+                            asset.Subtype,
+                            asset.Confidence,
+                            asset.Metadata,
+                            asset.Tags,
+                            _worker.Capability.WorkerType,
+                            task.TaskId.ToString()),
+                        nameof(AssetProduced),
+                        heartbeatCts.Token);
+
+                    _metrics.RecordAssetProduced(task.ProgramId, _worker.Capability.WorkerType, asset.AssetType);
                 }
             }
 
@@ -279,14 +302,15 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         {
             _taskCheckpoints.TryRemove(task.TaskId, out _);
             heartbeatCts.Cancel();
-            await heartbeatTask;
             notification.CompletionCts.Cancel();
         }
     }
 
     private async Task RegisterWorkerAsync(CancellationToken cancellationToken)
     {
-        var request = new WorkerRegistrationRequest(_options.WorkerId, _worker.Capability, typeof(IReconWorker).Assembly.GetName().Version?.ToString());
+        var version = Environment.GetEnvironmentVariable("ARGUS_VERSION")
+            ?? _worker.GetType().Assembly.GetName().Version?.ToString();
+        var request = new WorkerRegistrationRequest(_options.WorkerId, _worker.Capability, version);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = _options.RealtimeServiceBaseAddress;
 
@@ -329,27 +353,52 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         using var response = await client.PostAsJsonAsync("/workers/heartbeat", request, _jsonOptions, cancellationToken);
     }
 
-    private async Task StartTaskAsync(Guid taskId, CancellationToken cancellationToken)
-    {
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
-        using var response = await client.PostAsync($"/tasks/{taskId}/start?workerId={Uri.EscapeDataString(_options.WorkerId)}", null, cancellationToken);
-        response.EnsureSuccessStatusCode();
-    }
+    private Task StartTaskAsync(Guid runId, CancellationToken cancellationToken) =>
+        ReportActivityAsync("WorkerStarted", runId, new { percent = 0 }, cancellationToken);
 
-    private async Task ReportProgressAsync(Guid taskId, int percent, string message, string? checkpointJson, CancellationToken cancellationToken)
+    private Task ReportProgressAsync(Guid runId, int percent, string message, string? checkpointJson, CancellationToken cancellationToken)
     {
         if (checkpointJson is not null)
         {
-            _taskCheckpoints[taskId] = checkpointJson;
+            _taskCheckpoints[runId] = checkpointJson;
         }
 
-        var request = new UpdateReconTaskProgressRequest(percent, message, checkpointJson);
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
+        return ReportActivityAsync("WorkerProgress", runId, new { percent, message }, cancellationToken);
+    }
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/progress", request, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+    /// <summary>
+    /// Reports worker lifecycle/activity to the realtime service so the Events stream and Workers
+    /// page have live visibility. Best-effort: telemetry delivery never aborts real work.
+    /// </summary>
+    private async Task ReportActivityAsync(string activityType, Guid runId, object detail, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payloadJson = JsonSerializer.Serialize(new
+            {
+                workerId = _options.WorkerId,
+                workerType = _worker.Capability.WorkerType,
+                runId,
+                detail
+            }, _jsonOptions);
+
+            var request = new
+            {
+                EventType = activityType,
+                SourceService = _worker.Capability.WorkerType,
+                CorrelationId = runId,
+                CausationId = (Guid?)null,
+                PayloadJson = payloadJson
+            };
+
+            var client = _httpClientFactory.CreateClient();
+            client.BaseAddress = _options.RealtimeServiceBaseAddress;
+            using var response = await client.PostAsJsonAsync("/events", request, _jsonOptions, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Worker {WorkerType}: failed to report {ActivityType} activity", _worker.Capability.WorkerType, activityType);
+        }
     }
 
     private async Task<bool> RequestRateLimitTokenAsync(RateLimitRequest request, CancellationToken cancellationToken)
@@ -492,24 +541,26 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         return asset.Value;
     }
 
-    private async Task CompleteTaskAsync(Guid taskId, WorkerProcessResult result, CancellationToken cancellationToken)
+    private Task CompleteTaskAsync(Guid runId, WorkerProcessResult result, CancellationToken cancellationToken) =>
+        ReportActivityAsync("WorkerCompleted", runId, new
+        {
+            percent = 100,
+            partiallySucceeded = result.PartiallySucceeded,
+            producedAssets = result.ProducedAssets.Count,
+            summary = result.OutputSummaryJson
+        }, cancellationToken);
+
+    private Task FailTaskAsync(Guid runId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var request = new CompleteReconTaskRequest(result.PartiallySucceeded, result.OutputSummaryJson);
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
+        if (checkpointJson is not null)
+        {
+            _taskCheckpoints[runId] = checkpointJson;
+        }
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/complete", request, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
-    }
-
-    private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
-    {
-        var checkpoint = checkpointJson ?? (_taskCheckpoints.TryGetValue(taskId, out var saved) ? saved : null);
-        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: checkpoint);
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
-
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/fail", request, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        return ReportActivityAsync("WorkerFailed", runId, new
+        {
+            errorCode = ex.GetType().Name,
+            errorMessage = ex.Message
+        }, cancellationToken);
     }
 }

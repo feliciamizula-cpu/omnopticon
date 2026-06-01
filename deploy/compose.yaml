@@ -5,6 +5,8 @@ x-service-build: &service-build
 x-common-env: &common-env
   ASPNETCORE_ENVIRONMENT: Production
   ARGUS_EXPOSE_HEALTH_ENDPOINTS: ${ARGUS_EXPOSE_HEALTH_ENDPOINTS:-true}
+  ARGUS_VERSION: ${ARGUS_VERSION:-dev}
+  ARGUS_BUILD_DATE: ${ARGUS_BUILD_DATE:-unknown}
   ARGUS_AGENT_SERVICE: http://agent-service:8080
   ARGUS_PROGRAM_SCOPE_SERVICE: http://program-scope-service:8080
   ARGUS_ASSET_SERVICE: http://asset-service:8080
@@ -247,6 +249,32 @@ services:
         PROJECT_PATH: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
         ASSEMBLY_NAME: Argus.Workers.Subfinder
 
+  sublist3r-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+      ARGUS_WORKER_RUNTIME: "continuous"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Sublist3r/Argus.Workers.Sublist3r.csproj
+        ASSEMBLY_NAME: Argus.Workers.Sublist3r
+
+  subdomain-guesser-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+      ARGUS_WORKER_RUNTIME: "continuous"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.SubdomainGuesser/Argus.Workers.SubdomainGuesser.csproj
+        ASSEMBLY_NAME: Argus.Workers.SubdomainGuesser
+
   dns-resolver-worker:
     <<: *service-defaults
     stop_grace_period: 90s
@@ -358,6 +386,27 @@ services:
       args:
         PROJECT_PATH: src/Workers/Argus.Workers.AssetScoring/Argus.Workers.AssetScoring.csproj
         ASSEMBLY_NAME: Argus.Workers.AssetScoring
+
+  asset-storage-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj
+        ASSEMBLY_NAME: Argus.Workers.AssetStorage
+
+  http-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj
+        ASSEMBLY_NAME: Argus.Workers.Http
 
 volumes:
   postgres-data:
