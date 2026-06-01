@@ -315,23 +315,28 @@ public static class AssetEndpoints
     {
         try
         {
-            var verified = await store.VerifyAsync(assetId, request.VerificationStatus, request.Notes, cancellationToken);
+            var (verified, changed) = await store.VerifyAsync(assetId, request.VerificationStatus, request.Notes, cancellationToken);
 
-            if (request.VerificationStatus == VerificationStatus.Verified)
+            // Only emit an event on a real state transition — re-verifying an asset is a no-op and
+            // must not republish AssetConfirmed (that creates a worker event-processing loop).
+            if (changed)
             {
-                await events.PublishAsync(
-                    new AssetConfirmed(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value, null),
-                    nameof(AssetConfirmed),
-                    "Argus.AssetService",
-                    cancellationToken: cancellationToken);
-            }
-            else
-            {
-                await events.PublishAsync(
-                    new AssetUpdated(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value),
-                    nameof(AssetUpdated),
-                    "Argus.AssetService",
-                    cancellationToken: cancellationToken);
+                if (request.VerificationStatus == VerificationStatus.Verified)
+                {
+                    await events.PublishAsync(
+                        new AssetConfirmed(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value, null),
+                        nameof(AssetConfirmed),
+                        "Argus.AssetService",
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await events.PublishAsync(
+                        new AssetUpdated(verified.AssetId, verified.ProgramId, verified.Type.ToString(), verified.Value),
+                        nameof(AssetUpdated),
+                        "Argus.AssetService",
+                        cancellationToken: cancellationToken);
+                }
             }
 
             return Results.Ok(verified);
@@ -351,12 +356,17 @@ public static class AssetEndpoints
     {
         try
         {
-            var confirmed = await store.VerifyAsync(assetId, VerificationStatus.Verified, request.Notes, cancellationToken);
-            await events.PublishAsync(
-                new AssetConfirmed(confirmed.AssetId, confirmed.ProgramId, confirmed.Type.ToString(), confirmed.Value, request.ConfirmedByTaskId),
-                nameof(AssetConfirmed),
-                "Argus.AssetService",
-                cancellationToken: cancellationToken);
+            var (confirmed, changed) = await store.VerifyAsync(assetId, VerificationStatus.Verified, request.Notes, cancellationToken);
+
+            // Idempotent confirm: only the first transition to Verified publishes AssetConfirmed.
+            if (changed)
+            {
+                await events.PublishAsync(
+                    new AssetConfirmed(confirmed.AssetId, confirmed.ProgramId, confirmed.Type.ToString(), confirmed.Value, request.ConfirmedByTaskId),
+                    nameof(AssetConfirmed),
+                    "Argus.AssetService",
+                    cancellationToken: cancellationToken);
+            }
 
             return Results.Ok(confirmed);
         }
@@ -510,14 +520,11 @@ public static class AssetEndpoints
     private static async Task<IResult> BulkEnqueue(
         BulkEnqueueRequest request,
         AssetDbContext dbContext,
-        IHttpClientFactory httpClientFactory,
+        IIntegrationEventPublisher events,
         CancellationToken cancellationToken)
     {
         if (request.AssetIds.Count == 0)
             return Results.BadRequest("At least one asset ID is required.");
-
-        if (string.IsNullOrWhiteSpace(request.TaskType))
-            return Results.BadRequest("Task type is required.");
 
         if (string.IsNullOrWhiteSpace(request.WorkerCapability))
             return Results.BadRequest("Worker capability is required.");
@@ -529,53 +536,29 @@ public static class AssetEndpoints
             .Select(a => new { a.AssetId, a.Value, Type = a.Type.ToString() })
             .ToDictionaryAsync(a => a.AssetId, cancellationToken);
 
-        var taskClient = httpClientFactory.CreateClient();
-        taskClient.BaseAddress = new Uri(GetServiceUri("ARGUS_TASK_SERVICE", "http://task-service"));
-
-        var createdCount = 0;
-        var skippedCount = 0;
-        var results = new List<ReconTaskDto>();
+        // Event-driven: publish a targeted WorkerProcessRequested per asset. The addressed worker
+        // type consumes it directly off RabbitMQ and processes the asset. No tasks are created.
+        var dispatched = 0;
+        var skipped = 0;
 
         foreach (var assetId in request.AssetIds)
         {
-            assetValues.TryGetValue(assetId, out var assetInfo);
-            var payloadJson = assetInfo is not null
-                ? BuildTaskPayload(assetInfo.Type, assetInfo.Value, request.WorkerCapability)
-                : null;
-
-            var createRequest = new CreateReconTaskRequest(
-                TaskType: request.TaskType,
-                ProgramId: request.ProgramId,
-                ScopeId: request.ScopeId,
-                InputAssetId: assetId,
-                InputPayloadJson: payloadJson,
-                WorkerCapability: request.WorkerCapability,
-                RequiredAssetType: null,
-                MaxAttempts: request.MaxAttempts,
-                Priority: request.Priority,
-                DedupeHash: ComputeTaskDedupeHash(request.ProgramId, request.ScopeId, request.TaskType, assetId, request.WorkerCapability));
-
-            using var createResponse = await taskClient.PostAsJsonAsync("/tasks", createRequest, JsonOptions, cancellationToken);
-            if (createResponse.IsSuccessStatusCode)
+            if (!assetValues.TryGetValue(assetId, out var assetInfo))
             {
-                var createdTask = await createResponse.Content.ReadFromJsonAsync<ReconTaskDto>(JsonOptions, cancellationToken: cancellationToken);
-                if (createdTask is not null)
-                {
-                    createdCount++;
-                    results.Add(createdTask);
-                }
-                else
-                {
-                    skippedCount++;
-                }
+                skipped++;
+                continue;
             }
-            else
-            {
-                skippedCount++;
-            }
+
+            await events.PublishAsync(
+                new WorkerProcessRequested(assetId, request.ProgramId, assetInfo.Type, assetInfo.Value, request.WorkerCapability),
+                nameof(WorkerProcessRequested),
+                "Argus.AssetService",
+                cancellationToken: cancellationToken);
+
+            dispatched++;
         }
 
-        return Results.Ok(new BulkEnqueueResponse(results.ToArray(), createdCount, skippedCount));
+        return Results.Ok(new BulkEnqueueResponse([], dispatched, skipped));
     }
 
     private static string? BuildTaskPayload(string assetType, string value, string workerCapability)

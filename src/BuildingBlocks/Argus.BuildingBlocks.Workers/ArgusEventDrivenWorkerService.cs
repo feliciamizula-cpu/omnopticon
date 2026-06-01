@@ -286,7 +286,9 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
 
     private async Task RegisterWorkerAsync(CancellationToken cancellationToken)
     {
-        var request = new WorkerRegistrationRequest(_options.WorkerId, _worker.Capability, typeof(IReconWorker).Assembly.GetName().Version?.ToString());
+        var version = Environment.GetEnvironmentVariable("ARGUS_VERSION")
+            ?? _worker.GetType().Assembly.GetName().Version?.ToString();
+        var request = new WorkerRegistrationRequest(_options.WorkerId, _worker.Capability, version);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = _options.RealtimeServiceBaseAddress;
 
@@ -329,27 +331,52 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         using var response = await client.PostAsJsonAsync("/workers/heartbeat", request, _jsonOptions, cancellationToken);
     }
 
-    private async Task StartTaskAsync(Guid taskId, CancellationToken cancellationToken)
-    {
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
-        using var response = await client.PostAsync($"/tasks/{taskId}/start?workerId={Uri.EscapeDataString(_options.WorkerId)}", null, cancellationToken);
-        response.EnsureSuccessStatusCode();
-    }
+    private Task StartTaskAsync(Guid runId, CancellationToken cancellationToken) =>
+        ReportActivityAsync("WorkerStarted", runId, new { percent = 0 }, cancellationToken);
 
-    private async Task ReportProgressAsync(Guid taskId, int percent, string message, string? checkpointJson, CancellationToken cancellationToken)
+    private Task ReportProgressAsync(Guid runId, int percent, string message, string? checkpointJson, CancellationToken cancellationToken)
     {
         if (checkpointJson is not null)
         {
-            _taskCheckpoints[taskId] = checkpointJson;
+            _taskCheckpoints[runId] = checkpointJson;
         }
 
-        var request = new UpdateReconTaskProgressRequest(percent, message, checkpointJson);
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
+        return ReportActivityAsync("WorkerProgress", runId, new { percent, message }, cancellationToken);
+    }
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/progress", request, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+    /// <summary>
+    /// Reports worker lifecycle/activity to the realtime service so the Events stream and Workers
+    /// page have live visibility. Best-effort: telemetry delivery never aborts real work.
+    /// </summary>
+    private async Task ReportActivityAsync(string activityType, Guid runId, object detail, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payloadJson = JsonSerializer.Serialize(new
+            {
+                workerId = _options.WorkerId,
+                workerType = _worker.Capability.WorkerType,
+                runId,
+                detail
+            }, _jsonOptions);
+
+            var request = new
+            {
+                EventType = activityType,
+                SourceService = _worker.Capability.WorkerType,
+                CorrelationId = runId,
+                CausationId = (Guid?)null,
+                PayloadJson = payloadJson
+            };
+
+            var client = _httpClientFactory.CreateClient();
+            client.BaseAddress = _options.RealtimeServiceBaseAddress;
+            using var response = await client.PostAsJsonAsync("/events", request, _jsonOptions, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Worker {WorkerType}: failed to report {ActivityType} activity", _worker.Capability.WorkerType, activityType);
+        }
     }
 
     private async Task<bool> RequestRateLimitTokenAsync(RateLimitRequest request, CancellationToken cancellationToken)
@@ -492,24 +519,26 @@ public sealed class ArgusEventDrivenWorkerService : BackgroundService
         return asset.Value;
     }
 
-    private async Task CompleteTaskAsync(Guid taskId, WorkerProcessResult result, CancellationToken cancellationToken)
+    private Task CompleteTaskAsync(Guid runId, WorkerProcessResult result, CancellationToken cancellationToken) =>
+        ReportActivityAsync("WorkerCompleted", runId, new
+        {
+            percent = 100,
+            partiallySucceeded = result.PartiallySucceeded,
+            producedAssets = result.ProducedAssets.Count,
+            summary = result.OutputSummaryJson
+        }, cancellationToken);
+
+    private Task FailTaskAsync(Guid runId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
     {
-        var request = new CompleteReconTaskRequest(result.PartiallySucceeded, result.OutputSummaryJson);
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
+        if (checkpointJson is not null)
+        {
+            _taskCheckpoints[runId] = checkpointJson;
+        }
 
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/complete", request, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
-    }
-
-    private async Task FailTaskAsync(Guid taskId, Exception ex, CancellationToken cancellationToken, string? checkpointJson = null)
-    {
-        var checkpoint = checkpointJson ?? (_taskCheckpoints.TryGetValue(taskId, out var saved) ? saved : null);
-        var request = new FailReconTaskRequest(ex.GetType().Name, ex.Message, Retryable: true, CheckpointJson: checkpoint);
-        var client = _httpClientFactory.CreateClient();
-        client.BaseAddress = _options.TaskServiceBaseAddress;
-
-        using var response = await client.PostAsJsonAsync($"/tasks/{taskId}/fail", request, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        return ReportActivityAsync("WorkerFailed", runId, new
+        {
+            errorCode = ex.GetType().Name,
+            errorMessage = ex.Message
+        }, cancellationToken);
     }
 }

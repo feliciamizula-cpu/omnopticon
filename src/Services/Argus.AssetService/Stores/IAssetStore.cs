@@ -17,7 +17,7 @@ public interface IAssetStore
     Task<AssetDto> RemoveTagAsync(Guid assetId, string tag, CancellationToken cancellationToken);
     Task<AssetDto> UpdateConfidenceAsync(Guid assetId, decimal confidence, CancellationToken cancellationToken);
     Task<AssetDto> UpdateAsync(Guid assetId, UpdateAssetRequest request, CancellationToken cancellationToken);
-    Task<AssetDto> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken);
+    Task<AssetVerificationResult> VerifyAsync(Guid assetId, VerificationStatus status, string? notes, CancellationToken cancellationToken);
     Task<AssetDto> MarkLastScannedAsync(Guid assetId, CancellationToken cancellationToken);
     Task<AssetDto> RejectAsync(Guid assetId, string? reason, CancellationToken cancellationToken);
     Task<AssetDto> MarkHighValueAsync(Guid assetId, bool highValue, string? reason, CancellationToken cancellationToken);
@@ -28,3 +28,10 @@ public interface IAssetStore
     Task<AssetObservationRecord> AddObservationAsync(Guid assetId, string observationType, string status, string? summary, IDictionary<string, object>? data, CancellationToken cancellationToken);
     Task<BulkOperationResult> BulkOperationAsync(AssetBulkActionRequest request, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Result of a verify/confirm. <see cref="Changed"/> is true only when the verification status
+/// actually transitioned, so callers publish AssetConfirmed once per transition rather than on
+/// every (possibly repeated) confirm — which would otherwise create an event-processing loop.
+/// </summary>
+public sealed record AssetVerificationResult(AssetDto Asset, bool Changed);

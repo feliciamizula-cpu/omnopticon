@@ -20,4 +20,6 @@ public sealed class ArgusWorkerOptions
     public bool SaveCheckpointOnShutdown { get; set; } = true;
     public int MaxConcurrencyOverride { get; set; }
     public int SubscriptionConcurrencyLimit { get; set; }
+    public string EventBusConnectionString { get; set; } = string.Empty;
+    public string EventExchangeName { get; set; } = "argus.integration.events";
 }

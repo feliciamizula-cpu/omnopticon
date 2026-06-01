@@ -59,7 +59,8 @@
                     }
                     else
                     {
-                        <MudMenuItem OnClick="@(async () => await (item.Action?.Invoke() ?? Task.CompletedTask))">@item.Label</MudMenuItem>
+                        <MudMenuItem Disabled="@item.IsDisabled"
+                                     OnClick="@(async () => await (item.Action?.Invoke() ?? Task.CompletedTask))">@item.Label</MudMenuItem>
                     }
                 }
             </ChildContent>

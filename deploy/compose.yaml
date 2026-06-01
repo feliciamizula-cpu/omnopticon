@@ -5,6 +5,8 @@ x-service-build: &service-build
 x-common-env: &common-env
   ASPNETCORE_ENVIRONMENT: Production
   ARGUS_EXPOSE_HEALTH_ENDPOINTS: ${ARGUS_EXPOSE_HEALTH_ENDPOINTS:-true}
+  ARGUS_VERSION: ${ARGUS_VERSION:-dev}
+  ARGUS_BUILD_DATE: ${ARGUS_BUILD_DATE:-unknown}
   ARGUS_AGENT_SERVICE: http://agent-service:8080
   ARGUS_PROGRAM_SCOPE_SERVICE: http://program-scope-service:8080
   ARGUS_ASSET_SERVICE: http://asset-service:8080

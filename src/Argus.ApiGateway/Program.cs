@@ -114,14 +114,14 @@ internal sealed record ArgusServiceEndpoints(
     string RequestTool)
 {
     public static ArgusServiceEndpoints From(IConfiguration configuration) => new(
-        configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? configuration["services__program-scope-service__http__0"] ?? "http://program-scope-service",
-        configuration["ARGUS_ASSET_SERVICE"] ?? configuration["services__asset-service__http__0"] ?? "http://asset-service",
-        configuration["ARGUS_ARTIFACT_SERVICE"] ?? configuration["services__artifact-service__http__0"] ?? "http://artifact-service",
-        configuration["ARGUS_FINDING_SERVICE"] ?? configuration["services__finding-service__http__0"] ?? "http://finding-service",
-        configuration["ARGUS_TASK_SERVICE"] ?? configuration["services__task-service__http__0"] ?? "http://task-service",
-        configuration["ARGUS_AGENT_SERVICE"] ?? configuration["services__agent-service__http__0"] ?? "http://agent-service",
-        configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? configuration["services__rate-limit-service__http__0"] ?? "http://rate-limit-service",
-        configuration["ARGUS_REALTIME_SERVICE"] ?? configuration["services__realtime-service__http__0"] ?? "http://realtime-service",
-        configuration["ARGUS_EVENT_ROUTER_SERVICE"] ?? configuration["services__event-router-service__http__0"] ?? "http://event-router-service",
-        configuration["ARGUS_REQUEST_TOOL_SERVICE"] ?? configuration["services__request-tool-service__http__0"] ?? "http://request-tool-service");
+        configuration["ARGUS_PROGRAM_SCOPE_SERVICE"] ?? configuration["services:program-scope-service:http:0"] ?? "http://program-scope-service",
+        configuration["ARGUS_ASSET_SERVICE"] ?? configuration["services:asset-service:http:0"] ?? "http://asset-service",
+        configuration["ARGUS_ARTIFACT_SERVICE"] ?? configuration["services:artifact-service:http:0"] ?? "http://artifact-service",
+        configuration["ARGUS_FINDING_SERVICE"] ?? configuration["services:finding-service:http:0"] ?? "http://finding-service",
+        configuration["ARGUS_TASK_SERVICE"] ?? configuration["services:task-service:http:0"] ?? "http://task-service",
+        configuration["ARGUS_AGENT_SERVICE"] ?? configuration["services:agent-service:http:0"] ?? "http://agent-service",
+        configuration["ARGUS_RATE_LIMIT_SERVICE"] ?? configuration["services:rate-limit-service:http:0"] ?? "http://rate-limit-service",
+        configuration["ARGUS_REALTIME_SERVICE"] ?? configuration["services:realtime-service:http:0"] ?? "http://realtime-service",
+        configuration["ARGUS_EVENT_ROUTER_SERVICE"] ?? configuration["services:event-router-service:http:0"] ?? "http://event-router-service",
+        configuration["ARGUS_REQUEST_TOOL_SERVICE"] ?? configuration["services:request-tool-service:http:0"] ?? "http://request-tool-service");
 }

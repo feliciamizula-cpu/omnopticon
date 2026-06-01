@@ -22,27 +22,43 @@ public sealed class RealtimeDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        var eventRecord = modelBuilder.Entity<EventRecord>(e =>
+        // SQLite needs DateTimeOffset stored as Unix ms; Postgres handles it natively
+        var isSqlite = Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true;
+
+        void ConfigureDateTimeOffset<TEntity>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateTimeOffset> prop)
+        {
+            if (isSqlite) prop.HasConversion(_dateTimeOffsetConverter);
+        }
+        void ConfigureNullableDateTimeOffset<TEntity>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateTimeOffset?> prop)
+        {
+            if (isSqlite) prop.HasConversion(
+                new ValueConverter<DateTimeOffset?, long?>(
+                    v => v == null ? (long?)null : v.Value.ToUnixTimeMilliseconds(),
+                    v => v == null ? (DateTimeOffset?)null : DateTimeOffset.FromUnixTimeMilliseconds(v.Value)));
+        }
+
+        modelBuilder.Entity<EventRecord>(e =>
         {
             e.HasKey(x => x.EventId);
             e.Property(x => x.EventType).IsRequired().HasMaxLength(256);
             e.Property(x => x.SourceService).HasMaxLength(256);
-            e.Property(x => x.PayloadJson).HasColumnType("TEXT");
-            e.Property(x => x.RecordedAt).HasConversion(_dateTimeOffsetConverter);
+            if (!isSqlite) e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            else e.Property(x => x.PayloadJson).HasColumnType("TEXT");
+            ConfigureDateTimeOffset<EventRecord>(e.Property(x => x.RecordedAt));
             e.HasIndex(x => x.RecordedAt);
             e.HasIndex(x => x.EventType);
             e.HasIndex(x => x.CorrelationId);
         });
 
-        var worker = modelBuilder.Entity<WorkerRecord>(e =>
+        modelBuilder.Entity<WorkerRecord>(e =>
         {
             e.HasKey(x => x.WorkerId);
             e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
-            e.Property(x => x.LastSeenAt).HasConversion(_dateTimeOffsetConverter);
+            ConfigureDateTimeOffset<WorkerRecord>(e.Property(x => x.LastSeenAt));
             e.HasIndex(x => x.LastSeenAt);
         });
 
-        var capability = modelBuilder.Entity<WorkerCapabilityRecord>(e =>
+        modelBuilder.Entity<WorkerCapabilityRecord>(e =>
         {
             e.HasKey(x => x.WorkerId);
             e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
@@ -52,8 +68,8 @@ public sealed class RealtimeDbContext : DbContext
                 .HasForeignKey<WorkerCapabilityRecord>(x => x.WorkerId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
-        
-        var scaleSetting = modelBuilder.Entity<WorkerScaleSettingRecord>(e =>
+
+        modelBuilder.Entity<WorkerScaleSettingRecord>(e =>
         {
             e.HasKey(x => x.WorkerType);
             e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
@@ -62,11 +78,11 @@ public sealed class RealtimeDbContext : DbContext
             e.Property(x => x.DeploymentName).HasMaxLength(256);
             e.Property(x => x.Namespace).HasMaxLength(128);
             e.Property(x => x.UpdatedBy).HasMaxLength(256);
-            e.Property(x => x.CreatedAt).HasConversion(_dateTimeOffsetConverter);
-            e.Property(x => x.UpdatedAt).HasConversion(_dateTimeOffsetConverter);
+            ConfigureDateTimeOffset<WorkerScaleSettingRecord>(e.Property(x => x.CreatedAt));
+            ConfigureDateTimeOffset<WorkerScaleSettingRecord>(e.Property(x => x.UpdatedAt));
         });
 
-        var scaleCommand = modelBuilder.Entity<WorkerScaleCommandRecord>(e =>
+        modelBuilder.Entity<WorkerScaleCommandRecord>(e =>
         {
             e.HasKey(x => x.CommandId);
             e.Property(x => x.WorkerType).IsRequired().HasMaxLength(128);
@@ -75,8 +91,8 @@ public sealed class RealtimeDbContext : DbContext
             e.Property(x => x.Message).HasMaxLength(2048);
             e.Property(x => x.ScalerKind).HasMaxLength(128);
             e.Property(x => x.Actor).HasMaxLength(256);
-            e.Property(x => x.RequestedAt).HasConversion(_dateTimeOffsetConverter);
-            e.Property(x => x.AppliedAt).HasConversion(_dateTimeOffsetConverter);
+            ConfigureDateTimeOffset<WorkerScaleCommandRecord>(e.Property(x => x.RequestedAt));
+            ConfigureNullableDateTimeOffset<WorkerScaleCommandRecord>(e.Property(x => x.AppliedAt));
             e.HasIndex(x => x.WorkerType);
             e.HasIndex(x => x.RequestedAt);
             e.HasIndex(x => x.Status);

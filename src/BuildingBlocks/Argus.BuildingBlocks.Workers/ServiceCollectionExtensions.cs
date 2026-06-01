@@ -1,5 +1,6 @@
 using Argus.Contracts.Workers;
 using Argus.ServiceDefaults;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -56,9 +57,11 @@ public static class ServiceCollectionExtensions
                     options.SnapshotSecretKey = builder.Configuration["ARGUS_SNAPSHOT_SECRET_KEY"]!;
                 }
 
-                if (!string.IsNullOrEmpty(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"]))
+                var eventBusConn = builder.Configuration.GetConnectionString("eventbus")
+                    ?? builder.Configuration["ConnectionStrings__eventbus"];
+                if (!string.IsNullOrEmpty(eventBusConn))
                 {
-                    options.EventDrivenMode = bool.TryParse(builder.Configuration["ARGUS_EVENT_DRIVEN_MODE"], out var eventDriven) && eventDriven;
+                    options.EventBusConnectionString = eventBusConn;
                 }
 
                 if (int.TryParse(builder.Configuration["ARGUS_WORKER_DRAIN_TIMEOUT"], out var drainTimeoutSeconds))
@@ -76,25 +79,18 @@ public static class ServiceCollectionExtensions
 
         builder.Services.AddSingleton<TaskNotificationChannel>();
 
+        // Always use event-driven mode: workers subscribe to asset events via RabbitMQ
         builder.Services.AddSingleton<IHostedService>(sp =>
-        {
-            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>().Value;
-            return new TaskWorkerHostedServiceWrapper(
-                opts.EventDrivenMode
-                    ? (BackgroundService)new ArgusEventDrivenWorkerService(
-                        sp.GetRequiredService<IReconWorker>(),
-                        sp.GetRequiredService<IHttpClientFactory>(),
-                        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
-                        sp.GetRequiredService<ILogger<ArgusEventDrivenWorkerService>>(),
-                        sp.GetRequiredService<ArgusMetrics>(),
-                        sp.GetRequiredService<TaskNotificationChannel>().Reader)
-                    : new ArgusWorkerBackgroundService(
-                        sp.GetRequiredService<IReconWorker>(),
-                        sp.GetRequiredService<IHttpClientFactory>(),
-                        sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
-                        sp.GetRequiredService<ILogger<ArgusWorkerBackgroundService>>(),
-                        sp.GetRequiredService<ArgusMetrics>()));
-        });
+            new TaskWorkerHostedServiceWrapper(
+                new ArgusEventDrivenWorkerService(
+                    sp.GetRequiredService<IReconWorker>(),
+                    sp.GetRequiredService<IHttpClientFactory>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ArgusWorkerOptions>>(),
+                    sp.GetRequiredService<ILogger<ArgusEventDrivenWorkerService>>(),
+                    sp.GetRequiredService<ArgusMetrics>(),
+                    sp.GetRequiredService<TaskNotificationChannel>().Reader)));
+
+        builder.Services.AddHostedService<AssetEventWorkerConsumerService>();
 
         return builder;
     }

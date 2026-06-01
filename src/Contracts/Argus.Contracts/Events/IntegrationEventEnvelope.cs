@@ -45,6 +45,8 @@ public sealed record FindingCandidateCreated(Guid AssetId, Guid ProgramId, strin
 public sealed record AssetConfirmed(Guid AssetId, Guid ProgramId, string AssetType, string Value, Guid? ConfirmedByTaskId);
 public sealed record AssetUpdated(Guid AssetId, Guid ProgramId, string AssetType, string Value);
 public sealed record AssetRelationshipDiscovered(Guid FromAssetId, Guid ToAssetId, string EdgeType);
+// Manual re-trigger: ask a specific worker type to (re)process an existing asset. Fully event-driven, no tasks.
+public sealed record WorkerProcessRequested(Guid AssetId, Guid ProgramId, string AssetType, string Value, string TargetWorkerType);
 public sealed record TaskRequested(Guid TaskId, string TaskType, Guid ProgramId, Guid? InputAssetId);
 public sealed record TaskLeased(Guid TaskId, string WorkerId, DateTimeOffset LeaseExpiresAt);
 public sealed record TaskStarted(Guid TaskId, string WorkerId, DateTimeOffset StartedAt);
