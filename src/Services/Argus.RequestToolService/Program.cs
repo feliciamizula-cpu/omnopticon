@@ -45,11 +45,32 @@ builder.Services.AddScoped<IRawHttpRenderer, RawHttpRenderer>();
 builder.Services.AddScoped<IRequestToolDiffService, RequestToolDiffService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAssetEvidenceHydrator, AssetEvidenceHydrator>();
-builder.Services.AddHttpClient<IAssetServiceClient, AssetServiceClient>();
-builder.Services.AddHttpClient<IArtifactServiceClient, ArtifactServiceClient>();
-builder.Services.AddHttpClient<IProgramScopeServiceClient, ProgramScopeServiceClient>();
-builder.Services.AddHttpClient<IRateLimitServiceClient, RateLimitServiceClient>();
-builder.Services.AddHttpClient<IProxyRegistryServiceClient, ProxyRegistryServiceClient>();
+// These typed clients call downstream services with relative URIs, so each needs a BaseAddress.
+// Without it every call throws "BaseAddress must be set" — which surfaced as the request-tool
+// "Asset not found" / session-load failure (the service couldn't fetch the asset).
+static string ServiceUri(IConfiguration cfg, string envKey, string fallbackHost)
+{
+    var value = cfg[envKey];
+    if (string.IsNullOrWhiteSpace(value))
+        return $"http://{fallbackHost}:8080";
+    // Normalize Aspire-style scheme prefixes ("https+http://host") to a plain in-cluster address.
+    if (value.StartsWith("https+http://", StringComparison.OrdinalIgnoreCase))
+        return "http://" + value["https+http://".Length..];
+    if (value.StartsWith("http+https://", StringComparison.OrdinalIgnoreCase))
+        return "http://" + value["http+https://".Length..];
+    return value;
+}
+
+builder.Services.AddHttpClient<IAssetServiceClient, AssetServiceClient>(c =>
+    c.BaseAddress = new Uri(ServiceUri(builder.Configuration, "ARGUS_ASSET_SERVICE", "asset-service")));
+builder.Services.AddHttpClient<IArtifactServiceClient, ArtifactServiceClient>(c =>
+    c.BaseAddress = new Uri(ServiceUri(builder.Configuration, "ARGUS_ARTIFACT_SERVICE", "artifact-service")));
+builder.Services.AddHttpClient<IProgramScopeServiceClient, ProgramScopeServiceClient>(c =>
+    c.BaseAddress = new Uri(ServiceUri(builder.Configuration, "ARGUS_PROGRAM_SCOPE_SERVICE", "program-scope-service")));
+builder.Services.AddHttpClient<IRateLimitServiceClient, RateLimitServiceClient>(c =>
+    c.BaseAddress = new Uri(ServiceUri(builder.Configuration, "ARGUS_RATE_LIMIT_SERVICE", "rate-limit-service")));
+builder.Services.AddHttpClient<IProxyRegistryServiceClient, ProxyRegistryServiceClient>(c =>
+    c.BaseAddress = new Uri(ServiceUri(builder.Configuration, "ARGUS_PROXY_REGISTRY_SERVICE", "proxy-registry-service")));
 
 var app = builder.Build();
 

@@ -690,11 +690,12 @@ app.MapPost("/ui/processing/toggle", async (JsonObject payload, IHttpClientFacto
 
     try
     {
-        var endpoint = enabled ? "/worker-types/pause-all" : "/worker-types/resume-all";
+        // `enabled` is the DESIRED processing state from the UI: true => resume workers, false => pause them.
+        var endpoint = enabled ? "/worker-types/resume-all" : "/worker-types/pause-all";
         using var resp = await client.PostAsync(endpoint, null, ct);
         if (resp.IsSuccessStatusCode)
         {
-            logger.LogInformation("Processing {State} via RealtimeService", enabled ? "paused" : "resumed");
+            logger.LogInformation("Processing {State} via RealtimeService", enabled ? "resumed" : "paused");
             return Results.Ok(new { enabled });
         }
         logger.LogWarning("Failed to toggle processing: {Status}", resp.StatusCode);
@@ -717,11 +718,14 @@ app.MapGet("/ui/processing/state", async (IHttpClientFactory hcf, IConfiguration
         using var resp = await client.GetAsync("/worker-types/processing-state", ct);
         if (resp.IsSuccessStatusCode)
         {
-            return Results.Ok(await resp.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct));
+            // RealtimeService reports { paused }; the UI consumes { enabled }. Translate so they agree.
+            var state = await resp.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: ct);
+            var paused = state?["paused"]?.GetValue<bool>() ?? false;
+            return Results.Ok(new { enabled = !paused });
         }
     }
     catch { }
-    return Results.Ok(new { paused = false });
+    return Results.Ok(new { enabled = true });
 });
 
 app.MapStaticAssets();

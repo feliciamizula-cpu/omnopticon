@@ -40,11 +40,11 @@
                 <div class="tab @(exchange.ExchangeId == _selectedExchangeId ? "active" : "")"
                      @onclick="() => SelectExchange(exchange.ExchangeId)">
                     <span class="tab-title">@exchange.TabTitle</span>
-                    @if (exchange.Origin == 0)
+                    @if (exchange.Origin == "OriginalEvidence")
                     {
                         <span class="tab-badge origin">Original</span>
                     }
-                    else if (exchange.Outcome == 2)
+                    else if (exchange.Outcome == "NetworkError")
                     {
                         <span class="tab-badge failed">Failed</span>
                     }
@@ -358,8 +358,9 @@
     private class HttpExchangeSummaryDto
     {
         public Guid ExchangeId { get; set; }
-        public int Origin { get; set; }
-        public int Outcome { get; set; }
+        // Serialized as enum names by the service (e.g. "OriginalEvidence", "NetworkError").
+        public string Origin { get; set; } = "";
+        public string Outcome { get; set; } = "";
         public string TabTitle { get; set; } = "";
         public bool IsPinned { get; set; }
         public string RequestMethod { get; set; } = "";
@@ -370,8 +371,8 @@
     {
         public Guid ExchangeId { get; set; }
         public Guid SessionId { get; set; }
-        public int Origin { get; set; }
-        public int Outcome { get; set; }
+        public string Origin { get; set; } = "";
+        public string Outcome { get; set; } = "";
         public string TabTitle { get; set; } = "";
         public string RequestMethod { get; set; } = "";
         public string RequestUrl { get; set; } = "";

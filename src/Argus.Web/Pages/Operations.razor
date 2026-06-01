@@ -32,7 +32,7 @@
 <div class="ops-stats-bar">
     <div class="ops-stat-item">
         <span class="ops-stat-label">Total Assets:</span>
-        <span class="ops-stat-value">@_assetTotalCount?.ToString("N0") ?? "—"</span>
+        <span class="ops-stat-value">@(_assetTotalCount?.ToString("N0") ?? "—")</span>
     </div>
     <div class="ops-stat-divider"></div>
     <div class="ops-stat-item">
@@ -774,10 +774,12 @@
     {
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = doc.RootElement;
+        // Clone each element: the JsonElements are backed by `doc`, which is disposed when this method
+        // returns. Without cloning, the caller hits "Cannot access a disposed object: JsonDocument".
         var items = root.ValueKind == JsonValueKind.Array
-            ? root.EnumerateArray().ToList()
+            ? root.EnumerateArray().Select(e => e.Clone()).ToList()
             : root.TryGetProperty("items", out var itemArray)
-                ? itemArray.EnumerateArray().ToList()
+                ? itemArray.EnumerateArray().Select(e => e.Clone()).ToList()
                 : [];
 
         var totalCount = root.ValueKind == JsonValueKind.Object

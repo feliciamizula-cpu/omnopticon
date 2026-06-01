@@ -1,6 +1,21 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Argus.Contracts.Assets;
 
 namespace Argus.RequestToolService.Http;
+
+/// <summary>
+/// JSON options for cross-service deserialization. Services serialize enums as strings
+/// (e.g. AssetDto.Type = "HttpResponse"), so the reader needs <see cref="JsonStringEnumConverter"/>
+/// or every asset fetch throws and the request-tool reports "Asset not found".
+/// </summary>
+internal static class ServiceJson
+{
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+}
 
 public sealed record AssetReference(Guid ArtifactId, string ArtifactType, string? Name);
 
@@ -29,7 +44,7 @@ public sealed class AssetServiceClient : IAssetServiceClient
             if (!response.IsSuccessStatusCode)
                 return null;
 
-            return await response.Content.ReadFromJsonAsync<AssetDto>(cancellationToken: ct);
+            return await response.Content.ReadFromJsonAsync<AssetDto>(ServiceJson.Options, cancellationToken: ct);
         }
         catch (Exception ex)
         {
@@ -46,7 +61,7 @@ public sealed class AssetServiceClient : IAssetServiceClient
             if (!response.IsSuccessStatusCode)
                 return [];
 
-            var artifacts = await response.Content.ReadFromJsonAsync<List<AssetReference>>(cancellationToken: ct);
+            var artifacts = await response.Content.ReadFromJsonAsync<List<AssetReference>>(ServiceJson.Options, cancellationToken: ct);
             return artifacts ?? [];
         }
         catch (Exception ex)
@@ -84,7 +99,7 @@ public sealed class ArtifactServiceClient : IArtifactServiceClient
             if (!response.IsSuccessStatusCode)
                 return null;
 
-            return await response.Content.ReadFromJsonAsync<ArtifactDto>(cancellationToken: ct);
+            return await response.Content.ReadFromJsonAsync<ArtifactDto>(ServiceJson.Options, cancellationToken: ct);
         }
         catch (Exception ex)
         {
