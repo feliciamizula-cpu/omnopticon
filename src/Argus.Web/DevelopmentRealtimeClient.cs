@@ -1,9 +1,9 @@
 namespace Argus.Web;
 
-using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.Configuration;
 
-public sealed class DevelopmentRealtimeClient(NavigationManager navigationManager) : IAsyncDisposable
+public sealed class DevelopmentRealtimeClient(IConfiguration configuration) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private HubConnection? _connection;
@@ -22,8 +22,12 @@ public sealed class DevelopmentRealtimeClient(NavigationManager navigationManage
         {
             if (_connection is null)
             {
+                // This HubConnection runs server-side (Blazor Server circuit), so it must reach the
+                // app's own in-container Kestrel address (http://localhost:8080), NOT the browser-facing
+                // URL — that depends on hairpin NAT and fails entirely for localhost-mapped access.
+                var port = configuration["ASPNETCORE_HTTP_PORTS"] ?? "8080";
                 _connection = new HubConnectionBuilder()
-                    .WithUrl(navigationManager.ToAbsoluteUri("/hubs/argus"))
+                    .WithUrl($"http://localhost:{port}/hubs/argus")
                     .WithAutomaticReconnect()
                     .Build();
 

@@ -1,0 +1,111 @@
+@page "/asset-types"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject HttpClient Http
+@inject ILogger<AssetTypes> Logger
+
+<PageTitle>Asset Types</PageTitle>
+
+<PageHeader Title="Asset Type Actions"
+            Subtitle="Configure the context-menu actions available on each asset type. Changes are saved to the database and applied immediately." />
+
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.subtitle1" Class="mb-2">Add Action</MudText>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+        <MudTextField @bind-Value="_new.AssetType" Label="Asset Type" Variant="Variant.Outlined" Style="width:140px" Placeholder="Domain" />
+        <MudTextField @bind-Value="_new.Label" Label="Label" Variant="Variant.Outlined" Style="width:240px" Placeholder="Enumerate Subdomains (Amass)" />
+        <MudTextField @bind-Value="_new.TaskType" Label="Task Type" Variant="Variant.Outlined" Style="width:120px" Placeholder="enum" />
+        <MudTextField @bind-Value="_new.WorkerCapability" Label="Worker Capability" Variant="Variant.Outlined" Style="width:180px" Placeholder="AmassWorker" />
+        <MudNumericField @bind-Value="_new.SortOrder" Label="Sort" Variant="Variant.Outlined" Style="width:90px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddAsync" Disabled="_busy">Add</MudButton>
+    </div>
+</MudPaper>
+
+@if (_actions is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_actions.OrderBy(a => a.AssetType).ThenBy(a => a.SortOrder)" Dense="true" Hover="true" Bordered="true">
+        <HeaderContent>
+            <MudTh>Asset Type</MudTh>
+            <MudTh>Label</MudTh>
+            <MudTh>Task Type</MudTh>
+            <MudTh>Worker Capability</MudTh>
+            <MudTh>Sort</MudTh>
+            <MudTh>Enabled</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.AssetType</MudTd>
+            <MudTd>@context.Label</MudTd>
+            <MudTd>@context.TaskType</MudTd>
+            <MudTd>@context.WorkerCapability</MudTd>
+            <MudTd>@context.SortOrder</MudTd>
+            <MudTd>
+                <MudSwitch T="bool" Value="context.IsEnabled" Color="Color.Primary"
+                           ValueChanged="@(async (bool v) => await ToggleAsync(context, v))" />
+            </MudTd>
+            <MudTd>
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                               OnClick="@(async () => await DeleteAsync(context))" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    sealed class ActionRow
+    {
+        public Guid ActionId { get; set; }
+        public string AssetType { get; set; } = "";
+        public string ActionKey { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string TaskType { get; set; } = "";
+        public string WorkerCapability { get; set; } = "";
+        public int SortOrder { get; set; }
+        public bool IsEnabled { get; set; } = true;
+    }
+
+    List<ActionRow>? _actions;
+    ActionRow _new = new() { SortOrder = 100 };
+    bool _busy;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    async Task LoadAsync()
+    {
+        try { _actions = await Http.GetFromJsonAsync<List<ActionRow>>("/ui/asset-type-actions") ?? new(); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to load asset type actions"); _actions = new(); }
+    }
+
+    async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_new.AssetType) || string.IsNullOrWhiteSpace(_new.Label) || string.IsNullOrWhiteSpace(_new.WorkerCapability))
+            return;
+        _busy = true;
+        try
+        {
+            _new.ActionKey = $"{_new.TaskType}-{_new.WorkerCapability}".ToLowerInvariant();
+            var resp = await Http.PostAsJsonAsync("/ui/asset-type-actions", _new);
+            if (resp.IsSuccessStatusCode)
+            {
+                _new = new() { SortOrder = 100 };
+                await LoadAsync();
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    async Task ToggleAsync(ActionRow row, bool enabled)
+    {
+        row.IsEnabled = enabled;
+        await Http.PatchAsJsonAsync($"/ui/asset-type-actions/{row.ActionId}", row);
+    }
+
+    async Task DeleteAsync(ActionRow row)
+    {
+        var resp = await Http.DeleteAsync($"/ui/asset-type-actions/{row.ActionId}");
+        if (resp.IsSuccessStatusCode) _actions?.Remove(row);
+    }
+}

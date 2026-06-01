@@ -73,6 +73,7 @@ MapService(app, "/scope-validation", endpoints.ProgramScope);
 MapService(app, "/targets", endpoints.ProgramScope);
 MapService(app, "/assets", endpoints.Asset);
 MapService(app, "/asset-types", endpoints.Asset);
+MapService(app, "/asset-type-actions", endpoints.Asset);
 MapService(app, "/artifacts", endpoints.Artifact);
 MapService(app, "/findings", endpoints.Finding);
 MapService(app, "/tasks", endpoints.Task);

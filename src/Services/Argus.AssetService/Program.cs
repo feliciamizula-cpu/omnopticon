@@ -126,6 +126,7 @@ internal static class AssetStoreInitialization
             // EnsureCreated no-ops once any service has created the database, which silently left the
             // asset tables missing. EnsureAssetSchemaCreatedAsync creates them idempotently instead.
             await dbContext.EnsureAssetSchemaCreatedAsync();
+            await dbContext.EnsureAssetTypeActionsAsync();
             await dbContext.Database.EnsureArgusOutboxCreatedAsync();
             await dbContext.Database.EnsureArgusInboxCreatedAsync();
         }

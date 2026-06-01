@@ -85,7 +85,7 @@
                    ContextMenuItems="GetAssetMenuItems"
                    RowClassFunc="@((a, _) => RowClassFn(a))"
                    Virtualize="true"
-                   Height="calc(100vh - 200px)"
+                   Height="100%"
                    Loading="_loadingAssets"
                    EmptyMessage="@(_showingAllAssets ? "No assets found" : "Select a program to view assets")">
             <PropertyColumn T="AssetItem" TProperty="string" Property="a => a.Type"   Title="Type" />
@@ -125,13 +125,40 @@
         </ArgusGrid>
     </MudPaper>
 
+    @* ── Technologies panel ── *@
+    <MudPaper Class="ops-panel ops-panel-wide" Elevation="0" Square="true">
+        <div class="ops-panel-header">
+            <div class="ops-assets-header-left">
+                <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Technologies</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ops-count-chip">@_technologies.Count</MudChip>
+            </div>
+        </div>
+        <ArgusGrid TItem="TechnologyItem"
+                   Items="_technologies"
+                   SelectedItem="_selectedTechnology"
+                   OnRowClick="SelectTechnology"
+                   Virtualize="true"
+                   Height="100%"
+                   Loading="_loadingTechnologies"
+                   EmptyMessage="No technologies discovered">
+            <PropertyColumn T="TechnologyItem" TProperty="string" Property="t => t.Name" Title="Name" />
+            <PropertyColumn T="TechnologyItem" TProperty="string" Property="t => t.Category" Title="Category" />
+            <PropertyColumn T="TechnologyItem" TProperty="string" Property="t => t.Target" Title="Target" />
+            <TemplateColumn T="TechnologyItem" Title="Confidence" Sortable="true">
+                <CellTemplate>@((context.Item.Confidence * 100).ToString("F0"))%</CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn T="TechnologyItem" TProperty="DateTimeOffset" Property="t => t.DiscoveredAt" Title="Discovered" />
+        </ArgusGrid>
+    </MudPaper>
+
     @* ── Activity feed ── *@
     <MudPaper Class="ops-panel ops-panel-narrow" Elevation="0" Square="true">
         <div class="ops-panel-header">
             <MudText Typo="Typo.subtitle2" Class="ops-panel-title">Activity</MudText>
         </div>
         <div class="ops-log">
-            @foreach (var entry in _log)
+            @* Show only the most recent few so the panel can't grow unbounded (newest are at index 0). *@
+            @foreach (var entry in _log.Take(5))
             {
                 <div class="ops-log-entry @(entry.IsError ? "ops-log-error" : "ops-log-success")">
                     <span class="ops-log-time">@entry.When.ToString("HH:mm:ss")</span>
@@ -153,6 +180,8 @@
     sealed record ProgramItem(Guid ProgramId, string Name, string Domain, string Source, DateTimeOffset CreatedAt);
     sealed record AssetItem(Guid AssetId, string Type, string Value, string Status,
         double? RiskScore, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt);
+    sealed record TechnologyItem(Guid AssetId, string Name, string Category, string Target,
+        double Confidence, DateTimeOffset DiscoveredAt);
     sealed record LogEntry(string Message, bool IsError, DateTimeOffset When = default)
     {
         public DateTimeOffset When { get; init; } = When == default ? DateTimeOffset.UtcNow : When;
@@ -173,13 +202,16 @@
 
     List<ProgramItem> _programs     = [];
     List<AssetItem>   _assets       = [];
+    List<TechnologyItem> _technologies = [];
     List<LogEntry>    _log          = [];
     HashSet<Guid>     _flashingIds  = [];
 
     ProgramItem? _selectedProgram;
     AssetItem?   _selectedAsset;
+    TechnologyItem? _selectedTechnology;
     bool         _realtimeConnected;
     bool         _loadingAssets;
+    bool         _loadingTechnologies;
     bool         _showingAllAssets;
     string?      _assetError;
 
@@ -207,6 +239,7 @@
         }
 
         await LoadAllAssetsAsync();
+        await LoadTechnologiesAsync();
 
         await InvokeAsync(StateHasChanged);
     }
@@ -223,7 +256,14 @@
 
         if (evt.Delta is not null)
         {
-            await ApplyAssetDeltaAsync(evt.Delta);
+            if (string.Equals(evt.Delta.Type, "Technology", StringComparison.OrdinalIgnoreCase))
+            {
+                await LoadTechnologiesAsync();
+            }
+            else
+            {
+                await ApplyAssetDeltaAsync(evt.Delta);
+            }
         }
         else if (evt.Reason.Equals("changed", StringComparison.OrdinalIgnoreCase))
         {
@@ -304,6 +344,8 @@
             await LoadAssetsAsync();
         else
             await LoadAllAssetsAsync();
+
+        await LoadTechnologiesAsync();
     }
 
     // ── Context menu builders ─────────────────────────────────────────────────────
@@ -549,6 +591,59 @@
             LastSeenAt:  e.TryGetProperty("lastSeenAt",  out var ls) && ls.ValueKind != JsonValueKind.Null ? ls.GetDateTimeOffset() : null);
     }
 
+    static TechnologyItem? ParseTechnology(JsonElement e)
+    {
+        if (!e.TryGetProperty("assetId", out var idEl)) return null;
+        var type = e.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+        if (!type.Equals("Technology", StringComparison.OrdinalIgnoreCase)) return null;
+        var metadata = e.TryGetProperty("metadata", out var m) && m.ValueKind == JsonValueKind.Object ? m : default;
+        return new TechnologyItem(
+            AssetId:     idEl.GetGuid(),
+            Name:        e.TryGetProperty("value", out var v) ? v.GetString() ?? "" : "",
+            Category:    e.TryGetProperty("subtype", out var st) ? st.GetString() ?? "Technology" : "Technology",
+            Target:      metadata.ValueKind != default && metadata.TryGetProperty("target", out var tg) ? tg.GetString() ?? "" : "",
+            Confidence:  e.TryGetProperty("confidence", out var cs) && cs.ValueKind != JsonValueKind.Null ? (double)cs.GetDecimal() : 0.8,
+            DiscoveredAt: e.TryGetProperty("firstSeenAt", out var fsa) && fsa.ValueKind != JsonValueKind.Null ? fsa.GetDateTimeOffset() : DateTimeOffset.UtcNow);
+    }
+
+    async Task LoadTechnologiesAsync()
+    {
+        _loadingTechnologies = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var resp = await Http.GetAsync("/ui/ops/assets?type=Technology&take=500");
+            if (!resp.IsSuccessStatusCode)
+            {
+                AddLog($"Technology load failed: {(int)resp.StatusCode}", error: true);
+                return;
+            }
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray().ToList()
+                : root.TryGetProperty("items", out var items)
+                    ? items.EnumerateArray().ToList()
+                    : [];
+
+            _technologies = arr.Select(ParseTechnology)
+                .Where(t => t is not null)
+                .Cast<TechnologyItem>()
+                .OrderByDescending(t => t.Confidence)
+                .ThenBy(t => t.Name)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Technology load error: {ex.Message}", error: true);
+        }
+        finally
+        {
+            _loadingTechnologies = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     // ── Row interaction ───────────────────────────────────────────────────────────
 
     async Task SelectProgram(ProgramItem p)
@@ -559,6 +654,8 @@
     }
 
     void SelectAsset(AssetItem a) => _selectedAsset = a;
+
+    void SelectTechnology(TechnologyItem t) => _selectedTechnology = t;
 
     void ClearProgramFilter()
     {

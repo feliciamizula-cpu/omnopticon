@@ -18,6 +18,7 @@ x-common-env: &common-env
   ARGUS_EVENT_ROUTER_SERVICE: http://event-router-service:8080
   ARGUS_REALTIME_SERVICE: http://realtime-service:8080
   ARGUS_PROXY_REGISTRY_SERVICE: http://proxy-registry-service:8080
+  ARGUS_REQUEST_TOOL_SERVICE: http://request-tool-service:8080
   ConnectionStrings__argusdb: Host=postgres;Port=5432;Database=argusdb;Username=postgres;Password=${ARGUS_POSTGRES_PASSWORD:-argus-dev-password}
   ConnectionStrings__redis: redis:6379
   ConnectionStrings__eventbus: amqp://argus:${ARGUS_RABBITMQ_PASSWORD:-argus-rabbit-password}@rabbitmq:5672
@@ -166,6 +167,14 @@ services:
       args:
         PROJECT_PATH: src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj
         ASSEMBLY_NAME: Argus.ProxyRegistryService
+
+  request-tool-service:
+    <<: *service-defaults
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj
+        ASSEMBLY_NAME: Argus.RequestToolService
 
   argus-api-gateway:
     <<: *service-defaults

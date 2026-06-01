@@ -11,4 +11,10 @@
     <ProjectReference Include="..\..\BuildingBlocks\Argus.BuildingBlocks.Workers\Argus.BuildingBlocks.Workers.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="tech_id_data.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

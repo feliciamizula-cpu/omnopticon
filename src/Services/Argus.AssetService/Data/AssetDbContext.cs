@@ -11,6 +11,7 @@ public sealed class AssetDbContext(DbContextOptions<AssetDbContext> options) : D
     public DbSet<AssetRelationshipRecord> AssetRelationships => Set<AssetRelationshipRecord>();
     public DbSet<AssetObservationRecord> AssetObservations => Set<AssetObservationRecord>();
     public DbSet<AssetTypeDefinitionRecord> AssetTypeDefinitions => Set<AssetTypeDefinitionRecord>();
+    public DbSet<AssetTypeActionRecord> AssetTypeActions => Set<AssetTypeActionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -18,6 +19,17 @@ public sealed class AssetDbContext(DbContextOptions<AssetDbContext> options) : D
         ConfigureAssetRelationship(modelBuilder);
         ConfigureAssetObservation(modelBuilder);
         ConfigureAssetTypeDefinition(modelBuilder);
+
+        var action = modelBuilder.Entity<AssetTypeActionRecord>();
+        action.ToTable("asset_type_actions");
+        action.HasKey(r => r.ActionId);
+        action.HasIndex(r => new { r.AssetType, r.ActionKey }).IsUnique();
+        action.Property(r => r.AssetType).HasMaxLength(64);
+        action.Property(r => r.ActionKey).HasMaxLength(64);
+        action.Property(r => r.Label).HasMaxLength(256);
+        action.Property(r => r.TaskType).HasMaxLength(64);
+        action.Property(r => r.WorkerCapability).HasMaxLength(128);
+
         modelBuilder.ConfigureArgusOutbox();
     }
 

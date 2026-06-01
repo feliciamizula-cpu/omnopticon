@@ -49,6 +49,12 @@ public static class AssetEndpoints
         app.MapPost("/asset-types/{typeKey}/enable", EnableAssetType);
         app.MapPost("/asset-types/{typeKey}/disable", DisableAssetType);
         app.MapGet("/asset-types/{typeKey}/usage", GetAssetTypeUsage);
+        // Configurable per-asset-type context-menu actions.
+        app.MapGet("/asset-types/{assetType}/actions", GetAssetTypeActions);
+        app.MapGet("/asset-type-actions", GetAllAssetTypeActions);
+        app.MapPost("/asset-type-actions", CreateAssetTypeAction);
+        app.MapPatch("/asset-type-actions/{actionId:guid}", UpdateAssetTypeAction);
+        app.MapDelete("/asset-type-actions/{actionId:guid}", DeleteAssetTypeAction);
     }
 
     private static async Task<IResult> GetAssets(
@@ -590,6 +596,57 @@ public static class AssetEndpoints
             .ToArrayAsync(cancellationToken);
 
         return Results.Ok(types);
+    }
+
+    private static async Task<IResult> GetAssetTypeActions(string assetType, [FromServices] AssetDbContext db, CancellationToken ct)
+    {
+        var actions = await db.AssetTypeActions.AsNoTracking()
+            .Where(a => a.AssetType == assetType && a.IsEnabled)
+            .OrderBy(a => a.SortOrder).ThenBy(a => a.Label)
+            .ToArrayAsync(ct);
+        return Results.Ok(actions);
+    }
+
+    private static async Task<IResult> GetAllAssetTypeActions([FromServices] AssetDbContext db, CancellationToken ct)
+    {
+        var actions = await db.AssetTypeActions.AsNoTracking()
+            .OrderBy(a => a.AssetType).ThenBy(a => a.SortOrder)
+            .ToArrayAsync(ct);
+        return Results.Ok(actions);
+    }
+
+    private static async Task<IResult> CreateAssetTypeAction(AssetTypeActionRecord input, [FromServices] AssetDbContext db, CancellationToken ct)
+    {
+        input.ActionId = Guid.NewGuid();
+        input.CreatedAt = input.UpdatedAt = DateTimeOffset.UtcNow;
+        db.AssetTypeActions.Add(input);
+        await db.SaveChangesAsync(ct);
+        return Results.Created($"/asset-type-actions/{input.ActionId}", input);
+    }
+
+    private static async Task<IResult> UpdateAssetTypeAction(Guid actionId, AssetTypeActionRecord input, [FromServices] AssetDbContext db, CancellationToken ct)
+    {
+        var existing = await db.AssetTypeActions.FirstOrDefaultAsync(a => a.ActionId == actionId, ct);
+        if (existing is null) return Results.NotFound();
+        existing.AssetType = input.AssetType;
+        existing.ActionKey = input.ActionKey;
+        existing.Label = input.Label;
+        existing.TaskType = input.TaskType;
+        existing.WorkerCapability = input.WorkerCapability;
+        existing.SortOrder = input.SortOrder;
+        existing.IsEnabled = input.IsEnabled;
+        existing.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(existing);
+    }
+
+    private static async Task<IResult> DeleteAssetTypeAction(Guid actionId, [FromServices] AssetDbContext db, CancellationToken ct)
+    {
+        var existing = await db.AssetTypeActions.FirstOrDefaultAsync(a => a.ActionId == actionId, ct);
+        if (existing is null) return Results.NotFound();
+        db.AssetTypeActions.Remove(existing);
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> GetAssetType(

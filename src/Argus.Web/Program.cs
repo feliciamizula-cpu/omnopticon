@@ -20,8 +20,12 @@ builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped(sp =>
 {
-    var nav = sp.GetRequiredService<NavigationManager>();
-    return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
+    // Interactive-server Blazor calls the app's own /ui/* endpoints from the SERVER, so the base must
+    // be the in-container Kestrel address (http://localhost:8080), not the browser-facing URL
+    // (NavigationManager.BaseUri => :8082), which the server can't reach inside the container.
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var port = cfg["ASPNETCORE_HTTP_PORTS"] ?? "8080";
+    return new HttpClient { BaseAddress = new Uri($"http://localhost:{port}") };
 });
 builder.Services.AddMudServices();
     builder.Services.AddRazorComponents()
@@ -42,6 +46,7 @@ builder.Services.AddScoped<DevelopmentRealtimeClient>();
 builder.Services.AddSingleton<DevelopmentRealtimeNotifier>();
 builder.Services.AddSingleton<ProviderUsageCacheWarmer>();
 builder.Services.AddHostedService<ProviderUsageBackgroundRefresher>();
+builder.Services.AddHostedService<AssetDeltaBroadcastService>();
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("redis") ?? "localhost:6379";
@@ -289,6 +294,39 @@ app.MapPost("/ui/assets/bulk/enqueue", async (
     var gateway = new ArgusUiGateway(httpClientFactory);
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     return await gateway.PostJsonAsync(endpoints.Asset, "/assets/bulk/enqueue", payload, cancellationToken);
+});
+
+app.MapGet("/ui/asset-type-actions", async (
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.GetJsonAsync(endpoints.Asset, "/asset-type-actions", cancellationToken);
+});
+
+app.MapPost("/ui/asset-type-actions", async (JsonObject payload, IHttpClientFactory hcf, CancellationToken ct) =>
+{
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = hcf.CreateClient(); client.BaseAddress = new Uri(endpoints.Asset);
+    var resp = await client.PostAsJsonAsync("/asset-type-actions", payload, ct);
+    return Results.StatusCode((int)resp.StatusCode);
+});
+
+app.MapPatch("/ui/asset-type-actions/{actionId:guid}", async (Guid actionId, JsonObject payload, IHttpClientFactory hcf, CancellationToken ct) =>
+{
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = hcf.CreateClient(); client.BaseAddress = new Uri(endpoints.Asset);
+    var resp = await client.PatchAsJsonAsync($"/asset-type-actions/{actionId}", payload, ct);
+    return Results.StatusCode((int)resp.StatusCode);
+});
+
+app.MapDelete("/ui/asset-type-actions/{actionId:guid}", async (Guid actionId, IHttpClientFactory hcf, CancellationToken ct) =>
+{
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var client = hcf.CreateClient(); client.BaseAddress = new Uri(endpoints.Asset);
+    var resp = await client.DeleteAsync($"/asset-type-actions/{actionId}", ct);
+    return Results.StatusCode((int)resp.StatusCode);
 });
 
 app.MapPost("/ui/assets", async (
@@ -592,6 +630,22 @@ app.MapPost("/ui/development-environment/{action}", async (
     var result = await DevelopmentEnvironmentApi.RunActionAsync(action, configuration, ct);
     await notifier.NotifyAsync("development-environment", action, ct);
     return Results.Json(result, statusCode: result.Success ? StatusCodes.Status200OK : StatusCodes.Status409Conflict);
+});
+
+app.MapPost("/ui/asset-change", async (JsonObject payload, DevelopmentRealtimeNotifier notifier, ILogger<Program> logger, CancellationToken ct) =>
+{
+    var action = payload["action"]?.GetValue<string>() ?? "";
+    var assetId = payload["assetId"]?.GetValue<Guid>() ?? Guid.Empty;
+    var assetType = payload["type"]?.GetValue<string>() ?? "";
+    var value = payload["value"]?.GetValue<string>() ?? "";
+    var riskScore = payload["riskScore"]?.GetValue<double?>();
+    var firstSeenAt = payload["firstSeenAt"]?.GetValue<DateTimeOffset?>();
+    var lastSeenAt = payload["lastSeenAt"]?.GetValue<DateTimeOffset?>();
+
+    var delta = new AssetDelta(action, assetId, assetType, value, riskScore, firstSeenAt, lastSeenAt);
+    await notifier.NotifyAssetDeltaAsync(delta, ct);
+    logger.LogDebug("Asset delta broadcast: {Action} {AssetId}", action, assetId);
+    return Results.Ok();
 });
 
 app.MapStaticAssets();

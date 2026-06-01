@@ -1,3 +1,4 @@
+using Argus.BuildingBlocks.Artifacts;
 using Argus.BuildingBlocks.EventBus;
 using Argus.Contracts.Events;
 using Argus.Contracts.Artifacts;
@@ -32,6 +33,7 @@ else
 
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.ArtifactService");
 builder.Services.AddProblemDetails();
+builder.Services.AddLocalFileArtifactStore();
 
 var app = builder.Build();
 
@@ -85,6 +87,23 @@ app.MapGet("/artifacts/{artifactId:guid}/download", async (
 {
     var downloadInfo = await store.GetDownloadInfoAsync(artifactId, cancellationToken);
     return downloadInfo is not null ? Results.Ok(downloadInfo) : Results.NotFound();
+});
+
+app.MapGet("/artifacts/{artifactId:guid}/content", async (
+    Guid artifactId,
+    IArtifactStore store,
+    Argus.BuildingBlocks.Artifacts.IArtifactStore blobStore,
+    CancellationToken cancellationToken) =>
+{
+    var artifact = await store.FindAsync(artifactId, cancellationToken);
+    if (artifact is null)
+        return Results.NotFound();
+
+    var contentStream = await blobStore.GetAsync(artifact.StorageKey, cancellationToken);
+    if (contentStream is null)
+        return Results.NotFound();
+
+    return Results.File(contentStream, artifact.ContentType);
 });
 
 app.MapGet("/assets/{assetId:guid}/artifacts", async (
