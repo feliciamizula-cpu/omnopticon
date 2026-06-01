@@ -2642,7 +2642,13 @@ textarea.dev-input {
 /* Programs: full-width band, tall enough to show at least ~6 rows. */
 .ops-row-short {
   flex: 0 0 auto;
-  height: 260px;
+  height: 300px;
+}
+
+/* Keep Programs rows single-line so ~6 fit; the grid scrolls horizontally for the wide column set. */
+.ops-row-short .mud-table-cell,
+.ops-row-short th.mud-table-cell {
+  white-space: nowrap;
 }
 
 /* Assets: the dominant grid — fills remaining space but never collapses below a usable
@@ -2655,13 +2661,13 @@ textarea.dev-input {
 /* Technologies: secondary band below the assets grid. */
 .ops-row-tech {
   flex: 0 0 auto;
-  height: 170px;
+  height: 160px;
 }
 
 /* Activity feed: compact strip at the very bottom. */
 .ops-row-activity {
   flex: 0 0 auto;
-  height: 80px;
+  height: 76px;
 }
 
 .ops-panel {
@@ -2692,6 +2698,11 @@ textarea.dev-input {
 .ops-panel .argus-grid-wrap .mud-datagrid-table-container {
   overflow-x: hidden !important;
   overflow-y: auto !important;
+}
+
+/* The Programs grid has many columns (counts), so allow it to scroll horizontally. */
+.ops-row-short .argus-grid-wrap .mud-datagrid-table-container {
+  overflow-x: auto !important;
 }
 
 /* Prevent scrolling past last row in virtualized grids */

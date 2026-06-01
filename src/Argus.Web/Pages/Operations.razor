@@ -76,10 +76,36 @@
                    Virtualize="true"
                    EmptyMessage="No programs">
             <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Name"        Title="Name" />
-            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Domain"      Title="Domain" />
+            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Asset"      Title="Asset" />
+            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.AssetType"  Title="Asset Type" />
+            <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Scope"      Title="Scope" />
             <PropertyColumn T="ProgramItem" TProperty="string" Property="p => p.Source"      Title="Source" />
             <TemplateColumn T="ProgramItem" Title="Date Added">
                 <CellTemplate>@context.Item.CreatedAt.ToString("MM/dd/yy HH:mm")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Assets" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).Assets.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Subdomains" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).Subdomains.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Urls" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).Urls.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Scripts" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).Scripts.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="API Endpoints" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).ApiEndpoints.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Forms" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).Forms.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Login Pages" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).LoginPages.ToString("N0")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn T="ProgramItem" Title="Identified Technologies" Sortable="true">
+                <CellTemplate>@StatsFor(context.Item.ProgramId).Technologies.ToString("N0")</CellTemplate>
             </TemplateColumn>
         </ArgusGrid>
     </MudPaper>
@@ -262,7 +288,8 @@
 @code {
     // ── Models ───────────────────────────────────────────────────────────────────
 
-    sealed record ProgramItem(Guid ProgramId, string Name, string Domain, string Source, DateTimeOffset CreatedAt);
+    sealed record ProgramItem(Guid ProgramId, string Name, string Asset, string AssetType, string Scope, string Source, DateTimeOffset CreatedAt);
+    sealed record ProgramStats(int Assets, int Subdomains, int Urls, int Scripts, int ApiEndpoints, int Forms, int LoginPages, int Technologies);
     sealed record AssetItem(Guid AssetId, string Type, string Value, string Status,
         double? RiskScore, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt,
         long? SizeBytes, int? ResponseTimeMs, string? Notes);
@@ -294,6 +321,12 @@
     HashSet<Guid>     _flashingIds  = [];
 
     Dictionary<string, int> _topAssetTypes = [];
+
+    // Per-program asset breakdown for the Programs grid count columns (computed client-side from a full
+    // asset fetch, since the asset service exposes no per-program aggregation endpoint).
+    Dictionary<Guid, ProgramStats> _programStats = [];
+    ProgramStats StatsFor(Guid programId) =>
+        _programStats.TryGetValue(programId, out var s) ? s : new ProgramStats(0, 0, 0, 0, 0, 0, 0, 0);
 
     ProgramItem? _selectedProgram;
     AssetItem?   _selectedAsset;
@@ -354,6 +387,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadProgramsAsync();
+        await LoadProgramStatsAsync();
         await LoadAssetActionsAsync();
         await LoadProcessingStateAsync();
     }
@@ -630,13 +664,33 @@
                     ? sc.EnumerateArray().ToList()
                     : new List<JsonElement>();
 
-                var domain = scopes.Count > 0 && scopes[0].TryGetProperty("pattern", out var p) ? p.GetString() ?? "" : "";
+                static string ScopeField(JsonElement s, string name) =>
+                    s.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+                // Include scopes define the program's in-scope assets; exclusions are filtered out.
+                var includes = scopes
+                    .Where(s => !string.Equals(ScopeField(s, "action"), "Exclude", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                // Primary asset: prefer a concrete domain/IP scope; fall back to the first include.
+                var primaryIdx = includes.FindIndex(s =>
+                    ScopeField(s, "scopeType") is "Domain" or "IpRange" or "IpAddress" or "Cidr");
+                if (primaryIdx < 0 && includes.Count > 0) primaryIdx = 0;
+
+                var asset     = primaryIdx >= 0 ? ScopeField(includes[primaryIdx], "pattern") : "";
+                var assetType = primaryIdx >= 0 ? ScopeField(includes[primaryIdx], "scopeType") : "";
+                var scope     = string.Join("  |  ", includes
+                    .Select(s => ScopeField(s, "pattern"))
+                    .Where(pat => pat.Length > 0)
+                    .Select(PatternToRegex));
 
                 return new ProgramItem(
                     ProgramId:   e.TryGetProperty("programId", out var id)  ? id.GetGuid()  :
                                 e.TryGetProperty("id",        out var id2) ? id2.GetGuid() : Guid.Empty,
                     Name:        e.TryGetProperty("name",      out var n)  ? n.GetString()  ?? "" : "",
-                    Domain:      domain,
+                    Asset:       asset,
+                    AssetType:   assetType,
+                    Scope:       scope,
                     Source:      e.TryGetProperty("source",    out var so) ? so.GetString() ?? "" : "",
                     CreatedAt:   e.TryGetProperty("createdAt", out var ca) && ca.ValueKind != JsonValueKind.Null
                                     ? ca.GetDateTimeOffset() : DateTimeOffset.MinValue);
@@ -652,6 +706,54 @@
         catch (Exception ex)
         {
             AddLog($"Load programs error: {ex.Message}", error: true);
+        }
+    }
+
+    // Builds the per-program asset breakdown shown in the Programs grid count columns. Fetches the full
+    // (unfiltered) asset set once and groups by program + type, since there is no aggregation endpoint.
+    async Task LoadProgramStatsAsync()
+    {
+        try
+        {
+            using var resp = await Http.GetAsync("/ui/ops/assets");
+            if (!resp.IsSuccessStatusCode) return;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array
+                ? root.EnumerateArray()
+                : root.TryGetProperty("items", out var items) ? items.EnumerateArray()
+                : Enumerable.Empty<JsonElement>();
+
+            var acc = new Dictionary<Guid, int[]>(); // [total, sub, url, js, api, form, login, tech]
+            foreach (var e in arr)
+            {
+                if (!e.TryGetProperty("programId", out var pidEl) || pidEl.ValueKind != JsonValueKind.String) continue;
+                if (!Guid.TryParse(pidEl.GetString(), out var pid)) continue;
+                var type = e.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+
+                if (!acc.TryGetValue(pid, out var c)) { c = new int[8]; acc[pid] = c; }
+                c[0]++;
+                switch (type.ToLowerInvariant())
+                {
+                    case "subdomain":      c[1]++; break;
+                    case "url":            c[2]++; break;
+                    case "javascriptfile": c[3]++; break;
+                    case "apiendpoint":    c[4]++; break;
+                    case "form":           c[5]++; break;
+                    case "loginpage":      c[6]++; break;
+                    case "technology":     c[7]++; break;
+                }
+            }
+
+            _programStats = acc.ToDictionary(
+                kv => kv.Key,
+                kv => new ProgramStats(kv.Value[0], kv.Value[1], kv.Value[2], kv.Value[3], kv.Value[4], kv.Value[5], kv.Value[6], kv.Value[7]));
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Program stats load error: {ex.Message}", error: true);
         }
     }
 
@@ -1059,6 +1161,14 @@
         if (ago.TotalHours   < 1) return $"{(int)ago.TotalMinutes}m ago";
         if (ago.TotalDays    < 1) return $"{(int)ago.TotalHours}h ago";
         return $"{(int)ago.TotalDays}d ago";
+    }
+
+    // Turns a scope pattern (e.g. "*.att.com") into an anchored matching regex for the Scope column.
+    static string PatternToRegex(string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return "";
+        var escaped = System.Text.RegularExpressions.Regex.Escape(pattern).Replace("\\*", ".*");
+        return $"^{escaped}$";
     }
 
     static string FormatBytes(long bytes)
