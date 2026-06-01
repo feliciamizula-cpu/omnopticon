@@ -312,6 +312,32 @@ builder.AddProject<Projects.Argus_Workers_FindingDeduper>("finding-deduper-worke
     .WaitFor(finding)
     .WaitFor(realtime);
 
+builder.AddProject<Projects.Argus_Workers_Sublist3r>("sublist3r-worker")
+    .PublishAsArgusImage("src/Workers/Argus.Workers.Sublist3r/Argus.Workers.Sublist3r.csproj", "Argus.Workers.Sublist3r")
+    .WithHttpEndpoint()
+    .WithEnvironment("ARGUS_WORKER_RUNTIME", "continuous")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(asset)
+    .WithReference(task)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
+builder.AddProject<Projects.Argus_Workers_SubdomainGuesser>("subdomain-guesser-worker")
+    .PublishAsArgusImage("src/Workers/Argus.Workers.SubdomainGuesser/Argus.Workers.SubdomainGuesser.csproj", "Argus.Workers.SubdomainGuesser")
+    .WithHttpEndpoint()
+    .WithEnvironment("ARGUS_WORKER_RUNTIME", "continuous")
+    .WithEnvironment("ARGUS_SCOPE_VALIDATION_REQUIRED", "true")
+    .WithReference(asset)
+    .WithReference(task)
+    .WithReference(rateLimit)
+    .WithReference(realtime)
+    .WaitFor(task)
+    .WaitFor(asset)
+    .WaitFor(realtime);
+
 builder.AddProject<Projects.Argus_Workers_Http>("http-worker")
     .PublishAsArgusImage("src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj", "Argus.Workers.Http")
     .WithHttpEndpoint()

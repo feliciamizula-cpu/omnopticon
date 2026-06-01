@@ -249,6 +249,32 @@ services:
         PROJECT_PATH: src/Workers/Argus.Workers.Subfinder/Argus.Workers.Subfinder.csproj
         ASSEMBLY_NAME: Argus.Workers.Subfinder
 
+  sublist3r-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+      ARGUS_WORKER_RUNTIME: "continuous"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.Sublist3r/Argus.Workers.Sublist3r.csproj
+        ASSEMBLY_NAME: Argus.Workers.Sublist3r
+
+  subdomain-guesser-worker:
+    <<: *service-defaults
+    stop_grace_period: 90s
+    environment:
+      <<: *common-env
+      ARGUS_SCOPE_VALIDATION_REQUIRED: "true"
+      ARGUS_WORKER_RUNTIME: "continuous"
+    build:
+      <<: *service-build
+      args:
+        PROJECT_PATH: src/Workers/Argus.Workers.SubdomainGuesser/Argus.Workers.SubdomainGuesser.csproj
+        ASSEMBLY_NAME: Argus.Workers.SubdomainGuesser
+
   dns-resolver-worker:
     <<: *service-defaults
     stop_grace_period: 90s
