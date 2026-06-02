@@ -86,25 +86,19 @@
 
     private static Color ProgressColor(double utilization)
     {
-        return utilization switch
-        {
-            < 60 => Color.Success,
-            < 90 => Color.Warning,
-            _ => Color.Error
-        };
+        if (utilization >= 90) return Color.Error;
+        if (utilization >= 60) return Color.Warning;
+        return Color.Success;
     }
 
     private static string FormatAgo(DateTimeOffset timestamp)
     {
         var elapsed = DateTimeOffset.Now - timestamp;
-        return elapsed.TotalMinutes switch
-        {
-            < 1 => $"{elapsed:%s}s ago",
-            < 60 => $"{elapsed:%m}m ago",
-            < 24 * 60 => $"{elapsed:%h}h ago",
-            < 48 * 60 => "1d ago",
-            _ => $"{elapsed:%d}d ago"
-        };
+        var minutes = elapsed.TotalMinutes;
+        if (minutes >= 24 * 60) return elapsed.TotalDays >= 2 ? $"{(int)elapsed.TotalDays}d ago" : "1d ago";
+        if (minutes >= 60) return $"{elapsed:%h}h ago";
+        if (minutes >= 1) return $"{elapsed:%m}m ago";
+        return $"{elapsed:%s}s ago";
     }
 
     protected override async Task OnInitializedAsync()
