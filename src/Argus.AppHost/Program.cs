@@ -1,30 +1,23 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var redis = builder.AddRedis("redis");
+// Local dev: use native services installed on the host instead of Docker containers.
+var redis = builder.AddConnectionString("redis", "localhost:6379");
 
-var rabbitMq = builder.AddRabbitMQ("eventbus")
-    .WithLifetime(ContainerLifetime.Persistent);
+var rabbitMq = builder.AddConnectionString("eventbus", "amqp://guest:guest@localhost:5672/");
 
-var postgres = builder.AddPostgres("postgres")
-    .WithImage("pgvector/pgvector")
-    .WithImageTag("pg16")
-    .WithLifetime(ContainerLifetime.Persistent);
-
-var argusDb = postgres.AddDatabase("argusdb");
+var argusDb = builder.AddConnectionString("argusdb", "Host=localhost;Port=5432;Database=argusdb;Username=argus;Password=argus;");
 
 var programScope = builder.AddProject<Projects.Argus_ProgramScopeService>("program-scope-service")
     .PublishAsArgusImage("src/Services/Argus.ProgramScopeService/Argus.ProgramScopeService.csproj", "Argus.ProgramScopeService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var asset = builder.AddProject<Projects.Argus_AssetService>("asset-service")
     .PublishAsArgusImage("src/Services/Argus.AssetService/Argus.AssetService.csproj", "Argus.AssetService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 programScope
     .WithReference(asset)
@@ -34,23 +27,20 @@ var artifact = builder.AddProject<Projects.Argus_ArtifactService>("artifact-serv
     .PublishAsArgusImage("src/Services/Argus.ArtifactService/Argus.ArtifactService.csproj", "Argus.ArtifactService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var finding = builder.AddProject<Projects.Argus_FindingService>("finding-service")
     .PublishAsArgusImage("src/Services/Argus.FindingService/Argus.FindingService.csproj", "Argus.FindingService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var task = builder.AddProject<Projects.Argus_TaskService>("task-service")
     .PublishAsArgusImage("src/Services/Argus.TaskService/Argus.TaskService.csproj", "Argus.TaskService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
     .WithReference(redis)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var rateLimit = builder.AddProject<Projects.Argus_RateLimitService>("rate-limit-service")
     .PublishAsArgusImage("src/Services/Argus.RateLimitService/Argus.RateLimitService.csproj", "Argus.RateLimitService")
@@ -58,7 +48,6 @@ var rateLimit = builder.AddProject<Projects.Argus_RateLimitService>("rate-limit-
     .WithReference(redis)
     .WithReference(rabbitMq)
     .WithReference(programScope)
-    .WaitFor(rabbitMq)
     .WaitFor(programScope);
 
 var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("scan-orchestrator-service")
@@ -67,7 +56,6 @@ var orchestrator = builder.AddProject<Projects.Argus_ScanOrchestratorService>("s
     .WithReference(argusDb)
     .WithReference(rabbitMq)
     .WithReference(programScope)
-    .WaitFor(rabbitMq)
     .WaitFor(programScope)
     .WaitFor(asset)
     .WaitFor(task);
@@ -76,22 +64,19 @@ var realtime = builder.AddProject<Projects.Argus_RealtimeService>("realtime-serv
     .PublishAsArgusImage("src/Services/Argus.RealtimeService/Argus.RealtimeService.csproj", "Argus.RealtimeService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var eventRouter = builder.AddProject<Projects.Argus_EventRouterService>("event-router-service")
     .PublishAsArgusImage("src/Services/Argus.EventRouterService/Argus.EventRouterService.csproj", "Argus.EventRouterService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var proxyRegistry = builder.AddProject<Projects.Argus_ProxyRegistryService>("proxy-registry-service")
     .PublishAsArgusImage("src/Services/Argus.ProxyRegistryService/Argus.ProxyRegistryService.csproj", "Argus.ProxyRegistryService")
     .WithHttpEndpoint()
     .WithReference(argusDb)
-    .WithReference(rabbitMq)
-    .WaitFor(rabbitMq);
+    .WithReference(rabbitMq);
 
 var requestTool = builder.AddProject<Projects.Argus_RequestToolService>("request-tool-service")
     .PublishAsArgusImage("src/Services/Argus.RequestToolService/Argus.RequestToolService.csproj", "Argus.RequestToolService")
@@ -104,7 +89,6 @@ var requestTool = builder.AddProject<Projects.Argus_RequestToolService>("request
     .WithReference(rateLimit)
     .WithReference(proxyRegistry)
     .WithReference(realtime)
-    .WaitFor(rabbitMq)
     .WaitFor(asset)
     .WaitFor(artifact)
     .WaitFor(programScope)
@@ -115,7 +99,6 @@ var agentService = builder.AddProject<Projects.Argus_AgentService>("agent-servic
     .WithHttpEndpoint()
     .WithReference(argusDb)
     .WithReference(rabbitMq)
-    .WaitFor(rabbitMq)
     .WithEnvironment("OPENCODE_AUTH_TOKEN", Environment.GetEnvironmentVariable("OPENCODE_AUTH_TOKEN") ?? "")
     .WithEnvironment("OPENROUTER_API_KEY", Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? "")
     .WithEnvironment("OPENAI_API_KEY", Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "")
@@ -341,7 +324,7 @@ builder.AddProject<Projects.Argus_Workers_SubdomainGuesser>("subdomain-guesser-w
 builder.AddProject<Projects.Argus_Workers_Http>("http-worker")
     .PublishAsArgusImage("src/Workers/Argus.Workers.Http/Argus.Workers.Http.csproj", "Argus.Workers.Http")
     .WithHttpEndpoint()
-    .WithEnvironment("ARGUS_WORKER_RUNTIME", "ephemeral")
+    .WithEnvironment("ARGUS_WORKER_RUNTIME", "continuous")
     .WithReference(asset)
     .WithReference(rateLimit)
     .WithReference(realtime)
@@ -352,7 +335,7 @@ builder.AddProject<Projects.Argus_Workers_Http>("http-worker")
 builder.AddProject<Projects.Argus_Workers_AssetStorage>("asset-storage-worker")
     .PublishAsArgusImage("src/Workers/Argus.Workers.AssetStorage/Argus.Workers.AssetStorage.csproj", "Argus.Workers.AssetStorage")
     .WithHttpEndpoint()
-    .WithEnvironment("ARGUS_WORKER_RUNTIME", "ephemeral")
+    .WithEnvironment("ARGUS_WORKER_RUNTIME", "continuous")
     .WithReference(asset)
     .WithReference(realtime)
     .WaitFor(asset)
@@ -388,8 +371,6 @@ builder.AddProject<Projects.Argus_Web>("argus-web")
     .WithReference(agentService)
     .WithReference(eventRouter)
     .WithReference(requestTool);
-
-redis.WithParentRelationship(rateLimit);
 
 requestTool.WithReference(realtime);
 

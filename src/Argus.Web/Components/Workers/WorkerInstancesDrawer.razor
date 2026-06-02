@@ -5,7 +5,7 @@
     <div style="padding: 16px;">
         <MudText Typo="Typo.h6">@WorkerType Instances</MudText>
         <span style="opacity: 0.6; font-size: 0.9rem; margin-left: 8px">
-            @CurrentInstances?.Count ?? 0 instances
+            @(CurrentInstances?.Count ?? 0) instances
         </span>
     </div>
     <MudTable Items="@(CurrentInstances ?? [])" Hover="true" Dense="true" Striped="true" Loading="_loading" Style="width: 100%;">
