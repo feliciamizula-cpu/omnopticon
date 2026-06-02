@@ -645,6 +645,13 @@ app.MapPost("/ui/request-tool/sessions/{sessionId:guid}/send", ProxySendRequestT
 app.MapPost("/ui/request-tool/compare", ProxyCompareRequestTool);
 app.MapGet("/ui/request-tool/exchanges/{exchangeId:guid}/raw-request", ProxyGetRawRequest);
 app.MapGet("/ui/request-tool/exchanges/{exchangeId:guid}/raw-response", ProxyGetRawResponse);
+// Fuzzer
+app.MapPost("/ui/request-tool/sessions/{sessionId:guid}/fuzz/runs", ProxyFuzzCreate);
+app.MapGet("/ui/request-tool/sessions/{sessionId:guid}/fuzz/runs", ProxyFuzzSessionRuns);
+app.MapGet("/ui/request-tool/fuzz/runs/{runId:guid}", ProxyFuzzGetRun);
+app.MapGet("/ui/request-tool/fuzz/runs/{runId:guid}/results", ProxyFuzzGetResults);
+app.MapPost("/ui/request-tool/fuzz/runs/{runId:guid}/stop", ProxyFuzzStop);
+app.MapGet("/ui/request-tool/fuzz/built-ins", ProxyFuzzBuiltIns);
 
 app.MapGet("/ui/provider-usage", ProxyGetProviderUsage);
 app.MapPost("/ui/provider-usage/{providerId}/login", ProxyLoginProvider);
@@ -1164,6 +1171,47 @@ async Task<IResult> ProxyGetRawResponse(Guid exchangeId, IHttpClientFactory http
     var endpoints = ArgusServiceEndpoints.From(app.Configuration);
     var result = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/exchanges/{exchangeId}/raw-response", ct);
     return result is not null ? Results.Json(result) : Results.NotFound();
+}
+
+async Task<IResult> ProxyFuzzCreate(Guid sessionId, JsonObject payload, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.RequestTool, $"/request-tool/sessions/{sessionId}/fuzz/runs", payload, ct);
+}
+async Task<IResult> ProxyFuzzSessionRuns(Guid sessionId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var r = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/sessions/{sessionId}/fuzz/runs", ct);
+    return r is not null ? Results.Json(r) : Results.Ok(Array.Empty<object>());
+}
+async Task<IResult> ProxyFuzzGetRun(Guid runId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var r = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/fuzz/runs/{runId}", ct);
+    return r is not null ? Results.Json(r) : Results.NotFound();
+}
+async Task<IResult> ProxyFuzzGetResults(Guid runId, int offset, int limit, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var r = await gateway.GetJsonAsync(endpoints.RequestTool, $"/request-tool/fuzz/runs/{runId}/results?offset={offset}&limit={limit}", ct);
+    return r is not null ? Results.Json(r) : Results.NotFound();
+}
+async Task<IResult> ProxyFuzzStop(Guid runId, IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    return await gateway.PostJsonAsync(endpoints.RequestTool, $"/request-tool/fuzz/runs/{runId}/stop", new JsonObject(), ct);
+}
+async Task<IResult> ProxyFuzzBuiltIns(IHttpClientFactory httpClientFactory, CancellationToken ct)
+{
+    var gateway = new ArgusUiGateway(httpClientFactory);
+    var endpoints = ArgusServiceEndpoints.From(app.Configuration);
+    var r = await gateway.GetJsonAsync(endpoints.RequestTool, "/request-tool/fuzz/built-ins", ct);
+    return r is not null ? Results.Json(r) : Results.Ok(Array.Empty<string>());
 }
 
 async Task<IResult> ProxyGetProviderUsage(IHttpClientFactory httpClientFactory, IDistributedCache cache, ProviderUsageCacheWarmer warmer, CancellationToken ct)

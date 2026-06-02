@@ -1,6 +1,8 @@
 @page "/request-tool/{AssetId:guid}"
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@using System.Text.RegularExpressions
+@implements IAsyncDisposable
 
 <PageTitle>HTTP Request Tool - Argus</PageTitle>
 
@@ -37,8 +39,8 @@
         <div class="request-tool-tabs">
             @foreach (var exchange in _session.Exchanges)
             {
-                <div class="tab @(exchange.ExchangeId == _selectedExchangeId ? "active" : "")"
-                     @onclick="() => SelectExchange(exchange.ExchangeId)">
+                <div class="tab @(exchange.ExchangeId == _selectedExchangeId && !_fuzzMode ? "active" : "")"
+                     @onclick="() => SwitchToExchange(exchange.ExchangeId)">
                     <span class="tab-title">@exchange.TabTitle</span>
                     @if (exchange.Origin == "OriginalEvidence")
                     {
@@ -55,7 +57,322 @@
                 </div>
             }
             <button class="btn btn-sm btn-ghost tab-add" @onclick="CreateNewTab">+ New</button>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm @(_fuzzMode ? "btn-primary" : "btn-ghost") tab-add"
+                    @onclick="ToggleFuzzMode" title="Intruder — fuzz this request with variable payloads">
+                ⚡ Intruder
+            </button>
         </div>
+
+        @* ── Intruder / Fuzz mode ── *@
+        @if (_fuzzMode)
+        {
+        <div class="fuzz-layout">
+
+          @* ─ Request template editor (shows §var§ markers) ─ *@
+          <div class="fuzz-template-pane">
+            <div class="pane-header">
+              <h3>Request Template</h3>
+              <span style="font-size:11px;color:#aaa;">Mark variables with §name§ syntax.
+                Select text then press the button to wrap it.</span>
+              <button class="btn btn-sm" @onclick="WrapSelectionAsVariable">Wrap § §</button>
+            </div>
+            <div class="form-row" style="margin-bottom:6px">
+              <select class="input method-select" @bind="_draft.Method">
+                <option>GET</option><option>POST</option><option>PUT</option>
+                <option>PATCH</option><option>DELETE</option><option>HEAD</option>
+              </select>
+              <input type="text" class="input url-input" @bind="_draft.Url"
+                     placeholder="https://example.com/§path§?id=§id§" />
+            </div>
+            <div class="form-section">
+              <h4>Headers</h4>
+              @foreach (var h in _draft.Headers)
+              {
+                <div class="header-row">
+                  <input type="checkbox" @bind="h.Enabled" />
+                  <input type="text" class="input" @bind="h.Name" placeholder="Header" />
+                  <input type="text" class="input" @bind="h.Value" placeholder="Value — use §var§ here" />
+                  <button class="btn btn-icon btn-ghost" @onclick="() => RemoveHeader(h)">x</button>
+                </div>
+              }
+              <button class="btn btn-sm" @onclick="AddHeader">Add Header</button>
+            </div>
+            <div class="form-section">
+              <h4>Body</h4>
+              <textarea class="input body-textarea" @bind="_draft.Body"
+                        placeholder='{"user":"§user§","pass":"§pass§"}'></textarea>
+            </div>
+
+            @* Detected variables *@
+            <div class="fuzz-variables-section">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <h4 style="margin:0">Variables</h4>
+                <button class="btn btn-sm" @onclick="DetectVariables">Detect §vars§</button>
+              </div>
+              @if (_fuzzVariables.Count == 0)
+              {
+                <p style="color:#888;font-size:12px">No variables detected. Mark positions with §name§ then click Detect.</p>
+              }
+              else
+              {
+                @foreach (var v in _fuzzVariables)
+                {
+                  <div class="fuzz-var-row">
+                    <span class="fuzz-var-name">§@v.Name§</span>
+                    <span class="fuzz-var-count">@(v.PayloadCount) payloads</span>
+                    <button class="btn btn-sm" @onclick="() => OpenVarConfig(v)">Configure</button>
+                  </div>
+                }
+              }
+            </div>
+          </div>
+
+          @* ─ Attack settings + results ─ *@
+          <div class="fuzz-right-pane">
+            <div class="fuzz-settings">
+              <div class="fuzz-settings-row">
+                <label>Attack type</label>
+                <select class="input" @bind="_fuzzAttackType">
+                  <option value="Pitchfork">Pitchfork (parallel, same index)</option>
+                  <option value="ClusterBomb">Cluster Bomb (all permutations)</option>
+                </select>
+              </div>
+              <div class="fuzz-settings-row">
+                <label>Throttle (ms)</label>
+                <input type="number" class="input" @bind="_fuzzThrottleMs" min="0" max="60000" style="width:90px" />
+              </div>
+              <div class="fuzz-settings-row">
+                <label>Concurrency</label>
+                <input type="number" class="input" @bind="_fuzzMaxConcurrent" min="1" max="50" style="width:70px" />
+              </div>
+              <div class="fuzz-settings-row">
+                <label>Max requests</label>
+                <input type="number" class="input" @bind="_fuzzMaxRequests" min="1" max="10000" style="width:80px" />
+              </div>
+
+              @* Extract patterns *@
+              <div style="margin-top:12px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                  <h4 style="margin:0;font-size:12px">Extract Patterns</h4>
+                  <button class="btn btn-sm" @onclick="AddExtractPattern">+ Add Column</button>
+                </div>
+                @foreach (var ep in _extractPatterns)
+                {
+                  <div class="header-row" style="margin-bottom:4px">
+                    <input type="text" class="input" @bind="ep.Name" placeholder="Column name" style="width:100px" />
+                    <input type="text" class="input" @bind="ep.Regex" placeholder="Regex pattern (group 1 = extracted)" />
+                    <button class="btn btn-icon btn-ghost" @onclick="() => _extractPatterns.Remove(ep)">x</button>
+                  </div>
+                }
+              </div>
+
+              <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+                @if (_currentRun is null || _currentRun.Status is "Completed" or "Stopped" or "Error")
+                {
+                  <button class="btn btn-primary" @onclick="StartAttack" disabled="@(_fuzzVariables.Count == 0)">
+                    ▶ Start Attack
+                  </button>
+                }
+                else
+                {
+                  <button class="btn btn-danger" @onclick="StopAttack">■ Stop</button>
+                  <span style="font-size:12px;color:#aaa">
+                    @_currentRun.CompletedCount / @_currentRun.TotalCount
+                  </span>
+                }
+                @if (_fuzzError is not null)
+                {
+                  <span style="color:#f87272;font-size:12px">@_fuzzError</span>
+                }
+              </div>
+            </div>
+
+            @* ─ Results grid ─ *@
+            @if (_fuzzResults.Count > 0 || _currentRun is not null)
+            {
+              <div class="fuzz-results-header">
+                <span>Results
+                  @if (_currentRun is not null)
+                  {
+                    <span style="font-size:11px;color:#aaa;margin-left:6px">
+                      [@_currentRun.Status] @_currentRun.CompletedCount / @_currentRun.TotalCount
+                    </span>
+                  }
+                </span>
+                <button class="btn btn-sm btn-ghost" @onclick="ClearResults">Clear</button>
+              </div>
+              <div class="fuzz-results-table-wrap">
+                <table class="fuzz-results-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      @foreach (var v in _fuzzVariables)
+                      {
+                        <th>§@v.Name§</th>
+                      }
+                      <th>Status</th>
+                      <th>Size</th>
+                      <th>ms</th>
+                      @foreach (var ep in _extractPatterns.Where(e => !string.IsNullOrWhiteSpace(e.Name)))
+                      {
+                        <th>@ep.Name</th>
+                      }
+                      <th>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @foreach (var r in _fuzzResults.OrderBy(x => x.SequenceNumber))
+                    {
+                      <tr class="@StatusRowClass(r.StatusCode)" @onclick="() => ExpandFuzzResult(r)">
+                        <td>@r.SequenceNumber</td>
+                        @foreach (var v in _fuzzVariables)
+                        {
+                          <td class="fuzz-payload-cell">@(r.PayloadValues.TryGetValue(v.Name, out var pv) ? Truncate(pv, 30) : "")</td>
+                        }
+                        <td class="@StatusClass(r.StatusCode)">@(r.StatusCode?.ToString() ?? "—")</td>
+                        <td>@(r.ResponseSizeBytes.HasValue ? FormatSize(r.ResponseSizeBytes.Value) : "—")</td>
+                        <td>@(r.DurationMs?.ToString() ?? "—")</td>
+                        @foreach (var ep in _extractPatterns.Where(e => !string.IsNullOrWhiteSpace(e.Name)))
+                        {
+                          <td>@(r.ExtractValues.TryGetValue(ep.Name, out var ev) ? Truncate(ev, 40) : "")</td>
+                        }
+                        <td class="fuzz-error-cell">@(r.NetworkError is not null ? Truncate(r.NetworkError, 40) : "")</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </div>
+
+        @* ── Variable config modal ── *@
+        @if (_configureVar is not null)
+        {
+        <div class="modal-overlay" @onclick="CloseVarConfig">
+          <div class="modal modal-lg" @onclick:stopPropagation style="max-width:720px;width:95vw">
+            <div class="modal-header">
+              <h3>Configure §@_configureVar.Name§</h3>
+              <button class="btn btn-icon btn-ghost" @onclick="CloseVarConfig">x</button>
+            </div>
+            <div class="modal-body">
+              <div class="fuzz-settings-row" style="margin-bottom:12px">
+                <label>Source type</label>
+                <select class="input" @bind="_configureVar.SourceType">
+                  <option value="List">List (paste values)</option>
+                  <option value="Counter">Counter (number range)</option>
+                  <option value="BuiltIn">Built-in list</option>
+                  <option value="File">Upload file</option>
+                </select>
+              </div>
+
+              @if (_configureVar.SourceType == "List")
+              {
+                <div class="form-section">
+                  <h4>Payload values (one per line)</h4>
+                  <textarea class="input body-textarea" rows="10" @bind="_configureVar.ListText"
+                            placeholder="admin&#10;root&#10;test&#10;..."></textarea>
+                  <span style="font-size:11px;color:#aaa">@_configureVar.PayloadCount payloads</span>
+                </div>
+              }
+              else if (_configureVar.SourceType == "Counter")
+              {
+                <div class="form-row">
+                  <label>Start</label><input type="number" class="input" @bind="_configureVar.CounterStart" style="width:80px" />
+                  <label>End</label><input type="number" class="input" @bind="_configureVar.CounterEnd" style="width:80px" />
+                  <label>Step</label><input type="number" class="input" @bind="_configureVar.CounterStep" style="width:80px" />
+                  <label>Pad width</label><input type="number" class="input" @bind="_configureVar.CounterPad" min="0" max="20" style="width:70px" />
+                </div>
+              }
+              else if (_configureVar.SourceType == "BuiltIn")
+              {
+                <div class="form-section">
+                  <h4>Select built-in list</h4>
+                  <select class="input" @bind="_configureVar.BuiltInName">
+                    @foreach (var name in _builtInNames)
+                    {
+                      <option value="@name">@name</option>
+                    }
+                  </select>
+                </div>
+              }
+              else if (_configureVar.SourceType == "File")
+              {
+                <div class="form-section">
+                  <h4>Upload wordlist file (.txt, one value per line)</h4>
+                  <InputFile OnChange="HandleFileUpload" accept=".txt,text/plain" />
+                  @if (_configureVar.PayloadCount > 0)
+                  {
+                    <span style="font-size:11px;color:#aaa;margin-top:6px;display:block">
+                      @_configureVar.PayloadCount payloads loaded
+                    </span>
+                  }
+                </div>
+              }
+
+              @* Transformations *@
+              <div style="margin-top:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <h4 style="margin:0">Transformation Chain</h4>
+                  <select class="input" @bind="_addTransformType" style="width:160px">
+                    <option value="">+ Add transform</option>
+                    <option value="Uppercase">Uppercase</option>
+                    <option value="Lowercase">Lowercase</option>
+                    <option value="Base64Encode">Base64 Encode</option>
+                    <option value="Base64Decode">Base64 Decode</option>
+                    <option value="UrlEncode">URL Encode</option>
+                    <option value="UrlDecode">URL Decode</option>
+                    <option value="HtmlEncode">HTML Encode</option>
+                    <option value="HtmlDecode">HTML Decode</option>
+                    <option value="Md5">MD5</option>
+                    <option value="Sha1">SHA-1</option>
+                    <option value="Reverse">Reverse</option>
+                    <option value="Trim">Trim whitespace</option>
+                    <option value="Prefix">Prefix string</option>
+                    <option value="Suffix">Suffix string</option>
+                    <option value="RegexExtract">Regex Extract</option>
+                  </select>
+                  <button class="btn btn-sm" @onclick="AddTransform">Add</button>
+                </div>
+                @foreach (var (t, ti) in _configureVar.Transforms.Select((x, i) => (x, i)))
+                {
+                  <div class="header-row" style="margin-bottom:4px">
+                    <span class="badge" style="min-width:120px">@t.Type</span>
+                    @if (t.Type is "Prefix" or "Suffix" or "RegexExtract")
+                    {
+                      <input type="text" class="input" @bind="t.Value" placeholder="@(t.Type == "RegexExtract" ? "regex pattern" : "string value")" />
+                    }
+                    <button class="btn btn-icon btn-ghost" @onclick="() => RemoveTransform(ti)">x</button>
+                  </div>
+                }
+                @if (_configureVar.Transforms.Count == 0)
+                {
+                  <span style="font-size:11px;color:#aaa">No transforms applied. Values used as-is.</span>
+                }
+              </div>
+
+              @* Live preview *@
+              <div style="margin-top:14px">
+                <h4>Preview (first 5 values after transforms)</h4>
+                <div class="body-preview" style="font-size:11px;max-height:100px;overflow:auto">
+                  @foreach (var p in _configureVar.PreviewValues)
+                  {
+                    <div>@p</div>
+                  }
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn" @onclick="SaveVarConfig">Save</button>
+              <button class="btn btn-ghost" @onclick="CloseVarConfig">Cancel</button>
+            </div>
+          </div>
+        </div>
+        }
+        }
+        else
+        {
 
         <div class="request-tool-content">
             <div class="request-pane">
@@ -169,6 +486,7 @@
                 }
             </div>
         </div>
+        } @* end else (non-fuzz mode) *@
     }
 </div>
 
@@ -407,5 +725,361 @@
         public string Name { get; set; } = "";
         public string Value { get; set; } = "";
         public bool Enabled { get; set; } = true;
+    }
+
+    // ── Fuzz mode state ───────────────────────────────────────────────────────
+
+    private bool _fuzzMode;
+    private string _fuzzAttackType = "Pitchfork";
+    private int _fuzzThrottleMs;
+    private int _fuzzMaxConcurrent = 10;
+    private int _fuzzMaxRequests = 1000;
+    private string? _fuzzError;
+    private FuzzRunStatusDto? _currentRun;
+    private List<FuzzResultDto> _fuzzResults = [];
+    private List<FuzzVarState> _fuzzVariables = [];
+    private List<ExtractPatternState> _extractPatterns = [];
+    private FuzzVarState? _configureVar;
+    private string _addTransformType = "";
+    private List<string> _builtInNames = [];
+    private System.Threading.Timer? _pollTimer;
+
+    private void ToggleFuzzMode()
+    {
+        _fuzzMode = !_fuzzMode;
+        if (_fuzzMode && _fuzzVariables.Count == 0)
+            DetectVariables();
+        if (!_fuzzMode)
+            StopPolling();
+    }
+
+    private void SwitchToExchange(Guid id)
+    {
+        _fuzzMode = false;
+        StopPolling();
+        _ = SelectExchange(id);
+    }
+
+    private void DetectVariables()
+    {
+        var allText = $"{_draft.Url} {_draft.Body} " +
+            string.Join(" ", _draft.Headers.Select(h => $"{h.Name} {h.Value}"));
+        var names = Regex.Matches(allText, @"§([^§]+)§")
+            .Select(m => m.Groups[1].Value.Trim())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct()
+            .ToList();
+
+        // Preserve existing configs; add new; remove stale
+        var existing = _fuzzVariables.ToDictionary(v => v.Name);
+        _fuzzVariables = names.Select(n =>
+            existing.TryGetValue(n, out var s) ? s : new FuzzVarState { Name = n }).ToList();
+    }
+
+    private async Task OpenVarConfig(FuzzVarState v)
+    {
+        _configureVar = v;
+        _addTransformType = "";
+        if (_builtInNames.Count == 0)
+        {
+            try
+            {
+                _builtInNames = await Http.GetFromJsonAsync<List<string>>("/ui/request-tool/fuzz/built-ins") ?? [];
+                if (_configureVar.BuiltInName == "" && _builtInNames.Count > 0)
+                    _configureVar.BuiltInName = _builtInNames[0];
+            }
+            catch { }
+        }
+        _configureVar.RefreshPreview();
+    }
+
+    private void CloseVarConfig() => _configureVar = null;
+
+    private void SaveVarConfig()
+    {
+        _configureVar?.RefreshPreview();
+        _configureVar = null;
+    }
+
+    private void AddTransform()
+    {
+        if (_configureVar is null || string.IsNullOrEmpty(_addTransformType)) return;
+        _configureVar.Transforms.Add(new TransformState { Type = _addTransformType });
+        _addTransformType = "";
+        _configureVar.RefreshPreview();
+    }
+
+    private void RemoveTransform(int i)
+    {
+        _configureVar?.Transforms.RemoveAt(i);
+        _configureVar?.RefreshPreview();
+    }
+
+    private void AddExtractPattern() =>
+        _extractPatterns.Add(new ExtractPatternState());
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        if (_configureVar is null) return;
+        using var reader = new System.IO.StreamReader(e.File.OpenReadStream(maxAllowedSize: 10_000_000));
+        var text = await reader.ReadToEndAsync();
+        _configureVar.ListText = text;
+        _configureVar.RefreshPreview();
+    }
+
+    private void WrapSelectionAsVariable()
+    {
+        // Without browser JS interop we can't get the actual selection; prompt for a name instead
+        var name = $"var{_fuzzVariables.Count + 1}";
+        _fuzzVariables.Add(new FuzzVarState { Name = name });
+        // Hint: replace selected text in URL with §name§
+        _draft.Url += $"§{name}§";
+    }
+
+    private async Task StartAttack()
+    {
+        if (_session is null || _fuzzVariables.Count == 0) return;
+        _fuzzError = null;
+        _fuzzResults.Clear();
+
+        DetectVariables();
+        if (_fuzzVariables.Any(v => v.PayloadCount == 0))
+        {
+            _fuzzError = "One or more variables have no payloads configured.";
+            return;
+        }
+
+        // Find the template exchange (use the currently selected one, or first)
+        var templateId = _selectedExchangeId ?? _session.Exchanges.FirstOrDefault()?.ExchangeId;
+        if (templateId is null) { _fuzzError = "No exchange to use as template."; return; }
+
+        var request = new
+        {
+            templateExchangeId = templateId,
+            attackType = _fuzzAttackType,
+            throttleMs = _fuzzThrottleMs,
+            maxConcurrent = _fuzzMaxConcurrent,
+            maxRequests = _fuzzMaxRequests,
+            variables = _fuzzVariables.Select(v => new
+            {
+                name = v.Name,
+                source = v.BuildSource()
+            }).ToList(),
+            extractPatterns = _extractPatterns
+                .Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.Regex))
+                .Select(e => new { name = e.Name, regex = e.Regex, captureGroup1 = true })
+                .ToList()
+        };
+
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync($"/ui/request-tool/sessions/{_session.SessionId}/fuzz/runs", request);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _fuzzError = $"Failed to start attack: {resp.StatusCode}";
+                return;
+            }
+            _currentRun = await resp.Content.ReadFromJsonAsync<FuzzRunStatusDto>();
+            StartPolling();
+        }
+        catch (Exception ex) { _fuzzError = ex.Message; }
+    }
+
+    private async Task StopAttack()
+    {
+        if (_currentRun is null) return;
+        try { await Http.PostAsync($"/ui/request-tool/fuzz/runs/{_currentRun.RunId}/stop", null); }
+        catch { }
+        StopPolling();
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = new System.Threading.Timer(async _ =>
+        {
+            await PollResultsAsync();
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void StopPolling()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+    }
+
+    private async Task PollResultsAsync()
+    {
+        if (_currentRun is null) return;
+        try
+        {
+            // Update run status
+            var run = await Http.GetFromJsonAsync<FuzzRunStatusDto>($"/ui/request-tool/fuzz/runs/{_currentRun.RunId}");
+            if (run is not null) _currentRun = run;
+
+            // Fetch new results (offset = current known count)
+            var page = await Http.GetFromJsonAsync<FuzzResultsPageDto>(
+                $"/ui/request-tool/fuzz/runs/{_currentRun.RunId}/results?offset={_fuzzResults.Count}&limit=200");
+
+            if (page?.Results is { Count: > 0 })
+                _fuzzResults.AddRange(page.Results);
+
+            await InvokeAsync(StateHasChanged);
+
+            if (_currentRun.Status is "Completed" or "Stopped" or "Error")
+                StopPolling();
+        }
+        catch { }
+    }
+
+    private void ClearResults()
+    {
+        _fuzzResults.Clear();
+        _currentRun = null;
+        StopPolling();
+    }
+
+    private void ExpandFuzzResult(FuzzResultDto r) { /* future: show response detail */ }
+
+    public async ValueTask DisposeAsync() => StopPolling();
+
+    private static string StatusRowClass(int? code) => code switch
+    {
+        >= 200 and < 300 => "fuzz-row-success",
+        >= 300 and < 400 => "fuzz-row-redirect",
+        >= 400 and < 500 => "fuzz-row-client-error",
+        >= 500 => "fuzz-row-server-error",
+        _ => ""
+    };
+
+    private static string StatusClass(int? code) => code switch
+    {
+        >= 200 and < 300 => "status-ok",
+        >= 300 and < 400 => "status-redirect",
+        >= 400 => "status-error",
+        _ => ""
+    };
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "…";
+
+    // ── Fuzz DTOs (page-local) ────────────────────────────────────────────────
+
+    private sealed class FuzzRunStatusDto
+    {
+        public Guid RunId { get; set; }
+        public Guid SessionId { get; set; }
+        public string Status { get; set; } = "";
+        public string AttackType { get; set; } = "";
+        public int TotalCount { get; set; }
+        public int CompletedCount { get; set; }
+    }
+
+    private sealed class FuzzResultDto
+    {
+        public Guid ResultId { get; set; }
+        public Guid RunId { get; set; }
+        public int SequenceNumber { get; set; }
+        public Dictionary<string, string> PayloadValues { get; set; } = new();
+        public int? StatusCode { get; set; }
+        public long? ResponseSizeBytes { get; set; }
+        public int? DurationMs { get; set; }
+        public Dictionary<string, string> ExtractValues { get; set; } = new();
+        public string? NetworkError { get; set; }
+    }
+
+    private sealed class FuzzResultsPageDto
+    {
+        public List<FuzzResultDto> Results { get; set; } = [];
+        public int TotalCount { get; set; }
+        public int Offset { get; set; }
+    }
+
+    private sealed class FuzzVarState
+    {
+        public string Name { get; set; } = "";
+        public string SourceType { get; set; } = "List";
+        public string ListText { get; set; } = "";
+        public long CounterStart { get; set; }
+        public long CounterEnd { get; set; } = 100;
+        public long CounterStep { get; set; } = 1;
+        public int CounterPad { get; set; }
+        public string BuiltInName { get; set; } = "";
+        public List<TransformState> Transforms { get; set; } = [];
+        public List<string> PreviewValues { get; set; } = [];
+
+        public int PayloadCount => SourceType switch
+        {
+            "List" => ListText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length,
+            "Counter" => (int)Math.Max(0, (CounterEnd - CounterStart) / Math.Max(1, CounterStep)) + 1,
+            "BuiltIn" => 1,  // unknown until fetched
+            _ => 0
+        };
+
+        public void RefreshPreview()
+        {
+            var samples = SourceType switch
+            {
+                "List" => ListText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Take(5).ToList(),
+                "Counter" => Enumerable.Range(0, 5)
+                    .Select(i => CounterPad > 0
+                        ? (CounterStart + i * CounterStep).ToString().PadLeft(CounterPad, '0')
+                        : (CounterStart + i * CounterStep).ToString())
+                    .ToList(),
+                "BuiltIn" => ["(from built-in list)"],
+                _ => new List<string>()
+            };
+            PreviewValues = samples.Select(v => Transforms.Aggregate(v, ApplyTransform)).ToList();
+        }
+
+        private static string ApplyTransform(string v, TransformState t) => t.Type switch
+        {
+            "Uppercase"    => v.ToUpperInvariant(),
+            "Lowercase"    => v.ToLowerInvariant(),
+            "Trim"         => v.Trim(),
+            "Reverse"      => new string(v.Reverse().ToArray()),
+            "Base64Encode" => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(v)),
+            "UrlEncode"    => Uri.EscapeDataString(v),
+            "Prefix"       => (t.Value ?? "") + v,
+            "Suffix"       => v + (t.Value ?? ""),
+            _              => v
+        };
+
+        public object BuildSource() => SourceType switch
+        {
+            "Counter" => new
+            {
+                sourceType = "Counter",
+                counterStart = CounterStart,
+                counterEnd = CounterEnd,
+                counterStep = CounterStep,
+                counterPadding = CounterPad,
+                transformations = Transforms.Select(t => new { type = t.Type, value = t.Value }).ToList()
+            },
+            "BuiltIn" => new
+            {
+                sourceType = "BuiltIn",
+                builtInName = BuiltInName,
+                transformations = Transforms.Select(t => new { type = t.Type, value = t.Value }).ToList()
+            },
+            _ => new
+            {
+                sourceType = "List",
+                values = ListText.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList(),
+                transformations = Transforms.Select(t => new { type = t.Type, value = t.Value }).ToList()
+            }
+        };
+    }
+
+    private sealed class TransformState
+    {
+        public string Type { get; set; } = "";
+        public string? Value { get; set; }
+    }
+
+    private sealed class ExtractPatternState
+    {
+        public string Name { get; set; } = "";
+        public string Regex { get; set; } = "";
     }
 }

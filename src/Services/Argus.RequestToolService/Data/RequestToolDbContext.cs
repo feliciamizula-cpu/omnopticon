@@ -8,12 +8,41 @@ public sealed class RequestToolDbContext(DbContextOptions<RequestToolDbContext> 
     public DbSet<RequestToolSessionRecord> Sessions => Set<RequestToolSessionRecord>();
     public DbSet<HttpExchangeRecord> Exchanges => Set<HttpExchangeRecord>();
     public DbSet<HttpExchangeAuditRecord> AuditLogs => Set<HttpExchangeAuditRecord>();
+    public DbSet<FuzzRunRecord> FuzzRuns => Set<FuzzRunRecord>();
+    public DbSet<FuzzResultRecord> FuzzResults => Set<FuzzResultRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureSession(modelBuilder);
         ConfigureExchange(modelBuilder);
         ConfigureAudit(modelBuilder);
+        ConfigureFuzzRun(modelBuilder);
+        ConfigureFuzzResult(modelBuilder);
+    }
+
+    private static void ConfigureFuzzRun(ModelBuilder modelBuilder)
+    {
+        var run = modelBuilder.Entity<FuzzRunRecord>();
+        run.ToTable("fuzz_runs");
+        run.HasKey(r => r.RunId);
+        run.HasIndex(r => r.SessionId);
+        run.Property(r => r.AttackType).HasMaxLength(32);
+        run.Property(r => r.Status).HasMaxLength(32);
+        run.Property(r => r.VariablesJson).HasColumnType("jsonb");
+        run.Property(r => r.ExtractPatternsJson).HasColumnType("jsonb");
+    }
+
+    private static void ConfigureFuzzResult(ModelBuilder modelBuilder)
+    {
+        var res = modelBuilder.Entity<FuzzResultRecord>();
+        res.ToTable("fuzz_results");
+        res.HasKey(r => r.ResultId);
+        res.HasIndex(r => r.RunId);
+        res.HasIndex(r => new { r.RunId, r.SequenceNumber }).IsUnique();
+        res.Property(r => r.PayloadValuesJson).HasColumnType("jsonb");
+        res.Property(r => r.ExtractValuesJson).HasColumnType("jsonb");
+        res.Property(r => r.NetworkError).HasMaxLength(2048);
+        res.Property(r => r.ResponseBody).HasColumnType("text");
     }
 
     private static void ConfigureSession(ModelBuilder modelBuilder)
@@ -188,5 +217,40 @@ public sealed class HttpExchangeAuditRecord
     public string? ResponseSha256 { get; set; }
     public string Outcome { get; set; } = string.Empty;
     public string Metadata { get; set; } = "{}";
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+public sealed class FuzzRunRecord
+{
+    public Guid RunId { get; set; }
+    public Guid SessionId { get; set; }
+    public Guid TemplateExchangeId { get; set; }
+    public string AttackType { get; set; } = "Pitchfork";
+    public string Status { get; set; } = "Pending";    // Pending, Running, Completed, Stopped, Error
+    public int TotalCount { get; set; }
+    public int CompletedCount { get; set; }
+    public int ThrottleMs { get; set; }
+    public int MaxConcurrent { get; set; } = 10;
+    public int MaxRequests { get; set; } = 1000;
+    public string VariablesJson { get; set; } = "[]";
+    public string ExtractPatternsJson { get; set; } = "[]";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+}
+
+public sealed class FuzzResultRecord
+{
+    public Guid ResultId { get; set; }
+    public Guid RunId { get; set; }
+    public int SequenceNumber { get; set; }
+    public string PayloadValuesJson { get; set; } = "{}";
+    public int? StatusCode { get; set; }
+    public long? ResponseSizeBytes { get; set; }
+    public int? DurationMs { get; set; }
+    public string ExtractValuesJson { get; set; } = "{}";
+    public string? NetworkError { get; set; }
+    // Inline response body for extract pattern matching (truncated to avoid DB bloat)
+    public string? ResponseBody { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }

@@ -45,6 +45,10 @@ builder.Services.AddScoped<IRawHttpRenderer, RawHttpRenderer>();
 builder.Services.AddScoped<IRequestToolDiffService, RequestToolDiffService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAssetEvidenceHydrator, AssetEvidenceHydrator>();
+// Fuzz executor uses IDbContextFactory so it can create independent DB scopes from background tasks
+builder.Services.AddDbContextFactory<RequestToolDbContext>(options =>
+    options.UseNpgsql(argusDbConnectionString ?? ""), ServiceLifetime.Singleton);
+builder.Services.AddSingleton<IFuzzExecutor, FuzzExecutor>();
 // These typed clients call downstream services with relative URIs, so each needs a BaseAddress.
 // Without it every call throws "BaseAddress must be set" — which surfaced as the request-tool
 // "Asset not found" / session-load failure (the service couldn't fetch the asset).

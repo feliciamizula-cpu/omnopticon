@@ -30,6 +30,14 @@ public static class RequestToolEndpoints
 
         group.MapGet("/exchanges/{exchangeId:guid}/raw-request", GetRawRequest);
         group.MapGet("/exchanges/{exchangeId:guid}/raw-response", GetRawResponse);
+
+        // ── Fuzzer ────────────────────────────────────────────────────────────
+        group.MapPost("/sessions/{sessionId:guid}/fuzz/runs", CreateFuzzRun);
+        group.MapGet("/sessions/{sessionId:guid}/fuzz/runs", GetSessionFuzzRuns);
+        group.MapGet("/fuzz/runs/{runId:guid}", GetFuzzRun);
+        group.MapGet("/fuzz/runs/{runId:guid}/results", GetFuzzResults);
+        group.MapPost("/fuzz/runs/{runId:guid}/stop", StopFuzzRun);
+        group.MapGet("/fuzz/built-ins", GetBuiltInLists);
     }
 
     private static async Task<IResult> GetSessionByAssetId(
@@ -274,4 +282,70 @@ public static class RequestToolEndpoints
             SentAt = dto.SentAt,
             CompletedAt = dto.CompletedAt
         };
+
+    // ── Fuzz endpoints ────────────────────────────────────────────────────────
+
+    private static async Task<IResult> CreateFuzzRun(
+        [FromRoute] Guid sessionId,
+        [FromBody] FuzzRunRequest request,
+        [FromServices] IFuzzExecutor executor,
+        CancellationToken ct)
+    {
+        try
+        {
+            var run = await executor.CreateRunAsync(sessionId, request, ct);
+            return Results.Ok(new FuzzRunStatusDto(
+                run.RunId, run.SessionId, run.Status,
+                Enum.Parse<FuzzAttackType>(run.AttackType),
+                run.TotalCount, run.CompletedCount,
+                run.CreatedAt, run.StartedAt, run.CompletedAt));
+        }
+        catch (InvalidOperationException ex) { return Results.BadRequest(new { Error = ex.Message }); }
+    }
+
+    private static async Task<IResult> GetSessionFuzzRuns(
+        [FromRoute] Guid sessionId,
+        [FromServices] IFuzzExecutor executor,
+        CancellationToken ct)
+    {
+        var runs = await executor.GetSessionRunsAsync(sessionId, ct);
+        return Results.Ok(runs);
+    }
+
+    private static async Task<IResult> GetFuzzRun(
+        [FromRoute] Guid runId,
+        [FromServices] IFuzzExecutor executor,
+        CancellationToken ct)
+    {
+        var run = await executor.GetRunAsync(runId, ct);
+        if (run is null) return Results.NotFound();
+        return Results.Ok(new FuzzRunStatusDto(
+            run.RunId, run.SessionId, run.Status,
+            Enum.Parse<FuzzAttackType>(run.AttackType),
+            run.TotalCount, run.CompletedCount,
+            run.CreatedAt, run.StartedAt, run.CompletedAt));
+    }
+
+    private static async Task<IResult> GetFuzzResults(
+        [FromRoute] Guid runId,
+        [FromServices] IFuzzExecutor executor,
+        [FromQuery] int offset = 0,
+        [FromQuery] int limit = 100,
+        CancellationToken ct = default)
+    {
+        var page = await executor.GetResultsAsync(runId, offset, Math.Min(limit, 500), ct);
+        return Results.Ok(page);
+    }
+
+    private static async Task<IResult> StopFuzzRun(
+        [FromRoute] Guid runId,
+        [FromServices] IFuzzExecutor executor,
+        CancellationToken ct)
+    {
+        await executor.StopRunAsync(runId, ct);
+        return Results.Ok(new { stopped = true });
+    }
+
+    private static IResult GetBuiltInLists() =>
+        Results.Ok(FuzzPayloadGenerator.GetBuiltInNames());
 }

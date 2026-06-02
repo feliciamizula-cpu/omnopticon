@@ -2575,12 +2575,24 @@ textarea.dev-input {
 .ops-stats-bar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 16px;
+  gap: 14px;
+  padding: 6px 16px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--line-2);
   flex-wrap: wrap;
   flex-shrink: 0;
+}
+
+/* Compact processing toggle button that lives in the stats bar. */
+.ops-toggle-btn {
+  min-width: 0 !important;
+  padding: 2px 10px !important;
+  font-size: 10.5px !important;
+  line-height: 1.4 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  font-weight: 600;
 }
 
 .ops-stat-item {
@@ -2629,8 +2641,8 @@ textarea.dev-input {
 }
 
 .ops-layout {
-  /* Vertical stack: Programs (short) on top, Assets filling the remainder, then Technologies,
-     with the Activity feed as a short strip at the bottom. */
+  /* Vertical stack: top row (Programs + Technologies side by side) at 33%, Assets filling the
+     remaining 67%, with the Activity feed as a short strip at the very bottom. */
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -2639,29 +2651,33 @@ textarea.dev-input {
   overflow: hidden;
 }
 
-/* Programs: full-width band, tall enough to show at least ~6 rows. */
-.ops-row-short {
-  flex: 0 0 auto;
-  height: 300px;
+/* Top row: Programs and Technologies side by side, occupying 33% of the available view. */
+.ops-top-row {
+  flex: 33 33 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  background: var(--line-1);
 }
 
-/* Keep Programs rows single-line so ~6 fit; the grid scrolls horizontally for the wide column set. */
-.ops-row-short .mud-table-cell,
-.ops-row-short th.mud-table-cell {
+/* Each panel inside the top row takes half the width and fills the row's full height. */
+.ops-top-row .ops-panel,
+.ops-top-panel {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Keep top-row rows single-line so they fit; the grid scrolls horizontally for wide column sets. */
+.ops-top-row .mud-table-cell,
+.ops-top-row th.mud-table-cell {
   white-space: nowrap;
 }
 
-/* Assets: the dominant grid — fills remaining space but never collapses below a usable
-   minimum (so it stays a stable size instead of shrinking to a single row). */
+/* Assets: the dominant grid — fills the remaining 67% of the available view. */
 .ops-row-fill {
-  flex: 1 1 auto;
-  min-height: 280px;
-}
-
-/* Technologies: secondary band below the assets grid. */
-.ops-row-tech {
-  flex: 0 0 auto;
-  height: 160px;
+  flex: 67 67 0%;
+  min-height: 0;
 }
 
 /* Activity feed: compact strip at the very bottom. */
@@ -2701,7 +2717,7 @@ textarea.dev-input {
 }
 
 /* The Programs grid has many columns (counts), so allow it to scroll horizontally. */
-.ops-row-short .argus-grid-wrap .mud-datagrid-table-container {
+.ops-top-row .argus-grid-wrap .mud-datagrid-table-container {
   overflow-x: auto !important;
 }
 
@@ -3044,3 +3060,122 @@ textarea.dev-input {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
 }
+
+/* ── Intruder / Fuzz UI ─────────────────────────────────────────────────── */
+.fuzz-layout {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.fuzz-template-pane {
+  overflow-y: auto;
+  padding: 12px;
+  border-right: 1px solid var(--line-2);
+  background: var(--bg-1);
+}
+.fuzz-right-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.fuzz-settings {
+  padding: 12px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.fuzz-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.fuzz-settings-row label {
+  width: 100px;
+  color: var(--fg-3);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.fuzz-variables-section {
+  margin-top: 14px;
+  border-top: 1px solid var(--line-2);
+  padding-top: 10px;
+}
+.fuzz-var-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  background: var(--bg-2);
+  border-radius: 4px;
+}
+.fuzz-var-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--amber, #f5a524);
+  flex: 1;
+}
+.fuzz-var-count {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+/* Results table */
+.fuzz-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  background: var(--bg-1);
+}
+.fuzz-results-table-wrap {
+  flex: 1;
+  overflow: auto;
+  font-size: 11px;
+}
+.fuzz-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+}
+.fuzz-results-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  padding: 5px 8px;
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--fg-3);
+  border-bottom: 1px solid var(--line-2);
+  white-space: nowrap;
+}
+.fuzz-results-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line-1);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fuzz-results-table tr:hover td { background: var(--bg-2); }
+.fuzz-row-success   td:first-child { border-left: 2px solid var(--green,#36d399); }
+.fuzz-row-redirect  td:first-child { border-left: 2px solid var(--amber,#f5a524); }
+.fuzz-row-client-error td:first-child { border-left: 2px solid var(--red,#f87272); }
+.fuzz-row-server-error td:first-child { border-left: 2px solid var(--magenta,#e879f9); }
+.status-ok     { color: var(--green,#36d399); }
+.status-redirect { color: var(--amber,#f5a524); }
+.status-error  { color: var(--red,#f87272); }
+.fuzz-payload-cell { color: var(--cyan,#41c8ec); }
+.fuzz-error-cell { color: var(--red,#f87272); font-size: 10px; }
+.btn-danger { background: var(--red,#f87272); color: #000; border-color: var(--red,#f87272); }
