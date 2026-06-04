@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet --version)",
+      "Bash(dotnet workload *)",
+      "Bash(which dotnet *)",
+      "Read(//usr/**)",
+      "Read(//home/**)",
+      "Read(//usr/share/**)",
+      "Bash(docker --version)",
+      "Bash(apk list *)",
+      "Bash(apk search *)",
+      "Bash(git -C /workspaces/omnopticon log --oneline -5)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --connect-timeout 5 http://34.63.95.161:8082/)",
+      "Bash(git -C /workspaces/omnopticon log --oneline -10)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --connect-timeout 5 https://argus-web-staging-kei4oluqua-uc.a.run.app/)",
+      "Bash(gh auth *)",
+      "Bash(curl -s \"https://api.github.com/repos/feliciamizula-cpu/omnopticon/actions/runs?per_page=5\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://api.github.com/repos/feliciamizula-cpu/omnopticon/actions/runs/26791483497/jobs\")",
+      "Bash(curl -s \"https://api.github.com/repos/feliciamizula-cpu/omnopticon/actions/jobs/78978688557/logs\" -L)",
+      "Bash(cat /etc/alpine-release 2>/dev/null; uname -m; df -h / 2>/dev/null | tail -2; free -m 2>/dev/null | head -3)",
+      "Read(//etc/**)",
+      "Bash"
+    ]
+  }
+}

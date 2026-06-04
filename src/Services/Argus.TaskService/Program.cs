@@ -15,6 +15,17 @@ builder.AddBasicServiceDefaults();
 
 builder.Services.AddSingleton<IPoisonMessageStore, InMemoryPoisonMessageStore>();
 builder.Services.AddSingleton<ITaskStore, InMemoryTaskStore>();
+
+// The /tasks/retry-queue endpoint and TaskMaintenanceService take a TaskDbContext directly. Without
+// this registration the parameter is unresolvable, so minimal-API infers it as a request body and
+// route-building throws — taking down every endpoint (including /health). Register it when argusdb is
+// configured so the EF-backed paths resolve.
+var argusDbConnectionString = builder.Configuration.GetConnectionString("argusdb");
+if (!string.IsNullOrWhiteSpace(argusDbConnectionString))
+{
+    builder.Services.AddDbContext<TaskDbContext>(options =>
+        options.UseNpgsql(argusDbConnectionString));
+}
 builder.AddArgusIntegrationEvents(options => options.SourceService = "Argus.TaskService");
 builder.Services.AddScoped<AssetPipelineConsumer>();
 builder.Services.AddScoped<IIntegrationEventConsumer<AssetDiscovered>>(provider => provider.GetRequiredService<AssetPipelineConsumer>());
@@ -23,6 +34,8 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 app.MapDefaultEndpoints();
+
+await app.InitializeTaskStoreAsync();
 
 app.MapGet("/tasks", (
     Guid? programId,
@@ -1262,9 +1275,24 @@ internal static class TaskStoreInitialization
 
         if (dbContext is not null)
         {
-            await dbContext.Database.EnsureCreatedAsync();
-            await dbContext.Database.EnsureArgusOutboxCreatedAsync();
-            await dbContext.Database.EnsureArgusInboxCreatedAsync();
+            // NOTE: EnsureCreatedAsync() is intentionally NOT used — argusdb is shared and EF's
+            // EnsureCreated no-ops once any service has created the database, which silently leaves the
+            // task tables missing. GenerateCreateScript() emits the whole model, including shared
+            // outbox/inbox tables that another service may already have created. Run each statement and
+            // ignore "already exists" errors so the task tables are created idempotently.
+            var script = dbContext.Database.GenerateCreateScript();
+            foreach (var statement in script.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                try
+                {
+                    await dbContext.Database.ExecuteSqlRawAsync(statement);
+                }
+                catch (PostgresException ex) when (ex.SqlState is "42P07" or "42710" or "42P06" or "42701")
+                {
+                    // Object already exists (table/constraint/schema/column) — created by another
+                    // service sharing argusdb. Safe to skip.
+                }
+            }
         }
     }
 }

@@ -29,9 +29,6 @@ builder.Services.AddHttpClient("request-tool-replay")
 
 if (!string.IsNullOrWhiteSpace(argusDbConnectionString))
 {
-    builder.Services.AddDbContext<RequestToolDbContext>(options =>
-        options.UseNpgsql(argusDbConnectionString));
-
     builder.Services.AddHealthChecks()
         .AddNpgSql(argusDbConnectionString, name: "argusdb", tags: ["db", "sql", "postgres"]);
 }
@@ -45,9 +42,14 @@ builder.Services.AddScoped<IRawHttpRenderer, RawHttpRenderer>();
 builder.Services.AddScoped<IRequestToolDiffService, RequestToolDiffService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAssetEvidenceHydrator, AssetEvidenceHydrator>();
-// Fuzz executor uses IDbContextFactory so it can create independent DB scopes from background tasks
+// Fuzz executor uses IDbContextFactory so it can create independent DB scopes from background tasks.
+// Register the context only through the singleton factory (singleton options); scoped consumers get
+// an instance created from that factory. Registering AddDbContext (scoped options) alongside a
+// singleton factory makes the factory consume scoped DbContextOptions and fails DI validation.
 builder.Services.AddDbContextFactory<RequestToolDbContext>(options =>
     options.UseNpgsql(argusDbConnectionString ?? ""), ServiceLifetime.Singleton);
+builder.Services.AddScoped<RequestToolDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<RequestToolDbContext>>().CreateDbContext());
 builder.Services.AddSingleton<IFuzzExecutor, FuzzExecutor>();
 // These typed clients call downstream services with relative URIs, so each needs a BaseAddress.
 // Without it every call throws "BaseAddress must be set" — which surfaced as the request-tool

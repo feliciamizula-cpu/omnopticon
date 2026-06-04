@@ -120,6 +120,12 @@ finding.WithReference(realtime);
 eventRouter.WithReference(realtime);
 programScope.WithReference(realtime);
 
+// Recon workers are background producers; they are not needed to serve the Web UI and its core
+// services. In resource-constrained environments set ARGUS_DISABLE_WORKERS=1 to skip them so the
+// core topology starts reliably.
+var includeWorkers = Environment.GetEnvironmentVariable("ARGUS_DISABLE_WORKERS") is not ("1" or "true");
+if (includeWorkers)
+{
 builder.AddProject<Projects.Argus_Workers_Amass>("amass-worker")
     .PublishAsArgusImage("src/Workers/Argus.Workers.Amass/Argus.Workers.Amass.csproj", "Argus.Workers.Amass")
     .WithHttpEndpoint()
@@ -310,6 +316,7 @@ builder.AddProject<Projects.Argus_Workers_AssetStorage>("asset-storage-worker")
     .WithReference(realtime)
     .WaitFor(asset)
     .WaitFor(realtime);
+}
 
 builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
     .PublishAsArgusImage("src/Argus.ApiGateway/Argus.ApiGateway.csproj", "Argus.ApiGateway")
@@ -330,6 +337,10 @@ builder.AddProject<Projects.Argus_ApiGateway>("argus-api-gateway")
 builder.AddProject<Projects.Argus_Web>("argus-web")
     .PublishAsArgusImage("src/Argus.Web/Argus.Web.csproj", "Argus.Web")
     .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8082")
+    // The web app makes server-side HTTP calls to its own /ui/* endpoints and SignalR hub via
+    // http://localhost:{ASPNETCORE_HTTP_PORTS ?? 8080}. Without this it defaults to 8080 while
+    // Kestrel actually listens on 8082, causing "Connection refused (localhost:8080)".
+    .WithEnvironment("ASPNETCORE_HTTP_PORTS", "8082")
     .WithReference(programScope)
     .WithReference(asset)
     .WithReference(artifact)
